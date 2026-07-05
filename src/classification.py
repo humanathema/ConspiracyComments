@@ -4,6 +4,7 @@ import asyncio
 import pandas as pd
 import random
 import time
+import os
 
 # --- CONFIGURATION ---
 TARGET_CATEGORIES = [
@@ -18,10 +19,12 @@ SYSTEM_INSTRUCTION = (
     "If none are present, output 'none'."
 )
 
-def init_vertex_ai(project_id="conspiracycomments-499821", location="us-central1"):
+def init_vertex_ai(project_id=None, location="us-central1"):
+    project_id = project_id or os.environ.get("GCP_PROJECT_ID", "conspiracycomments-499821")
     vertexai.init(project=project_id, location=location)
 
-def get_model(endpoint="projects/216825947633/locations/us-central1/endpoints/8723006835042287616"):
+def get_model(endpoint=None):
+    endpoint = endpoint or os.environ.get("VERTEX_ENDPOINT_ID", "projects/216825947633/locations/us-central1/endpoints/8723006835042287616")
     return GenerativeModel(endpoint)
 
 def classify_comment_sync(text, model):
