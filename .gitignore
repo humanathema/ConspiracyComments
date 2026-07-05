@@ -1,0 +1,14 @@
+# data: too large + privacy (usernames in derived files); share aggregates deliberately
+data/
+# secrets
+key.pem
+*.pem
+# environments & caches
+.venv/
+__pycache__/
+.ipynb_checkpoints/
+.DS_Store
+# archived notebook history stays on disk, out of the repo
+notebooks/archive/
+notebooks/scratchpads/
+*.backup.ipynb
