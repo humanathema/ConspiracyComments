@@ -12,3 +12,4 @@ __pycache__/
 notebooks/archive/
 notebooks/scratchpads/
 *.backup.ipynb
+.secrets/

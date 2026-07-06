@@ -20,11 +20,15 @@ SYSTEM_INSTRUCTION = (
 )
 
 def init_vertex_ai(project_id=None, location="us-central1"):
-    project_id = project_id or os.environ.get("GCP_PROJECT_ID", "conspiracycomments-499821")
+    project_id = project_id or os.environ.get("GCP_PROJECT_ID")
+    if not project_id:
+        raise RuntimeError("Set GCP_PROJECT_ID or pass project_id explicitly")
     vertexai.init(project=project_id, location=location)
 
 def get_model(endpoint=None):
-    endpoint = endpoint or os.environ.get("VERTEX_ENDPOINT_ID", "projects/216825947633/locations/us-central1/endpoints/8723006835042287616")
+    endpoint = endpoint or os.environ.get("VERTEX_ENDPOINT_ID")
+    if not endpoint:
+        raise RuntimeError("Set VERTEX_ENDPOINT_ID or pass endpoint explicitly")
     return GenerativeModel(endpoint)
 
 def classify_comment_sync(text, model):
