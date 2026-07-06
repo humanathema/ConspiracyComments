@@ -36,7 +36,20 @@ def write_queue(df, cols, path):
     print(f'{path}: {len(out)} items')
 
 
-def ensemble_queue(dim, n_total=100):
+def load_full_texts():
+    # The target_text column in the ensemble/cascade CSVs (and labeled_2k) is
+    # hard-truncated at 400 chars; the v2 batch jsonl holds the untruncated
+    # text for all 2,000 sample ids and is the local source of record.
+    import json
+    rows = []
+    with open('data/llm_batches/credibility_signals_batch_v2_tightened.jsonl') as fh:
+        for line in fh:
+            o = json.loads(line)
+            rows.append((o['id'], o['target_text']))
+    return pd.DataFrame(rows, columns=['id', 'full_text'])
+
+
+def ensemble_queue(dim, full_texts, n_total=100):
     d = pd.read_csv(f'data/processed/ensemble_{dim}.csv')
     labcols = [c for c in d.columns if c.startswith('label_')]
     votes = sum(binz(d[c]) for c in labcols)
@@ -52,7 +65,9 @@ def ensemble_queue(dim, n_total=100):
         if n:
             parts.append(pool.sample(n, random_state=SEED))
     q = pd.concat(parts, ignore_index=True)
-    write_queue(q, ['id', 'target_text'], f'data/hitl/queue_{dim}.csv')
+    q = q.merge(full_texts, on='id', how='left')
+    q['full_text'] = q['full_text'].fillna(q['target_text'])
+    write_queue(q, ['id', 'full_text'], f'data/hitl/queue_{dim}.csv')
 
 
 def hedged_extension_queue(n_total=200):
@@ -96,7 +111,8 @@ def intra_rater_queue(n_total=100):
 
 
 if __name__ == '__main__':
-    ensemble_queue('procedural_skepticism')
-    ensemble_queue('personal_experience')
+    full_texts = load_full_texts()
+    ensemble_queue('procedural_skepticism', full_texts)
+    ensemble_queue('personal_experience', full_texts)
     hedged_extension_queue()
     intra_rater_queue()
