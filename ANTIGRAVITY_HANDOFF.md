@@ -6,6 +6,55 @@ any other agent) has real, on-disk context instead of re-deriving it or guessing
 session wrote its own handoff/plan docs, they lived only in that session's chat
 "artifacts" pane and are gone — this is the one that persists.
 
+## -1. ACTIVE DATA LOSS INCIDENT (2026-07-13) — read this before running anything
+
+Nash accidentally deleted the majority of the primary raw corpus via macOS's
+Storage-settings "Documents" cleanup panel (which surfaces large files
+system-wide by size, not literally `~/Documents`) while trying to free disk
+space. **Recovery is in progress from a Kaggle-hosted backup Nash believes he
+has — not yet done as of this writing.**
+
+**Confirmed intact (do not touch, do not "clean up"):** `data/hitl/` (all
+human labels), `data/llm_batches/`, `data/processed/factappeal/`, everything
+this session produced (`research_corpus_staged_scores_full21m.parquet`,
+`staged_pipeline_models.joblib`, `maverick_authority_entities.csv`,
+`sample_2k_id_map.csv`, etc.), `data/processed/monthly_partitions/` (the one
+thing that actually was safe to delete — untouched, ironic but harmless).
+
+**Confirmed missing, `data/raw/`** (9 files, was 14GB, now 1.9GB):
+`r_conspiracy_comments.jsonl.gz`, `r_conspiracy_comments2.jsonl.gz`,
+`r_conspiracy_comments5.jsonl.gz`, `r_conspiracy_comments6.jsonl.gz`,
+`r_conspiracy_comments7.jsonl.gz`, `r_conspiracy_comments9.jsonl.gz`,
+`r_conspiracy_posts.jsonl.gz`, `r_topmindsofreddit_comments.jsonl`,
+`r_topmindsofreddit_posts.jsonl`. This is most of the primary r/conspiracy
+comment archive and the biggest comparison-corpus file — not incidental.
+
+**Confirmed missing, `data/processed/`**: `empath_scores_full.parquet`
+(2.9GB, the 21.4M-row length-filtered corpus — see §2, this was the corpus
+tier every construct-scoring task in this handoff assumes exists),
+`lexical_scores_full.parquet` (2.9GB), `filtered_candidates.parquet`
+(840MB), `research_corpus_enriched.parquet` (1.6GB, the 4.78M evidential
+subset). All four are downstream of the missing raw files, **so none of them
+can be regenerated locally until the raw archives are restored** — this
+isn't a quick DuckDB re-run, it needs the source data back first.
+
+**What this blocks**: any task in §9 that needs `empath_scores_full.parquet`
+or the raw comment archives — most importantly the maverick-entity Stage-1
+filter (`src/filter_maverick_entity_mentions.py`, started 2026-07-13 ~17:4x,
+**failed with `FileNotFoundError` mid-run, not actually completed** — rerun
+it once `empath_scores_full.parquet` exists again, don't trust
+`data/processed/maverick_entity_mention_candidates.parquet` if that file
+exists at all, it wasn't produced). Anything working only from `data/hitl/`,
+`data/llm_batches/`, or this session's own outputs (§4, §8) is unaffected
+and safe to continue.
+
+**New guardrail from this incident**: never delete or move files to free
+disk space based on macOS's (or any OS's) automatic "large files"/cleanup
+suggestions inside this project directory, or suggest Nash do so, without
+listing the exact files and getting itemized confirmation per file. A
+system-level "these look unused" heuristic has no idea which multi-GB file
+is a load-bearing pipeline input.
+
 ## 0. Guardrails — read first, these are not suggestions
 
 This project has already had several real incidents this session. Each rule below
@@ -417,6 +466,44 @@ in order:
 5. Validate against the existing `queue_maverick_authority.csv` human labels
    before trusting it (same rigor as everything else — n_human, κ, not just
    accuracy).
+
+**Update 2026-07-13, Nash's revised plan**: do this in two stages rather than
+building the combined detector directly — (1) a lightweight, cheap raw-NER-mention
+filter first, to narrow the corpus, (2) the more sophisticated FactAppeal-based
+pass on top of that narrowed set later. `src/filter_maverick_entity_mentions.py`
+implements stage 1: plain substring match against the entity list from §8,
+thresholded by `--min-mentions`/`--min-lift` (defaults 2 / 1.0). Includes a
+`--check-only` flag that sanity-checks the filter against
+`queue_maverick_authority.csv` before running it at corpus scale — **do this
+sanity check any time the entity list or thresholds change, don't just trust
+a new threshold blindly.**
+
+Sanity-check results at different thresholds (n=197 HITL-labeled):
+
+| min-lift | entities kept | precision | recall | κ | flagged |
+|---|---|---|---|---|---|
+| 1.0 (default) | 22 | 0.510 | 0.578 | 0.109 | 102/197 |
+| 1.5 | 17 | 0.562 | 0.500 | 0.174 | 80/197 |
+| 2.0 | 12 | 0.586 | 0.456 | 0.188 | 70/197 |
+| 2.5 | 10 | 0.603 | 0.422 | 0.193 | 63/197 |
+
+**For a Stage-1 filter, bias toward recall, not precision** — the job is to
+not throw away true positives before the expensive stage 2 pass cleans up
+false positives, so `min-lift=1.0` (the default) is the right choice for
+stage 1 despite its lower κ. Note even at the loosest threshold, recall is
+only 58% — this entity list (built from n=90 positive HITL examples, §8) is
+still small; expect meaningfully better recall once more HITL data goes into
+`src/extract_maverick_entities.py`.
+
+Full-corpus run status: started 2026-07-13 ~17:4x, background, log at
+`/tmp/maverick_entity_filter.log`, output
+`data/processed/maverick_entity_mention_candidates.parquet` (just a list of
+matched `id`s against `empath_scores_full.parquet`, the 21.4M-row corpus —
+see §2 for why that corpus, not the 4.78M evidential-filtered one). **If this
+process is not still running / the output file doesn't exist when you pick
+this up, re-run:** `python src/filter_maverick_entity_mentions.py` (defaults
+are already sane, takes on the order of 20-30 min given the staged pipeline's
+comparable Stage-1 regex pass took ~24 min over the same corpus).
 
 ## 9. Antigravity task queue — scoped, gated, safe to hand over
 
