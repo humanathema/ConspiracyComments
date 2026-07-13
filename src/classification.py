@@ -22,8 +22,33 @@ SYSTEM_INSTRUCTION = (
 def init_vertex_ai(project_id=None, location="us-central1"):
     project_id = project_id or os.environ.get("GCP_PROJECT_ID")
     if not project_id:
-        raise RuntimeError("Set GCP_PROJECT_ID or pass project_id explicitly")
-    vertexai.init(project=project_id, location=location)
+        # Try to automatically discover project from gcloud configuration
+        try:
+            import subprocess
+            res = subprocess.run("gcloud config get-value project", shell=True, text=True, capture_output=True)
+            if res.returncode == 0 and res.stdout.strip():
+                project_id = res.stdout.strip()
+        except Exception:
+            pass
+        if not project_id:
+            raise RuntimeError("Set GCP_PROJECT_ID, pass project_id explicitly, or run "
+                                "'gcloud config set project <id>'")
+
+    # Load credentials from gcloud CLI if ADC is missing/expired
+    creds = None
+    if "GOOGLE_APPLICATION_CREDENTIALS" not in os.environ:
+        try:
+            import subprocess
+            from google.oauth2 import credentials
+            res = subprocess.run("gcloud auth print-access-token", shell=True, text=True, capture_output=True)
+            if res.returncode == 0 and res.stdout.strip():
+                token = res.stdout.strip()
+                creds = credentials.Credentials(token)
+                print("🔑 Successfully loaded active credentials from gcloud CLI access token.")
+        except Exception as e:
+            print(f"⚠️ Could not load credentials from gcloud CLI: {e}")
+
+    vertexai.init(project=project_id, location=location, credentials=creds)
 
 def get_model(endpoint=None):
     endpoint = endpoint or os.environ.get("VERTEX_ENDPOINT_ID")
@@ -49,12 +74,17 @@ def classify_comment_sync(text, model):
             return results
             
         except Exception as e:
+            print(f"⚠️ [ERROR] Sync classification attempt {attempt+1}/{max_retries} failed: {type(e).__name__}: {e}")
             if '429' in str(e) and attempt < max_retries - 1:
                 jitter = random.uniform(0.1, 1.0)
                 time.sleep(wait + jitter)
                 wait *= 2
             else:
+                import traceback
+                traceback.print_exc()
                 return {cat: None for cat in TARGET_CATEGORIES}
+    print("❌ [ERROR] Sync classification failed: All retries exhausted.")
+    return {cat: None for cat in TARGET_CATEGORIES}
 
 async def classify_comment_async(text, model, semaphore):
     prompt = f"System: {SYSTEM_INSTRUCTION}\n\nUser: {text}"
@@ -73,10 +103,16 @@ async def classify_comment_async(text, model, semaphore):
                 return results
                 
             except Exception as e:
+                print(f"⚠️ [ERROR] Async classification attempt {attempt+1}/6 failed: {type(e).__name__}: {e}")
                 if '429' in str(e):
                     await asyncio.sleep(2 ** attempt + random.uniform(0.1, 1.0))
                 else:
+                    import traceback
+                    traceback.print_exc()
                     return {cat: None for cat in TARGET_CATEGORIES}
+        # If we exhausted 6 attempts, return None fields
+        print("❌ [ERROR] Async classification failed: All retries exhausted.")
+        return {cat: None for cat in TARGET_CATEGORIES}
 
 async def run_cascade_batch_async(df_target, model, output_csv, processed_ids, concurrent_requests=10):
     batch_size = 50 
@@ -91,8 +127,15 @@ async def run_cascade_batch_async(df_target, model, output_csv, processed_ids, c
         task = classify_comment_async(row['text'], model, semaphore)
         labels = await task
         
+        # Check if classification failed
+        if labels is None or any(v is None for v in labels.values()):
+            print(f"⚠️ [WARNING] Classification failed (returned None) for row index {index}, id {row['id']}")
+            
         output_row = {'id': row['id'], 'text': row['text']}
-        output_row.update(labels)
+        if labels:
+            output_row.update(labels)
+        else:
+            output_row.update({cat: None for cat in TARGET_CATEGORIES})
         records_to_save.append(output_row)
         
         if len(records_to_save) >= batch_size:
