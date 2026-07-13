@@ -337,7 +337,153 @@ sections (distinct from the BERTopic use still live in the master notebook).
   pairs, force a forced-choice rather than independent yes/no) could turn
   Nash's qualitative observation into a measurable overlap statistic.
 
-## 8. Practical notes
+## 8. NER seed list for maverick_authority (2026-07-13)
+
+`src/extract_maverick_entities.py` runs spaCy NER over
+`data/hitl/queue_maverick_authority.csv`, split by human label, and ranks
+entities by lift (how much more common in positive vs negative comments,
+Laplace-smoothed). Output: `data/processed/maverick_authority_entities.csv`
+(227 candidates, 26 with ≥2 positive mentions).
+
+**Important negative result, don't skip past this**: at n=90 positive/100
+negative, counts per entity are tiny (2-3 mentions typical) so this is noisy
+— but big alternative-authority names like `Assange` (lift 0.64) and `NSA`
+(lift 0.54) are actually *more* common in negative comments, not less.
+`WikiLeaks` (3.22) and `Julian` (2.17) do show real lift. **Conclusion: mere
+entity presence is not the maverick_authority signal — it's the rhetorical
+framing around the mention** (self-authorizing "he was right and they lied"
+vs. just being part of ordinary discussion). This was run on whole-comment
+text because the current queue has no span data; if `best_spans`-equivalent
+data becomes available for this construct (the original `cascade_maverick_authority.csv`
+has a `final_spans` column, but joining it to the queue's row-index `id`
+would need the same real-Reddit-ID resolution as `sample_2k_id_map.csv` —
+not yet done for this candidate pool), re-running entity extraction
+localized to the triggering span rather than the whole comment would be a
+much sharper signal.
+
+## 8b. FactAppeal status (checked 2026-07-13) — better than remembered, but has a real bug
+
+`data/processed/factappeal/` is a genuine external academic dataset: "FactAppeal:
+Identifying Epistemic Factual Appeals in News Media," 3,226 hand-annotated
+news sentences, CC BY 4.0 (see its own `README.md` and `.git` history — it
+was cloned in, not built here). Annotation scheme has span-level
+`<Fact_Appeal:Direct_Quote/Indirect_Quote>` and `<Source:Named/Unnamed:Type>`
+tags, where Type ∈ {Official, Expert, Witness, Active_Participant,
+Direct_Evidence, Expert_Document}. **This Source-Type taxonomy is close to
+exactly what's needed for a maverick-expert vs. ordinary-expert distinction
+— check it before designing a new taxonomy from scratch.**
+
+Two classifiers were trained on it (master notebook cell 12-13):
+- `factappeal_classifier.pkl` + `factappeal_vectorizer.pkl` — binary
+  (has-epistemic-appeal vs not), TF-IDF+LogReg. Reported: 83% accuracy,
+  F1=0.73 on the positive class, n=483.
+- `factappeal_multiclass_classifier.pkl` + `factappeal_multiclass_vectorizer.pkl`
+  — exists on disk, **never referenced anywhere in `ConspiracyMaster_Refactored.ipynb`**
+  (grepped, zero hits). Unknown provenance/performance — check what it was
+  trained on (likely the Source-Type multiclass labels) before building
+  a new maverick-expert classifier; it may already do most of this.
+
+**Bug found and verified 2026-07-13**: `data/processed/factappeal/val.csv`
+and `data/processed/factappeal/test.csv` are **byte-identical files**
+(confirmed via `diff`, both 496 lines). So the notebook's "Final Test Set
+Performance" (cell 13) is not an independent confirmation — it's the same
+held-out split scored twice under different names. The 83%/F1=0.73 numbers
+are real (genuine held-out validation once) but not test-confirmed the way
+the notebook output implies. Also unmeasured: this model is trained on
+formal news-media sentences and applied to informal Reddit comments (cell
+16) — that domain shift has never been checked with a Reddit-specific
+held-out sample.
+
+**Nash's proposed next step (2026-07-13), write-up for whoever picks this
+up**: combine (a) the NER entity list from §8, grown and manually
+curated/split into maverick-expert vs. ordinary-figure categories, with (b)
+FactAppeal-style appeal detection, to specifically catch "appeals to
+maverick/alternative-authority figures" as a distinguishable sub-pattern of
+epistemic appeal — rather than trying to detect `maverick_authority` from
+bag-of-words alone (which failed, κ=-0.068, see §4). Concrete steps, roughly
+in order:
+1. Check what `factappeal_multiclass_classifier.pkl` actually is/does before
+   building anything new (see above).
+2. Fix or work around the val/test duplication — either find the real held-out
+   test split from the original FactAppeal dataset release, or explicitly
+   note in any write-up that only a single validation split was used.
+3. Grow the entity list from `data/processed/maverick_authority_entities.csv`
+   (§8) — more HITL data will help since current lift estimates are noisy at
+   n=90/100 — and have Nash manually tag entities as maverick-figure vs.
+   generic-political-figure (§10, human judgment call).
+4. Detect comments where a FactAppeal-style appeal's Source overlaps with the
+   curated maverick-entity list — this is the actual maverick-authority
+   detector, not raw NER presence and not bag-of-words alone.
+5. Validate against the existing `queue_maverick_authority.csv` human labels
+   before trusting it (same rigor as everything else — n_human, κ, not just
+   accuracy).
+
+## 9. Antigravity task queue — scoped, gated, safe to hand over
+
+Each of these is mechanical enough to delegate, **provided the relevant
+guardrail from §0 is followed** (noted per task). Report back with what was
+found before treating any result as final — none of these are "run and
+forget."
+
+- **Correlation matrix across all constructs** (source_citation, hedged_suspicion,
+  personal_experience, procedural_skepticism, maverick_authority, plus
+  first-gen lexicon counts from `empath_scores_full.parquet`). Read-only
+  analysis over existing scored data, writes a new notebook cell or standalone
+  script + output file. No pipeline files touched. Low risk.
+- **Rank-based upvote/controversiality regression** on `pe_prob`/`ps_prob`
+  from `research_corpus_staged_scores_full21m.parquet`, given the probability
+  compression noted in §5 (rank/quantile-based, not raw magnitude). Read-only,
+  low risk.
+- **Platt-scaling recalibration script** for the staged pipeline models — must
+  be fit only on the random Gen-2 HITL sample (§0.15), output as a new
+  diagnostic file/plot, not silently swapped into `staged_pipeline_models.joblib`
+  without Nash reviewing the before/after calibration curve.
+- **r/AskReddit discriminant-validity baseline**: run the staged pipeline on
+  the r/AskReddit corpus. Must follow §0.9 (verify whatever AskReddit file
+  gets used isn't pre-filtered in a construct-incompatible way, same check
+  done for `research_corpus_enriched.parquet` in §2) and §0.5 if it touches
+  paid API calls at any real scale.
+- **Prep (not execute) more HITL queues**: a top-`pe_prob`/`ps_prob`
+  active-enrichment queue, and/or a forced-choice `hedged_suspicion` vs
+  `procedural_skepticism` boundary queue. Antigravity can build the queue
+  file; only Nash does the actual rating.
+- **Span-localized re-run of `src/extract_maverick_entities.py`**, if/when
+  `cascade_maverick_authority.csv`'s `final_spans` gets properly joined to
+  the queue via a real-ID resolution (mirroring `sample_2k_id_map.csv`).
+- **FactAppeal reconnaissance** (§8b, steps 1-2 only): inspect
+  `factappeal_multiclass_classifier.pkl`/`factappeal_multiclass_vectorizer.pkl`
+  to determine what it was trained on and how it performs — report back,
+  don't wire it into the pipeline unasked. Also check whether the original
+  public FactAppeal dataset release has a real (non-duplicate) test split
+  available, to fix the val/test bug. Read-only investigation, low risk.
+  **Steps 3-5 of §8b (curating the entity list, building the combined
+  detector) are NOT mechanical — step 3 is reserved (§10), steps 4-5 should
+  wait until step 3 is done by Nash.**
+
+## 10. Reserved — do this with Nash/Claude, not Antigravity
+
+These require scientific judgment calls this project has already been burned
+by delegating carelessly (construct definitions, sampling-method trust
+calls, what a metric is allowed to mean). Antigravity can gather inputs for
+these but should not decide them unilaterally:
+
+- **The `maverick_authority` / "alternative-outsider-source" hierarchy
+  decision** (§7) — whether to formally split into a superset/subset
+  structure, and where the line falls, is a construct-definition call for
+  the thesis, not a mechanical refactor.
+- **Interpreting the entity-lift list** (§8) — deciding which entities are
+  genuine maverick-authority markers vs. incidental political figures needs
+  a human reading actual example comments, not just trusting the ranking.
+- **Any go/no-go on using a recalibrated probability, or a newly-labeled
+  construct, in the actual thesis write-up.**
+- **All HITL rating itself** — always Nash, never automated, never Antigravity
+  guessing labels.
+- **Whether a completed HITL batch is a "validation sample" or "training
+  enrichment"** — this determines what statistics are allowed to be computed
+  from it (§0.15) and has been the source of two separate mistakes already
+  this project (circular `_best`-column validation, prevalence-inflated F1).
+
+## 11. Practical notes
 
 - `src/hitl_rater.py` — local rating server, `python src/hitl_rater.py`, then
   `http://localhost:8420`. Writes `human_label`/`notes` straight back to the
