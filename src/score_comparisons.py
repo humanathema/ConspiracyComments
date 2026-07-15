@@ -81,7 +81,8 @@ if __name__ == "__main__":
     corpora = {
         "askreddit": "data/raw/r_askreddit_comments.jsonl",
         "conspiracy_commons": "data/raw/r_conspiracy_commons_comments.jsonl",
-        "topmindsofreddit": "data/raw/r_topmindsofreddit_comments.jsonl"
+        "topmindsofreddit": "data/raw/r_topmindsofreddit_comments.jsonl",
+        "politics": "data/raw/r_politics_comments.jsonl"
     }
     
     for name, glob_path in corpora.items():
