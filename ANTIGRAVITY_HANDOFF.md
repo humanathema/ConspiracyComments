@@ -2186,7 +2186,50 @@ co-occurs in the same sentence — a real design decision, not a mechanical
 patch. Draft the approach with a Claude instance first, then Antigravity
 can implement/test the resulting spec.
 
-**C3. Jay Bhattacharya time-varying status** — see §14/§15, still
-unresolved, needs a design decision on how (or whether) to represent
-tenure-dependent entity classification in the current binary
-maverick/consensus architecture before any code gets written.
+**C3. RE-FRAMED 2026-07-15 (Nash's correction, this is the sharper
+version, use this not the earlier framing below) — "second Trump
+administration" as a period where institutional office stops being
+evidence of consensus status.** The original framing of this item
+("Bhattacharya is time-varying, tenure-date him") undersold the problem.
+It isn't one entity's status changing at a fixed date — it's that the
+whole `consensus_expert`/institutional-gatekeeping operationalization
+("holds official office → speaks for institutional consensus," the
+premise the entire mainstream-expert-corpus-briefing methodology in §17
+B2 rests on) breaks down specifically for 2025-2026, because the second
+Trump administration installed maverick-aligned figures INTO the
+gatekeeping apparatus itself: RFK Jr. as HHS Secretary (the department
+containing CDC/FDA/NIH), ACIP reconstituted with vaccine-skeptical
+appointees, Bhattacharya (Great Barrington Declaration co-author) as CDC
+Director, extraordinary CDC leadership churn in this exact window
+(Monarez confirmed and fired within four weeks — see §14/§15's "FULL FIX
+COMPLETE" entry). These aren't noise; they're the same underlying thing:
+the institution's traditional epistemic alignment being actively
+contested from inside during this period.
+
+The classification should track the community's actual epistemic stance
+toward a figure, not their job title. When r/conspiracy sees "our guy is
+now CDC Director," the plausible read is "an outsider finally broke in
+and vindicated us" -- a maverick-coded narrative wearing institutional
+clothes, not evidence the figure now speaks for institutional consensus.
+**This directly threatens the planned PetScan/OpenAlex office-roster
+expansion (§17 B2)**: mechanically pulling "current HHS Secretary, CDC
+Director, ACIP roster" and adding them to `consensus_expert` would
+launder RFK Jr. and Bhattacharya into the consensus bucket by title alone
+-- close to the opposite of correct. **Any office-roster pull covering
+2025-2026 must get a Claude judgment pass checking whether the office-
+holder is actually a formerly/currently maverick-identified figure before
+being added as consensus** -- this is not safe to fully mechanize even
+with a clean roster source.
+
+**Possible genuine thesis angle, not just a cleanup problem**: "does
+r/conspiracy's engagement with a maverick figure change once that figure
+is formally installed in institutional office" is a testable empirical
+question sitting inside this corpus as a natural experiment (RFK Jr.,
+Bhattacharya, reconstituted ACIP members all being installed within the
+corpus's own timeframe) -- worth floating to Nash as a possible finding
+in its own right, not purely a data-quality nuisance to route around.
+
+*Original framing, superseded by the above, kept for context*: needs a
+design decision on how (or whether) to represent tenure-dependent entity
+classification in the current binary maverick/consensus architecture
+before any code gets written.
