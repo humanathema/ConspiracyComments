@@ -2239,3 +2239,53 @@ in its own right, not purely a data-quality nuisance to route around.
 design decision on how (or whether) to represent tenure-dependent entity
 classification in the current binary maverick/consensus architecture
 before any code gets written.
+
+## 18. Attribution confidence scorer — three mechanical Antigravity tasks,
+## then STOP before touching the core regression
+
+`src/attribution_confidence_scorer.py` (built 2026-07-15, fully local,
+no LLM calls) replaces bare entity+appeal-language co-occurrence with a
+scored check (ordering, proximity, competing-source rejection). Validated
+against 400 real corpus comments via `src/validate_attribution_scorer.py`
+-- 94.2% of maverick-entity mentions (533/566) show NO attribution
+pattern at all, confirming `has_maverick`'s bare-mention approach is far
+looser than "cites this figure as evidence." Spot-check of 10 "none"
+cases confirmed the scorer's core logic is sound.
+
+**Three tasks ready for Antigravity, in this order, each mechanical and
+well-specified:**
+
+1. **Quantified validation against human labels.** Run
+   `attribution_confidence_scorer.py` against
+   `data/hitl/queue_maverick_authority.csv` (the same human-labeled
+   ground truth `combined_maverick_detector.py` uses) and compute Cohen's
+   κ / precision / recall between attribution-confidence tier and the
+   human label. This is the number that should decide whether this
+   scorer is good enough to use — not an assumption.
+2. **Add the credential-appositive pattern.** Exact spec already in the
+   scorer's docstring: catches "X is a [Dr./PhD/professor/scientist] who
+   studies/works on Y" constructions, missed by the current reporting-
+   verb/pre-nominal pattern lists (real example found: "Dr. Eugene
+   McCarthy is a Ph.D. geneticist who has made a career out of studying
+   hybridization..." used to back a pseudoscience claim). After adding,
+   re-run `validate_attribution_scorer.py` and check the "none" rate
+   drops without the Baric-style accusation examples in that script's
+   `__main__` block flipping to a false positive.
+3. **Flag (don't remove) non-person contamination in `maverick_authority`.**
+   The validation sample surfaced "debunked", "Nibiru", "the New World
+   Order" matching as if they were named authority figures — produce a
+   candidate-removal CSV (entity, wp_description, doc_count, reason
+   flagged) with a blank `decision` column, same reviewable-not-auto-
+   applied pattern as `mainstream_expert_augmented_superset.csv`. Do not
+   remove anything from `entity_final_review.csv` directly.
+
+**STOP after these three and report back — do not wire the scorer into
+`has_maverick`/`rerun_refined_regressions_v2.py` or re-run the core
+thesis regression yet.** The scorer isn't validated against human labels
+yet (task 1), is missing at least one real pattern class (task 2), and
+depends on a contaminated entity list (task 3). Rerunning the headline
+regression on top of an unvalidated signal risks repeating the exact
+mistake this session kept finding and fixing elsewhere (measuring the
+wrong thing and trusting it because the pipeline ran without erroring).
+Report the κ from task 1 and get it reviewed before anyone decides
+whether/how to integrate this into the core analysis.
