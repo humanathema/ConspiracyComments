@@ -53,11 +53,17 @@ def main():
     print("Pulling a random sample of comments containing a maverick entity mention...")
     con = duckdb.connect()
     pattern_str = rx.pattern
+    # NOTE 2026-07-15: `USING SAMPLE n ROWS` samples BEFORE the WHERE filter
+    # applies in DuckDB, not after -- the first run of this script pulled
+    # only 7 matching comments from a random 400 raw rows instead of 400
+    # actual matches. Fixed with ORDER BY random() LIMIT, which correctly
+    # samples from the filtered set.
     query = f"""
         SELECT e.text
         FROM read_parquet('{EMPATH_PATH}') e
         WHERE regexp_matches(e.text, $1)
-        USING SAMPLE {SAMPLE_SIZE} ROWS
+        ORDER BY random()
+        LIMIT {SAMPLE_SIZE}
     """
     rows = con.execute(query, [pattern_str]).fetchall()
     print(f"Pulled {len(rows)} candidate comments")
