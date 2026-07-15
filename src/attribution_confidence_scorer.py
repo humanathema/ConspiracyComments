@@ -56,6 +56,19 @@ already-entity-matched subset for cost control):
     `token.dep_ == "nsubj"` for a more robust version of the post-nominal
     check -- noted as a natural next upgrade, not built here to keep this
     first pass simple and auditable.
+  - **CREDENTIAL-APPOSITIVE PATTERN, found 2026-07-15 via corpus
+    validation, not yet implemented**: neither PRE_NOMINAL_PATTERNS nor
+    POST_NOMINAL_VERBS catch "X is a [Dr./PhD/credential] who
+    studies/works on Y" -- a very common appeal-to-authority construction
+    distinct from reporting-verb attribution. Real example missed by this
+    scorer: "Dr. Eugene McCarthy is a Ph.D. geneticist who has made a
+    career out of studying hybridization in animals" (used to back a
+    claim about human origins) -- correctly identifies McCarthy as the
+    entity but scores "none" because there's no reporting verb, when this
+    is actually a textbook credential-based citation. A third pattern
+    class (regex on "is a|is an .{0,40}(Dr\.|PhD|professor|scientist|
+    researcher|expert)" near the entity, roughly) would catch this --
+    not built here, staged as the next concrete addition.
 """
 import re
 from dataclasses import dataclass, field
