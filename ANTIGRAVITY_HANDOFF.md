@@ -2101,3 +2101,92 @@ rerun any regression, do not add or remove entities from any list. If
 the audit surfaces something that clearly needs fixing (the crosspost
 gap above is the most likely candidate), document it clearly with enough
 detail that fixing it is a well-scoped follow-up task, and stop there.
+
+## 17. Task board for the multi-agent workflow (2026-07-15)
+
+Nash's setup: a free Claude instance drafts/supervises instructions,
+Antigravity does mechanical execution (under hard guardrails, sometimes
+read-only for project awareness), findings get fed back to a Claude
+instance to review and produce code. Everything below is sorted by which
+of those roles actually fits it — using the wrong one is how this project
+already got burned once (Antigravity making unsupervised judgment calls
+on entity curation, walkthrough.md's overclaimed narrative). Also new
+this entry: **combined_maverick_detector.py's entity list was fixed**
+(see `src/verified_maverick_additions.py`) — the same never-promoted-
+despite-correct-weak-hint pattern found for consensus_expert also hit
+maverick_authority. WikiLeaks (doc_count 9,502 alone) plus the Assange/
+Manning/Snowden/Ellsberg/Kiriakou whistleblower cluster were entirely
+absent from `has_maverick` until this fix. A rerun to confirm the updated
+coefficient is in progress as this entry is being written — check
+`data/processed/refined_regression_results_v2.csv`'s timestamp against
+this commit before trusting it.
+
+### Pattern A — Antigravity read-only, findings go back to Claude
+- §16, the full pipeline validity audit. Already fully specified, use
+  as-is.
+
+### Pattern B — well-specified enough for Antigravity to execute directly
+(mechanical, low-judgment, but NOT read-only — these produce new files)
+
+**B1. Mainstream-source authority construct (§14/§15 item (d))**
+Starter prompt for the free-Claude-instance role to hand to Antigravity:
+> Build a `source_authority_score` construct for the ConspiracyComments
+> project. Read `data/processed/institutional_source_candidates.csv`
+> (526 candidate entities: news outlets, journals, .gov agencies). Steps:
+> (1) Download NELA-GT-2022 (Harvard Dataverse, DOI 10.7910/DVN/AMCV2H)
+> and extract its outlet-level Media Bias/Fact Check reliability labels
+> (reliable/mixed/unreliable). (2) Download SJR (Scimago Journal Rank,
+> scimagojr.com/journalrank.php, free CSV export) for journal-level
+> ranks. (3) Match candidate entities against both by name (handle name
+> variants: "the New York Times" / "NY Times" / "NYTimes" are the same
+> outlet). (4) For entities matching neither dataset but whose
+> `wp_description` contains "federal government agency" or similar,
+> flag as a separate `is_gov_agency` tier — no external score needed. (5)
+> Output `data/processed/source_authority_scores.csv`: entity, matched
+> dataset (nela/sjr/gov/none), reliability_label or rank, source_url. Do
+> not build a new regression predictor or touch any existing regression
+> script — that's a separate task once this data exists and gets
+> reviewed by Claude first.
+
+**B2. Citation/academy-based entity scale-up (mainstream_expert_corpus_briefing)**
+Already has its own full spec in that briefing document (not reproduced
+here — ask Nash for it if it's not already in this repo). Division of
+labor already defined there: PetScan category pulls, broader OpenAlex
+sweeps, full international officeholder rosters are the "hand to
+Antigravity" tasks; use `data/processed/mainstream_expert_seed_pool.csv`
+and `data/processed/institutional_authority_seed_pool.csv` as the
+starting seed pools, not a blank slate.
+
+### Pattern C — judgment work, needs a Claude instance directly, NOT Antigravity alone
+(Antigravity making unsupervised calls here is exactly the failure mode
+that produced the contaminated consensus_expert list and the invalid
+TopMindsOfReddit control earlier this project — don't repeat it)
+
+**C1. The 351-entity maverick "weak-hint but never promoted" pool.**
+Same root cause as the consensus_expert contamination, found 2026-07-15:
+`weak_hint_bucket_guess == "maverick_authority"` but `final_bucket_guess`
+is blank, for 351 entities (53,634 total doc_count). This pool is
+genuinely mixed — alongside real misses like WikiLeaks (already fixed,
+see above) it also contains clear non-mavericks that were wrongly
+weak-hinted: Bin Laden, Nixon, Giuliani, ADL, Exxon, Hezbollah, Adolf
+Hitler, the Trilateral Commission, the Heritage Foundation (villains,
+institutions, and historical/political figures, not "alternative-
+credentialed-authority" figures). Needs the exact same individual-review
+treatment `consensus_experts_verified.py` got — query
+`entity_final_review.csv` for this mask, sort by doc_count, review from
+the top. **Do not have Antigravity do this pass unsupervised** — hand it
+to a Claude instance (paid or free) to review and produce a verified
+additions list the same shape as `verified_maverick_additions.py`, THEN
+Antigravity can mechanically merge it in.
+
+**C2. `has_maverick` attribution-logic fix (§8b, §14/§15 item (c)).**
+Requires designing how to check that a FactAppeal-detected appeal's
+`<Source>` span actually overlaps the matched maverick entity, not just
+co-occurs in the same sentence — a real design decision, not a mechanical
+patch. Draft the approach with a Claude instance first, then Antigravity
+can implement/test the resulting spec.
+
+**C3. Jay Bhattacharya time-varying status** — see §14/§15, still
+unresolved, needs a design decision on how (or whether) to represent
+tenure-dependent entity classification in the current binary
+maverick/consensus architecture before any code gets written.

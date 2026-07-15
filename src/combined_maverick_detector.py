@@ -17,21 +17,36 @@ from sklearn.metrics import classification_report, cohen_kappa_score
 
 QUEUE_PATH = "data/hitl/queue_maverick_authority.csv"
 FACTAPPEAL_DIR = "data/processed/factappeal"
+ENTITY_PATH = "data/processed/entity_final_review.csv"
 
-# Curated list of maverick entities derived from our localized high-lift extraction
-CURATED_MAVERICK_ENTITIES = [
-    "julian", "assange", "wikileaks", "seymour hersh", "daniel ellsberg", 
-    "manning", "chelsea manning", "bradley manning", "edward snowden", "snowden",
-    "michael ruppert", "celerino castillo", "robert baer", "barrett brown", 
-    "matt taibi", "aaron schwartz", "david shaylor", "annie machon", 
-    "george de mohrenschildt", "project veritas", "church committee",
-    "cia", "fbi", "nsa", "dea", "dia", "cspan", "flynn", "sally yates"
-]
+from verified_maverick_additions import VERIFIED_MAVERICK_ADDITIONS
+
+# FIXED 2026-07-15: this used to be a hardcoded 24-name placeholder list
+# (Assange, Snowden, Manning... plus raw agency acronyms CIA/FBI/NSA/DEA/DIA/
+# CSPAN) written before proper entity curation existed, and never updated
+# once it did. Now pulled from the real, curated maverick_authority bucket
+# (418 entities as of this fix) -- see entity_final_review.csv / §12.
+# NOTE: this fixes the entity list, NOT the attribution-vs-co-occurrence
+# logic gap documented in ANTIGRAVITY_HANDOFF.md §8b -- the classifier
+# below still only checks that an entity and *some* FactAppeal-detected
+# appeal co-occur in the same sentence, not that the appeal is actually
+# attributed to that entity. That's a separate, bigger fix, not done here.
+def load_curated_maverick_entities():
+    df_entity = pd.read_csv(ENTITY_PATH)
+    ents = df_entity[df_entity["final_bucket_guess"] == "maverick_authority"]["entity"].dropna().astype(str).unique().tolist()
+    ents = [e for e in ents if len(e) >= 3]
+    # See verified_maverick_additions.py: WikiLeaks/Assange/Manning/Snowden/
+    # Ellsberg/Kiriakou never got promoted to final_bucket_guess despite a
+    # correct weak-hint -- same blind spot found and fixed for
+    # consensus_expert. Added directly rather than fixing the pipeline.
+    ents += VERIFIED_MAVERICK_ADDITIONS
+    return list(dict.fromkeys(ents))  # dedupe, preserve order
 
 
 def build_entity_regex():
+    ents = load_curated_maverick_entities()
     # Sort by length descending to match longer multi-word phrases first
-    sorted_ents = sorted(CURATED_MAVERICK_ENTITIES, key=len, reverse=True)
+    sorted_ents = sorted(ents, key=len, reverse=True)
     pattern = r"\b(" + "|".join(re.escape(e) for e in sorted_ents) + r")\b"
     return re.compile(pattern, re.IGNORECASE)
 

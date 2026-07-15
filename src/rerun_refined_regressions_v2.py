@@ -56,6 +56,7 @@ from refine_thesis_models import (
     build_regex, extract_contexts, compute_log_likelihood,
 )
 from consensus_experts_verified import VERIFIED_CONSENSUS_EXPERTS
+from verified_maverick_additions import VERIFIED_MAVERICK_ADDITIONS
 
 MODELS_PATH = 'data/processed/staged_pipeline_models.joblib'
 ENTITY_PATH = 'data/processed/entity_final_review.csv'
@@ -95,6 +96,15 @@ def load_entities_split_corrected():
 
     mavericks = df_entity[df_entity["final_bucket_guess"] == "maverick_authority"]["entity"].dropna().astype(str).unique().tolist()
     mavericks = [m for m in mavericks if len(m) >= 3]
+    # Same never-promoted-despite-correct-weak-hint blind spot as
+    # consensus_expert, found 2026-07-15 on the maverick side: WikiLeaks
+    # (doc_count 9,502 alone) and the Assange/Manning/Snowden/Ellsberg/
+    # Kiriakou whistleblower cluster were never in `mavericks` until now.
+    # See verified_maverick_additions.py -- this is a bounded, high-
+    # confidence patch, NOT a full fix of the ~350-entity pool with this
+    # same pattern (that pool is noisy, needs individual review, staged
+    # in ANTIGRAVITY_HANDOFF.md, not attempted here).
+    mavericks = list(dict.fromkeys(mavericks + VERIFIED_MAVERICK_ADDITIONS))
 
     # canon still comes from the mainstream_expert_authority-bucketed pool
     # (CANONICAL_EXPERTS matching works fine here, those figures ARE
