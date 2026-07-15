@@ -48,20 +48,26 @@ output is known-bad and kept only for the `canon`/`mavericks` outputs
    Director but a lockdown-contrarian for nearly the whole corpus
    window — unresolved time-varying-status edge case, see §14/§15 body).
 5. `src/rerun_refined_regressions_v2.py` — the main analysis script.
-   **CONFIRMED CURRENT as of this entry**: rerun completed with the full
-   82-name-variant consensus list (took ~26 minutes, much longer than
-   earlier runs — the context-extraction/keyness phase scales with both
-   population size and entity-list size, this is expected, not a hang).
+   **CONFIRMED CURRENT as of this entry** (last rerun completed
+   2026-07-15 ~2:50pm, ~29 min — the context-extraction/keyness phase
+   scales with both population size and entity-list size, especially
+   after adding a very-high-frequency entity like WikiLeaks; this is
+   expected, not a hang). This run also includes the maverick-entity fix
+   below (435 mavericks, up from 418 — WikiLeaks/Assange/Manning/Snowden/
+   Ellsberg/Kiriakou added, see `verified_maverick_additions.py`).
    `data/processed/refined_regression_results_v2.csv` and
    `data/processed/refined_semantic_keyness_results_v2.csv` are current
-   and reflect this run. Result barely moved from the 63-variant run
-   (has_consensus_expert N=1,780, coef +0.533, p<0.001 — vs. +0.526
-   before) since most of the added office-holders are low-frequency in
-   the corpus; the finding is stable across both entity-list sizes, which
-   is itself reassuring (not an artifact of exactly which names are on
-   the list). Full r/conspiracy coefficient table:
-   pe_prob +0.305 p<0.001, ps_prob +0.208 p<0.001, has_link -1.052
-   p<0.001, has_maverick +0.238 p<0.001, has_canonical_expert +0.038
+   and reflect this run. `has_maverick` coefficient moved from +0.238 to
+   **+0.246** (p<0.001, z=25.7 — even more precisely estimated, not just
+   different) after adding WikiLeaks et al. — a modest, expected
+   strengthening, not a direction/significance change, consistent with
+   these being genuine correctly-classified maverick entities rather than
+   noise. `has_consensus_expert` essentially unchanged (+0.533, N=1,780)
+   since that list wasn't touched this run — same stability-check logic
+   as the earlier 63-vs-82 comparison. Full current r/conspiracy
+   coefficient table: pe_prob +0.305 p<0.001, ps_prob +0.207 p<0.001,
+   has_link -1.052 p<0.001, has_maverick +0.246 p<0.001 (N mavericks=435),
+   has_canonical_expert +0.038
    p=0.457 (ns), has_consensus_expert +0.533 p<0.001. If you change
    `consensus_experts_verified.py` again, rerun this script (~5-30 min
    depending on entity-list size) before trusting those two CSVs.
