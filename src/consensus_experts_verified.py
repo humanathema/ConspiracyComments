@@ -172,3 +172,25 @@ VERIFIED_CONSENSUS_EXPERTS = [
 # Brennan/William Colby/Louis Freeh/Steve Kappes/Dov Zakheim/John
 # Poindexter (intelligence/defense officials, not science-consensus
 # framing), Kash Patel, Eric Schmidt.
+#
+# GAP FOUND 2026-07-15 (via Antigravity's mainstream_expert_augmented_superset.csv
+# pull): Ralph Baric and Yuval Noah Harari were excluded via judgment in
+# this file's docstring (see top of file) but never actually added to
+# THIS list, which is the one downstream scripts/agents parse as the
+# machine-readable blocklist. Baric surfaced again as a candidate in the
+# augmented superset as a result. Adding both here now: Ralph Baric,
+# Ralph S. Baric (villain/lab-leak-suspicion figure, not neutrally-cited
+# consensus authority), Yuval Noah Harari, Yuval Harari, Harari (WEF-linked
+# target/villain in this corpus's discourse, not neutrally-cited).
+#
+# ALSO FOUND 2026-07-15, NOT YET RESOLVED -- needs individual review, not
+# a blocklist entry (these are either genuinely ambiguous or represent a
+# new failure MODE, not just missing names): Peter Duesberg (academy
+# membership predates his later HIV/AIDS-denialist reputation -- already
+# correctly bucketed maverick_authority elsewhere in this pipeline;
+# academy membership alone doesn't override that), Elon Musk (huge
+# doc_count, clearly not a neutral consensus figure in this corpus's
+# discourse, whatever academy affiliation triggered his inclusion),
+# Noam Chomsky (genuine academic, but arguably better known here as a
+# credentialed anti-establishment dissident than an institutional voice
+# -- deliberately unresolved, not a clear exclude or include).
