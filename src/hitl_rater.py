@@ -21,6 +21,7 @@ QUEUES = {
     "personal_experience": "data/hitl/queue_personal_experience.csv",
     "procedural_skepticism": "data/hitl/queue_procedural_skepticism.csv",
     "maverick_authority": "data/hitl/queue_maverick_authority.csv",
+    "consensus_stance": "data/hitl/queue_consensus_stance.csv",
 }
 
 LABEL_OPTIONS = ["positive", "lean_positive", "negative", "unsure"]
@@ -70,10 +71,18 @@ function renderTabs() {
 function renderLabelButtons() {
   const l = document.getElementById('labels');
   l.innerHTML = '';
-  const opts = [
-    ['positive', 'kp', '1'], ['lean_positive', 'kp', '2'],
-    ['negative', 'kn', '3'], ['unsure', '', '4']
-  ];
+  let opts = [];
+  if (current === 'consensus_stance') {
+    opts = [
+      ['endorsement', 'kp', '1'], ['hostile', 'kn', '2'],
+      ['neutral', '', '3'], ['ambiguous', '', '4']
+    ];
+  } else {
+    opts = [
+      ['positive', 'kp', '1'], ['lean_positive', 'kp', '2'],
+      ['negative', 'kn', '3'], ['unsure', '', '4']
+    ];
+  }
   for (const [label, cls, key] of opts) {
     const b = document.createElement('button');
     b.className = cls;
@@ -122,7 +131,12 @@ async function submit(label) {
 
 document.addEventListener('keydown', (e) => {
   if (!row) return;
-  const map = {'1': 'positive', '2': 'lean_positive', '3': 'negative', '4': 'unsure'};
+  let map = {};
+  if (current === 'consensus_stance') {
+    map = {'1': 'endorsement', '2': 'hostile', '3': 'neutral', '4': 'ambiguous'};
+  } else {
+    map = {'1': 'positive', '2': 'lean_positive', '3': 'negative', '4': 'unsure'};
+  }
   if (map[e.key]) submit(map[e.key]);
 });
 
@@ -165,7 +179,8 @@ class Handler(BaseHTTPRequestHandler):
                 self._json({"error": "unknown queue"}, 400)
                 return
             df = load_df(path)
-            unlabeled = df[df["human_label"].isna()]
+            col = "human_stance" if "human_stance" in df.columns else "human_label"
+            unlabeled = df[df[col].isna()]
             total = len(df)
             remaining = len(unlabeled)
             if remaining == 0:
@@ -173,7 +188,7 @@ class Handler(BaseHTTPRequestHandler):
                 return
             r = unlabeled.iloc[0]
             self._json({
-                "row": {"id": int(r["id"]), "full_text": str(r["full_text"])},
+                "row": {"id": str(r["id"]), "full_text": str(r["full_text"])},
                 "total": total,
                 "remaining": remaining,
             })
@@ -190,8 +205,9 @@ class Handler(BaseHTTPRequestHandler):
                 self._json({"error": "unknown queue"}, 400)
                 return
             df = load_df(path)
-            mask = df["id"] == payload["id"]
-            df.loc[mask, "human_label"] = payload["human_label"]
+            col = "human_stance" if "human_stance" in df.columns else "human_label"
+            mask = df["id"].astype(str) == str(payload["id"])
+            df.loc[mask, col] = payload["human_label"]
             df.loc[mask, "notes"] = payload.get("notes", "")
             df.to_csv(path, index=False)
             self._json({"ok": True})
