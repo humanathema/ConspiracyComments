@@ -523,16 +523,52 @@ Two classifiers were trained on it (master notebook cell 12-13):
   trained on (likely the Source-Type multiclass labels) before building
   a new maverick-expert classifier; it may already do most of this.
 
-**Bug found and verified 2026-07-13**: `data/processed/factappeal/val.csv`
-and `data/processed/factappeal/test.csv` are **byte-identical files**
-(confirmed via `diff`, both 496 lines). So the notebook's "Final Test Set
-Performance" (cell 13) is not an independent confirmation — it's the same
-held-out split scored twice under different names. The 83%/F1=0.73 numbers
-are real (genuine held-out validation once) but not test-confirmed the way
-the notebook output implies. Also unmeasured: this model is trained on
-formal news-media sentences and applied to informal Reddit comments (cell
-16) — that domain shift has never been checked with a Reddit-specific
-held-out sample.
+**Bug found and verified 2026-07-13, root-caused 2026-07-15**:
+`data/processed/factappeal/val.csv` and `test.csv` are **byte-identical
+files** (confirmed via `diff`, both 496 lines). **This is an upstream bug
+in the source dataset, not a local error** — verified 2026-07-15 by
+checking git blob MD5 hashes back to the original "Add files via upload"
+commit (`332dcf4`) on `github.com/guymorlan/factappeal`: both files had
+the identical hash (`d5c239d4...`) from the moment the author uploaded
+them, and the local clone is fully up to date with `origin/main` (nothing
+new to fetch). The README claims a proper 70/15/15 train/val/test split,
+but the actual public release only contains two genuinely distinct files
+(train + one held-out set uploaded twice under different names). **There
+is no "re-download the real test set" fix available** — the correct held-
+out test set was apparently never published. So the notebook's "Final
+Test Set Performance" (cell 13) is not an independent confirmation — it's
+the same held-out split scored twice under different names. The 83%/
+F1=0.73 numbers are real (genuine held-out validation once) but not
+test-confirmed the way the notebook output implies, and can't be made so
+without either contacting the paper's author for the missing split or
+manually carving a fresh held-out set out of `train.csv` (accepting a
+smaller effective training set). Simplest defensible option: disclose
+the single-split limitation explicitly in the write-up rather than try to
+manufacture a fix. Also still unmeasured: this model is trained on formal
+news-media sentences and applied to informal Reddit comments (cell 16) —
+that domain shift has never been checked with a Reddit-specific held-out
+sample.
+
+**`src/combined_maverick_detector.py` is stale and disconnected from all
+entity-curation work done since it was written (checked 2026-07-15)**:
+its `CURATED_MAVERICK_ENTITIES` is a hardcoded 24-name placeholder list
+(Assange, Snowden, Manning, Ellsberg, Hersh, plus raw agency acronyms
+CIA/FBI/NSA/DEA/DIA/CSPAN) that predates and has no connection to the
+properly-curated 418-entity `maverick_authority` bucket in
+`entity_final_review.csv` this session (and `consensus_experts_verified.py`
+for the 82-name-variant consensus side) actually rely on. It was written
+as an explicit placeholder "pending curation of entity list" and never
+updated once that curation happened. **It also has a logic gap beyond the
+stale list**: it flags a comment positive if an entity match and *some*
+FactAppeal-detected epistemic appeal both occur in the same sentence — it
+never checks that the appeal is actually attributed to that entity as its
+source. A sentence can contain both independently without the entity
+being what's cited. Before this script is trustworthy: (1) swap in the
+real entity list, (2) tighten the match to require the FactAppeal
+Source-span to actually overlap with the matched entity (the annotation
+schema already has `<Source:Named:Type>` spans for exactly this — see
+above — currently unused for this purpose), (3) re-run against
+`queue_maverick_authority.csv` and report κ before trusting it at scale.
 
 **Nash's proposed next step (2026-07-13), write-up for whoever picks this
 up**: combine (a) the NER entity list from §8, grown and manually
