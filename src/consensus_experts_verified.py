@@ -183,14 +183,22 @@ VERIFIED_CONSENSUS_EXPERTS = [
 # consensus authority), Yuval Noah Harari, Yuval Harari, Harari (WEF-linked
 # target/villain in this corpus's discourse, not neutrally-cited).
 #
-# ALSO FOUND 2026-07-15, NOT YET RESOLVED -- needs individual review, not
-# a blocklist entry (these are either genuinely ambiguous or represent a
-# new failure MODE, not just missing names): Peter Duesberg (academy
-# membership predates his later HIV/AIDS-denialist reputation -- already
-# correctly bucketed maverick_authority elsewhere in this pipeline;
-# academy membership alone doesn't override that), Elon Musk (huge
-# doc_count, clearly not a neutral consensus figure in this corpus's
-# discourse, whatever academy affiliation triggered his inclusion),
-# Noam Chomsky (genuine academic, but arguably better known here as a
-# credentialed anti-establishment dissident than an institutional voice
-# -- deliberately unresolved, not a clear exclude or include).
+#
+# RESOLVED EXCLUSIONS 2026-07-15:
+# Peter Duesberg (academy membership predates his later HIV/AIDS-denialist
+# reputation -- already correctly bucketed maverick_authority elsewhere in
+# this pipeline; academy membership alone doesn't override that), Elon Musk
+# (huge doc_count, clearly not a neutral consensus figure in this corpus's
+# discourse), David Chandler (the 9/11-truther physics teacher, making him
+# a maverick figure rather than a consensus expert), Andrew Jackson (7th US
+# President, not a contemporary scientist), N. Cohen (initials-only match,
+# corpus entity resolution never resolved it), and David Keith (entity-resolved
+# as Keith David, the actor, in this corpus's resolution, causing collision).
+# All of these are explicitly added to the programmatic blocklist.
+#
+# STILL OPEN TOSS-UPS / IN REVIEW:
+# John Cook (creator of Skeptical Science -- genuine mentions, heavily
+# criticized/discussed regarding climate consensus), Noam Chomsky (genuine
+# academic, but better known here as an anti-establishment dissident than
+# an institutional voice). Left active but flagged for explicit human review.
+

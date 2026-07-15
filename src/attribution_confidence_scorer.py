@@ -90,7 +90,11 @@ POST_NOMINAL_VERBS = [
     r"\breported\b", r"\breports\b", r"\btold\b", r"\bconfirmed\b",
     r"\btestified\b", r"\balleged\b", r"\brevealed\b", r"\badmitted\b",
     r"\binsisted\b", r"\bwarned\b", r"\btweeted\b", r"\bwrote\b",
-    r"\bexplained\b", r"\bnoted\b",
+    r"\bexplained\b", r"\bnoted\b", r"\breleased?\b", r"\breleasing\b",
+    r"\bpublishes?\b", r"\bpublished\b", r"\bpublishing\b", r"\bexposed?\b",
+    r"\bexposing\b", r"\bleaked?\b", r"\bleaking\b", r"\bdiscloses?\b",
+    r"\bdisclosed\b", r"\bdisclosing\b", r"\bprovides?\b", r"\bprovided\b",
+    r"\bproviding\b",
 ]
 
 # Tracked separately so they're never accidentally treated as attribution --
@@ -98,9 +102,18 @@ POST_NOMINAL_VERBS = [
 # they're the SOURCE of. "Ralph Baric created the virus" != a citation
 # of Baric as an authority; it's an accusation about Baric.
 ACCUSATION_VERBS = [
-    r"\bcreated\b", r"\bmade\b", r"\bengineered\b", r"\bbuilt\b",
+    r"\bcreated\b",
+    r"\bmade\b(?!\s+(?:an?\s+)?(?:career|name|point|living|sense|difference|choice|decision|statement|mistake|claim)\b)",
+    r"\bengineered\b", r"\bbuilt\b",
     r"\bdesigned\b", r"\bfunded\b", r"\bcovered up\b", r"\bhid\b",
     r"\blied\b", r"\bmanipulated\b", r"\bfaked\b", r"\borchestrated\b",
+]
+
+# Appositive: credential or professional designation appearing AFTER the entity
+# e.g., "X is a Dr./PhD..." or "X, a professor of..."
+APPOSITIVE_PATTERNS = [
+    r"\bis (?:an?|the)\b.{0,40}\b(?:Dr\.|Ph\.?D\.?|prof\b|professor|scientist|researcher|expert|specialist|historian|journalist|analyst|investigator|author|physician|virologist|immunologist|epidemiologist|veteran|whistleblower|insider)\b",
+    r",\s*(?:an?|the)\b.{0,40}\b(?:Dr\.|Ph\.?D\.?|prof\b|professor|scientist|researcher|expert|specialist|historian|journalist|analyst|investigator|author|physician|virologist|immunologist|epidemiologist|veteran|whistleblower|insider)\b",
 ]
 
 WORD_RE = re.compile(r"\S+")
@@ -158,6 +171,7 @@ def score_entity_attribution(sentence: str, entity: str, entity_start: int, enti
 
     pre = _find_nearest(sentence, PRE_NOMINAL_PATTERNS, entity_start, "before")
     post = _find_nearest(sentence, POST_NOMINAL_VERBS, entity_end, "after")
+    appositive = _find_nearest(sentence, APPOSITIVE_PATTERNS, entity_end, "after")
     accusation = _find_nearest(sentence, ACCUSATION_VERBS, entity_end, "after")
 
     # Prefer whichever legitimate pattern is closer; an accusation verb
@@ -167,6 +181,8 @@ def score_entity_attribution(sentence: str, entity: str, entity_start: int, enti
         candidates.append(("pre_nominal", pre[0], pre[1]))
     if post:
         candidates.append(("post_nominal", post[0], post[1]))
+    if appositive:
+        candidates.append(("credential_appositive", appositive[0], appositive[1]))
 
     accusation_closer = accusation is not None and (
         not candidates or accusation[1] < min(c[2] for c in candidates)
@@ -205,6 +221,8 @@ def score_entity_attribution(sentence: str, entity: str, entity_start: int, enti
         confidence = "low"
     elif accusation_closer:
         confidence = "low"
+    elif ptype == "credential_appositive" and accusation is not None:
+        confidence = "none"
     elif word_dist <= 3:
         confidence = "high"
     elif word_dist <= 8:
@@ -216,7 +234,7 @@ def score_entity_attribution(sentence: str, entity: str, entity_start: int, enti
         entity=entity, entity_start=entity_start, entity_end=entity_end,
         pattern_type=ptype, pattern_text=ptext, distance_chars=dist,
         confidence=confidence, competing_entity=competing,
-        accusation_conflict=accusation_closer,
+        accusation_conflict=accusation_closer or (ptype == "credential_appositive" and accusation is not None),
     )
 
 
@@ -234,6 +252,12 @@ if __name__ == "__main__":
         ("Assange said the leak was authentic.", "Assange"),
         # Competing-source case Nash named explicitly
         ("Assange did nothing wrong, according to CNN.", "Assange"),
+        # Credential appositive case
+        ("Dr. Eugene McCarthy is a Ph.D. geneticist who has made a career out of studying hybridization in animals", "Eugene McCarthy"),
+        # Credential appositive under accusation conflict (fails on standard distance heuristic)
+        ("Ralph Baric, a virologist and researcher at UNC, created the virus in his lab.", "Ralph Baric"),
+        # Credential appositive under 'made' accusation conflict
+        ("Ralph Baric, a virologist and researcher at UNC, made the virus in his lab.", "Ralph Baric"),
     ]
     for sentence, entity in test_sentences:
         m = re.search(re.escape(entity), sentence)
