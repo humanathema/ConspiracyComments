@@ -48,21 +48,23 @@ output is known-bad and kept only for the `canon`/`mavericks` outputs
    Director but a lockdown-contrarian for nearly the whole corpus
    window — unresolved time-varying-status edge case, see §14/§15 body).
 5. `src/rerun_refined_regressions_v2.py` — the main analysis script.
-   **CHECK THIS BEFORE TRUSTING THE CSVs**: as of this handoff entry, the
-   on-disk `data/processed/refined_regression_results_v2.csv` and
-   `data/processed/refined_semantic_keyness_results_v2.csv` reflect the
-   **63-name-variant** consensus list (has_consensus_expert N=1,767 in
-   r/conspiracy, coef +0.526 p<0.001 — see the table earlier in this
-   document under §14/§15's "FULL FIX COMPLETE" entry). A rerun with the
-   now-current 82-name-variant list was kicked off but its completion
-   was not confirmed before this session ended (budget ran out mid-run —
-   it was taking longer than prior runs, still actively computing, not
-   hung, when last checked). **Before trusting either CSV, run
-   `python3.12 src/rerun_refined_regressions_v2.py` fresh and check the
-   printed `Consensus entities used:` count matches 82** (or whatever
-   `len(VERIFIED_CONSENSUS_EXPERTS)` currently is) — if it doesn't, the
-   CSVs are stale and need a fresh run. This is a cheap, safe, no-
-   judgment-required command to just run.
+   **CONFIRMED CURRENT as of this entry**: rerun completed with the full
+   82-name-variant consensus list (took ~26 minutes, much longer than
+   earlier runs — the context-extraction/keyness phase scales with both
+   population size and entity-list size, this is expected, not a hang).
+   `data/processed/refined_regression_results_v2.csv` and
+   `data/processed/refined_semantic_keyness_results_v2.csv` are current
+   and reflect this run. Result barely moved from the 63-variant run
+   (has_consensus_expert N=1,780, coef +0.533, p<0.001 — vs. +0.526
+   before) since most of the added office-holders are low-frequency in
+   the corpus; the finding is stable across both entity-list sizes, which
+   is itself reassuring (not an artifact of exactly which names are on
+   the list). Full r/conspiracy coefficient table:
+   pe_prob +0.305 p<0.001, ps_prob +0.208 p<0.001, has_link -1.052
+   p<0.001, has_maverick +0.238 p<0.001, has_canonical_expert +0.038
+   p=0.457 (ns), has_consensus_expert +0.533 p<0.001. If you change
+   `consensus_experts_verified.py` again, rerun this script (~5-30 min
+   depending on entity-list size) before trusting those two CSVs.
 6. `src/run_pure_population_analysis.py` — DONE, rerun against full
    elasticity data. `data/processed/pure_population_regression_results.csv`
    and `data/processed/insider_presence_threshold_sweep.csv` are current.
