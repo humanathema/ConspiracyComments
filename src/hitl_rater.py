@@ -1,16 +1,41 @@
-"""Minimal local HITL rating tool — no external deps beyond pandas/stdlib.
+"""Minimal local HITL rating tool — no external deps beyond pandas/stdlib/duckdb.
 
-Serves each queue's unlabeled rows one at a time, writes `human_label` and
-`notes` straight back to the source CSV after every submission (so nothing
-is lost if the browser or server dies mid-session).
+Serves each queue's rows, writes `human_label`/`human_stance` and `notes`
+straight back to the source CSV after every submission (so nothing is
+lost if the browser or server dies mid-session).
 
 Usage:
     python src/hitl_rater.py
     # then open http://localhost:8420 in a browser
 
 Queues are hardcoded below — edit QUEUES to add/remove files.
+
+CHANGELOG 2026-07-17 (Nash's feedback on real usage):
+  1. Fixed accidental-rating bug: the old keydown handler fired on ANY
+     keypress anywhere on the page, including while typing in the notes
+     textarea (typing a note containing "2" would submit a "hostile"
+     rating mid-sentence) or from stray keystrokes after switching tabs
+     and back. Now ignores keydown when the notes textarea has focus or
+     when any modifier key is held.
+  2. Added Back/Next navigation across the WHOLE queue (not just "next
+     unlabeled") so an accidental rating can be found and corrected --
+     previously there was no way to revisit an already-labeled row.
+  3. Added entity-span highlighting (queues with an `entity_spans`
+     column, currently just consensus_stance) -- long comments with
+     multiple entities now show which mention is the actual rating
+     target via <mark> highlighting, while still showing the full
+     comment for context.
+  4. Added on-demand "Load context" button (queues with `parent_id`/
+     `link_id` columns) -- fetches the parent comment being replied to
+     and a few sibling replies to the same parent, so a rater can check
+     whether the target comment is quoting/responding to something that
+     changes its interpretation (sarcasm, quotation, etc). Fetched live
+     via DuckDB against the raw corpus, not preloaded (keeps the tool
+     fast by default, only queries when asked).
 """
 import json
+import os
+import duckdb
 import pandas as pd
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from urllib.parse import urlparse, parse_qs
@@ -24,7 +49,7 @@ QUEUES = {
     "consensus_stance": "data/hitl/queue_consensus_stance.csv",
 }
 
-LABEL_OPTIONS = ["positive", "lean_positive", "negative", "unsure"]
+EMPATH_PATH = "data/processed/empath_scores_full.parquet"
 
 PAGE = """<!doctype html>
 <html><head><meta charset="utf-8"><title>HITL Rater</title>
@@ -34,41 +59,83 @@ PAGE = """<!doctype html>
   .tabs button { padding: 8px 14px; margin-right: 8px; cursor: pointer; background:#222; color:#eee; border:1px solid #444; border-radius:6px; }
   .tabs button.active { background:#3a6; border-color:#3a6; }
   #progress { color: #999; margin-bottom: 12px; }
+  .nav { margin-bottom: 10px; }
+  .nav button { padding: 6px 12px; margin-right: 8px; cursor:pointer; background:#222; color:#eee; border:1px solid #444; border-radius:6px; }
+  .nav button:disabled { opacity: 0.35; cursor: default; }
+  #current_label { color:#9c6; margin-left: 8px; }
   #text { white-space: pre-wrap; background:#1c1c1c; border:1px solid #333; border-radius:8px; padding:18px; line-height:1.5; margin-bottom:16px; min-height: 120px; }
+  #text mark { background:#a60; color:#fff; padding:0 2px; border-radius:3px; }
   .labels button { padding: 10px 16px; margin: 4px 6px 4px 0; cursor:pointer; border-radius:6px; border:1px solid #555; background:#222; color:#eee; font-size:14px; }
   .labels button:hover { background:#333; }
+  .labels button.selected { outline: 2px solid #9c6; }
   .labels button.kp { background:#274; }
   .labels button.kn { background:#622; }
   textarea { width: 100%; box-sizing:border-box; margin-top:14px; background:#1c1c1c; color:#eee; border:1px solid #333; border-radius:6px; padding:10px; }
   #done { font-size: 20px; margin-top: 40px; }
   kbd { background:#333; padding:1px 6px; border-radius:4px; }
+  #context_btn { margin-bottom: 12px; padding: 8px 14px; cursor:pointer; background:#333; color:#eee; border:1px solid #555; border-radius:6px; }
+  #context { display:none; white-space: pre-wrap; background:#1a1a24; border:1px solid #335; border-radius:8px; padding:14px; margin-bottom:16px; font-size: 13px; color:#bcd; }
+  #context h4 { margin: 0 0 6px 0; color:#89b; }
 </style></head>
 <body>
 <div class="tabs" id="tabs"></div>
 <div id="progress"></div>
+<div class="nav" id="nav"></div>
+<button id="context_btn" style="display:none">Load surrounding context (parent + sibling replies)</button>
+<div id="context"></div>
 <div id="text"></div>
 <div class="labels" id="labels"></div>
 <textarea id="notes" placeholder="notes (optional)" rows="2"></textarea>
 <div id="done" style="display:none">All rows in this queue are labeled. Switch queue above.</div>
 
 <script>
-const queues = QUEUES_JSON;
-let current = Object.keys(queues)[0];
-let row = null;
+const queueNames = QUEUES_JSON;
+let current = Object.keys(queueNames)[0];
+let rows = [];       // full row list for the current queue
+let idx = 0;          // current position in `rows`
+let labelCol = 'human_label';
 
 function renderTabs() {
   const t = document.getElementById('tabs');
   t.innerHTML = '';
-  for (const name of Object.keys(queues)) {
+  for (const name of Object.keys(queueNames)) {
     const b = document.createElement('button');
     b.textContent = name;
     if (name === current) b.className = 'active';
-    b.onclick = () => { current = name; loadNext(); };
+    b.onclick = () => { current = name; idx = 0; loadQueue(true); };
     t.appendChild(b);
   }
 }
 
-function renderLabelButtons() {
+function renderNav() {
+  const n = document.getElementById('nav');
+  n.innerHTML = '';
+  const back = document.createElement('button');
+  back.textContent = '← Back';
+  back.disabled = idx <= 0;
+  back.onclick = () => { idx = Math.max(0, idx - 1); showCurrent(); };
+  n.appendChild(back);
+
+  const fwd = document.createElement('button');
+  fwd.textContent = 'Next →';
+  fwd.disabled = idx >= rows.length - 1;
+  fwd.onclick = () => { idx = Math.min(rows.length - 1, idx + 1); showCurrent(); };
+  n.appendChild(fwd);
+
+  const jumpUnlabeled = document.createElement('button');
+  jumpUnlabeled.textContent = 'Jump to next unlabeled';
+  jumpUnlabeled.onclick = () => {
+    const i = rows.findIndex((r, j) => j > idx && isEmpty(r[labelCol]));
+    if (i >= 0) { idx = i; showCurrent(); }
+  };
+  n.appendChild(jumpUnlabeled);
+}
+
+function isEmpty(v) {
+  return v === null || v === undefined || v === '' || (typeof v === 'number' && isNaN(v));
+}
+
+function renderLabelButtons(selected) {
   const l = document.getElementById('labels');
   l.innerHTML = '';
   let opts = [];
@@ -85,52 +152,132 @@ function renderLabelButtons() {
   }
   for (const [label, cls, key] of opts) {
     const b = document.createElement('button');
-    b.className = cls;
+    b.className = cls + (label === selected ? ' selected' : '');
     b.innerHTML = label + ' <kbd>' + key + '</kbd>';
     b.onclick = () => submit(label);
     l.appendChild(b);
   }
 }
 
-async function loadNext() {
+function highlightSpans(text, spansJson) {
+  if (!spansJson) return escapeHtml(text);
+  let spans;
+  try { spans = JSON.parse(spansJson); } catch (e) { return escapeHtml(text); }
+  if (!spans || !spans.length) return escapeHtml(text);
+  spans.sort((a, b) => a.start - b.start);
+  let out = '';
+  let pos = 0;
+  for (const s of spans) {
+    if (s.start < pos) continue; // skip overlapping
+    out += escapeHtml(text.slice(pos, s.start));
+    out += '<mark>' + escapeHtml(text.slice(s.start, s.end)) + '</mark>';
+    pos = s.end;
+  }
+  out += escapeHtml(text.slice(pos));
+  return out;
+}
+
+function escapeHtml(s) {
+  const d = document.createElement('div');
+  d.textContent = s;
+  return d.innerHTML;
+}
+
+async function loadQueue(resetToFirstUnlabeled) {
   renderTabs();
-  const r = await fetch('/api/next?queue=' + current);
+  document.getElementById('context').style.display = 'none';
+  document.getElementById('context').innerHTML = '';
+  const r = await fetch('/api/queue?queue=' + current);
   const data = await r.json();
-  document.getElementById('progress').textContent =
-    data.remaining > 0
-      ? `${current}: ${data.total - data.remaining} / ${data.total} labeled (${data.remaining} left)`
-      : `${current}: ${data.total} / ${data.total} labeled — done!`;
-  document.getElementById('notes').value = '';
-  if (!data.row) {
+  rows = data.rows;
+  labelCol = data.label_col;
+  if (rows.length === 0) {
+    document.getElementById('done').style.display = 'block';
     document.getElementById('text').style.display = 'none';
     document.getElementById('labels').style.display = 'none';
-    document.getElementById('notes').style.display = 'none';
-    document.getElementById('done').style.display = 'block';
-    row = null;
     return;
   }
+  if (resetToFirstUnlabeled) {
+    const firstUnlabeled = rows.findIndex(r => isEmpty(r[labelCol]));
+    idx = firstUnlabeled >= 0 ? firstUnlabeled : 0;
+  }
+  showCurrent();
+}
+
+function showCurrent() {
+  const row = rows[idx];
+  const total = rows.length;
+  const labeled = rows.filter(r => !isEmpty(r[labelCol])).length;
+  document.getElementById('progress').textContent =
+    `${current}: ${labeled} / ${total} labeled  |  viewing row ${idx + 1} of ${total}`;
   document.getElementById('text').style.display = 'block';
   document.getElementById('labels').style.display = 'block';
-  document.getElementById('notes').style.display = 'block';
   document.getElementById('done').style.display = 'none';
-  row = data.row;
-  document.getElementById('text').textContent = row.full_text;
-  renderLabelButtons();
+  document.getElementById('text').innerHTML = highlightSpans(row.full_text, row.entity_spans);
+  document.getElementById('notes').value = row.notes || '';
+  document.getElementById('current_label').textContent = '';
+  renderLabelButtons(row[labelCol]);
+  renderNav();
+
+  document.getElementById('context').style.display = 'none';
+  document.getElementById('context').innerHTML = '';
+  const ctxBtn = document.getElementById('context_btn');
+  if (row.parent_id) {
+    ctxBtn.style.display = 'inline-block';
+    ctxBtn.onclick = () => loadContext(row.id);
+  } else {
+    ctxBtn.style.display = 'none';
+  }
+}
+
+async function loadContext(id) {
+  const ctx = document.getElementById('context');
+  ctx.style.display = 'block';
+  ctx.textContent = 'Loading...';
+  const r = await fetch('/api/context?queue=' + current + '&id=' + encodeURIComponent(id));
+  const data = await r.json();
+  let html = '';
+  if (data.parent_text) {
+    html += '<h4>Parent comment (being replied to):</h4>' + escapeHtml(data.parent_text) + '<br><br>';
+  } else {
+    html += '<h4>Parent:</h4>(top-level reply to the post, or parent not found)<br><br>';
+  }
+  if (data.sibling_texts && data.sibling_texts.length) {
+    html += '<h4>Other replies to the same parent:</h4>';
+    for (const s of data.sibling_texts) {
+      html += '• ' + escapeHtml(s.slice(0, 300)) + '<br><br>';
+    }
+  }
+  ctx.innerHTML = html;
 }
 
 async function submit(label) {
-  if (!row) return;
+  const row = rows[idx];
   const notes = document.getElementById('notes').value;
+  row[labelCol] = label;
+  row.notes = notes;
   await fetch('/api/label', {
     method: 'POST',
     headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify({queue: current, id: row.id, human_label: label, notes: notes})
+    body: JSON.stringify({queue: current, id: row.id, label_col: labelCol, human_label: label, notes: notes})
   });
-  loadNext();
+  renderLabelButtons(label);
+  // auto-advance only if this was the first time this row was labeled AND we're at the frontier
+  if (idx === rows.length - 1 || isEmpty(rows[idx + 1] ? rows[idx + 1][labelCol] : undefined)) {
+    if (idx < rows.length - 1) { idx += 1; showCurrent(); }
+  }
+  document.getElementById('progress').textContent =
+    `${current}: ${rows.filter(r => !isEmpty(r[labelCol])).length} / ${rows.length} labeled  |  viewing row ${idx + 1} of ${rows.length}`;
 }
 
 document.addEventListener('keydown', (e) => {
-  if (!row) return;
+  if (!rows.length) return;
+  // FIX 2026-07-17: don't hijack keystrokes typed into the notes box,
+  // and ignore anything with a modifier held (browser/OS shortcuts).
+  const active = document.activeElement;
+  if (active && (active.tagName === 'TEXTAREA' || active.tagName === 'INPUT')) return;
+  if (e.metaKey || e.ctrlKey || e.altKey) return;
+
   let map = {};
   if (current === 'consensus_stance') {
     map = {'1': 'endorsement', '2': 'hostile', '3': 'neutral', '4': 'ambiguous'};
@@ -138,9 +285,11 @@ document.addEventListener('keydown', (e) => {
     map = {'1': 'positive', '2': 'lean_positive', '3': 'negative', '4': 'unsure'};
   }
   if (map[e.key]) submit(map[e.key]);
+  if (e.key === 'ArrowLeft' && idx > 0) { idx -= 1; showCurrent(); }
+  if (e.key === 'ArrowRight' && idx < rows.length - 1) { idx += 1; showCurrent(); }
 });
 
-loadNext();
+loadQueue(true);
 </script>
 </body></html>"""
 
@@ -171,7 +320,8 @@ class Handler(BaseHTTPRequestHandler):
             self.send_header("Content-Length", str(len(body)))
             self.end_headers()
             self.wfile.write(body)
-        elif parsed.path == "/api/next":
+
+        elif parsed.path == "/api/queue":
             qs = parse_qs(parsed.query)
             queue = qs.get("queue", [None])[0]
             path = QUEUES.get(queue)
@@ -180,18 +330,49 @@ class Handler(BaseHTTPRequestHandler):
                 return
             df = load_df(path)
             col = "human_stance" if "human_stance" in df.columns else "human_label"
-            unlabeled = df[df[col].isna()]
-            total = len(df)
-            remaining = len(unlabeled)
-            if remaining == 0:
-                self._json({"row": None, "total": total, "remaining": 0})
+            df = df.where(pd.notna(df), None)
+            self._json({"rows": df.to_dict(orient="records"), "label_col": col})
+
+        elif parsed.path == "/api/context":
+            qs = parse_qs(parsed.query)
+            queue = qs.get("queue", [None])[0]
+            comment_id = qs.get("id", [None])[0]
+            path = QUEUES.get(queue)
+            if not path or not comment_id:
+                self._json({"error": "bad request"}, 400)
                 return
-            r = unlabeled.iloc[0]
-            self._json({
-                "row": {"id": str(r["id"]), "full_text": str(r["full_text"])},
-                "total": total,
-                "remaining": remaining,
-            })
+            df = load_df(path)
+            row = df[df["id"].astype(str) == str(comment_id)]
+            if row.empty or "parent_id" not in df.columns:
+                self._json({"parent_text": None, "sibling_texts": []})
+                return
+            r = row.iloc[0]
+            parent_id_raw = str(r.get("parent_id", "") or "")
+            link_id_raw = str(r.get("link_id", "") or "")
+            parent_text = None
+            sibling_texts = []
+            try:
+                con = duckdb.connect()
+                if parent_id_raw and parent_id_raw != link_id_raw and parent_id_raw.startswith("t1_"):
+                    parent_comment_id = parent_id_raw[3:]
+                    res = con.execute(
+                        f"SELECT text FROM read_parquet('{EMPATH_PATH}') WHERE id = ? LIMIT 1",
+                        [parent_comment_id],
+                    ).fetchone()
+                    if res:
+                        parent_text = res[0]
+                if parent_id_raw:
+                    sib = con.execute(
+                        f"""SELECT DISTINCT text FROM read_parquet('{EMPATH_PATH}')
+                            WHERE parent_id = ? AND id != ? LIMIT 5""",
+                        [parent_id_raw, str(comment_id)],
+                    ).fetchall()
+                    sibling_texts = [s[0] for s in sib]
+            except Exception as e:
+                self._json({"error": str(e)}, 500)
+                return
+            self._json({"parent_text": parent_text, "sibling_texts": sibling_texts})
+
         else:
             self._json({"error": "not found"}, 404)
 
@@ -205,7 +386,7 @@ class Handler(BaseHTTPRequestHandler):
                 self._json({"error": "unknown queue"}, 400)
                 return
             df = load_df(path)
-            col = "human_stance" if "human_stance" in df.columns else "human_label"
+            col = payload.get("label_col") or ("human_stance" if "human_stance" in df.columns else "human_label")
             mask = df["id"].astype(str) == str(payload["id"])
             df.loc[mask, col] = payload["human_label"]
             df.loc[mask, "notes"] = payload.get("notes", "")
