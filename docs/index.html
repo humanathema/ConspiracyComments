@@ -11693,7 +11693,7 @@ titles + channel via YouTube's free oEmbed endpoint.</p>
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
 <div class="jp-InputArea jp-Cell-inputArea">
-<div class="jp-InputPrompt jp-InputArea-prompt">In [6]:</div>
+<div class="jp-InputPrompt jp-InputArea-prompt">In [3]:</div>
 <div class="jp-CodeMirrorEditor jp-Editor jp-InputArea-editor" data-type="inline">
 <div class="cm-editor cm-s-jupyter">
 <div class="highlight hl-ipython3"><pre><span></span><span class="n">YOUTUBE_DOMAINS</span> <span class="o">=</span> <span class="p">[</span><span class="s1">'youtube.com'</span><span class="p">,</span> <span class="s1">'youtu.be'</span><span class="p">,</span> <span class="s1">'m.youtube.com'</span><span class="p">]</span>
@@ -11709,14 +11709,38 @@ titles + channel via YouTube's free oEmbed endpoint.</p>
     <span class="o">.</span><span class="n">nlargest</span><span class="p">(</span><span class="mi">15</span><span class="p">,</span> <span class="s1">'citations'</span><span class="p">)</span><span class="o">.</span><span class="n">reset_index</span><span class="p">(</span><span class="n">drop</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
 
 <span class="n">YOUTUBE_CACHE</span> <span class="o">=</span> <span class="n">BASE</span> <span class="o">+</span> <span class="s1">'top_youtube_videos.csv'</span>
+
+<span class="c1"># Manually verified via Wayback Machine (Nash, 2026-07-18) for videos</span>
+<span class="c1"># oEmbed/Wayback's automated fallback couldn't resolve (deleted from</span>
+<span class="c1"># YouTube, and archive.org's own captures were inconsistent/rate-limited</span>
+<span class="c1"># when checked programmatically) -- recorded here as ground truth rather</span>
+<span class="c1"># than left as a bare video ID.</span>
+<span class="n">MANUAL_TITLE_OVERRIDES</span> <span class="o">=</span> <span class="p">{</span>
+    <span class="s1">'rdrKCilEhC0'</span><span class="p">:</span> <span class="p">{</span>
+        <span class="s1">'title'</span><span class="p">:</span> <span class="s1">'The Milgram Experiment'</span><span class="p">,</span>
+        <span class="s1">'channel'</span><span class="p">:</span> <span class="s1">''</span><span class="p">,</span>
+        <span class="s1">'note'</span><span class="p">:</span> <span class="s1">'Confirmed via https://web.archive.org/web/*/https://www.youtube.com/watch?v=rdrKCilEhC0 -- video since deleted from YouTube.'</span><span class="p">,</span>
+    <span class="p">},</span>
+    <span class="s1">'U1Qt6a-vaNM'</span><span class="p">:</span> <span class="p">{</span>
+        <span class="s1">'title'</span><span class="p">:</span> <span class="s2">"JFK to 911: Everything Is A Rich Man's Trick"</span><span class="p">,</span>
+        <span class="s1">'channel'</span><span class="p">:</span> <span class="s2">"Everything Is A Rich Man's Trick"</span><span class="p">,</span>
+        <span class="s1">'note'</span><span class="p">:</span> <span class="s1">'Confirmed via https://web.archive.org/web/20170111024222/https://m.youtube.com/watch?v=U1Qt6a-vaNM -- video since deleted from YouTube.'</span><span class="p">,</span>
+    <span class="p">},</span>
+<span class="p">}</span>
+
 <span class="k">if</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">exists</span><span class="p">(</span><span class="n">YOUTUBE_CACHE</span><span class="p">):</span>
     <span class="n">df_youtube</span> <span class="o">=</span> <span class="n">pd</span><span class="o">.</span><span class="n">read_csv</span><span class="p">(</span><span class="n">YOUTUBE_CACHE</span><span class="p">)</span>
 <span class="k">else</span><span class="p">:</span>
     <span class="n">titles</span><span class="p">,</span> <span class="n">channels</span> <span class="o">=</span> <span class="p">[],</span> <span class="p">[]</span>
     <span class="k">for</span> <span class="n">vid</span> <span class="ow">in</span> <span class="n">df_youtube</span><span class="p">[</span><span class="s1">'video_id'</span><span class="p">]:</span>
-        <span class="n">meta</span> <span class="o">=</span> <span class="n">fetch_youtube_metadata</span><span class="p">(</span><span class="n">vid</span><span class="p">)</span>
-        <span class="n">titles</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">meta</span><span class="p">[</span><span class="s1">'title'</span><span class="p">])</span>
-        <span class="n">channels</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">meta</span><span class="p">[</span><span class="s1">'channel'</span><span class="p">])</span>
+        <span class="k">if</span> <span class="n">vid</span> <span class="ow">in</span> <span class="n">MANUAL_TITLE_OVERRIDES</span><span class="p">:</span>
+            <span class="n">override</span> <span class="o">=</span> <span class="n">MANUAL_TITLE_OVERRIDES</span><span class="p">[</span><span class="n">vid</span><span class="p">]</span>
+            <span class="n">titles</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">override</span><span class="p">[</span><span class="s1">'title'</span><span class="p">])</span>
+            <span class="n">channels</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">override</span><span class="p">[</span><span class="s1">'channel'</span><span class="p">])</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">meta</span> <span class="o">=</span> <span class="n">fetch_youtube_metadata</span><span class="p">(</span><span class="n">vid</span><span class="p">)</span>
+            <span class="n">titles</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">meta</span><span class="p">[</span><span class="s1">'title'</span><span class="p">])</span>
+            <span class="n">channels</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">meta</span><span class="p">[</span><span class="s1">'channel'</span><span class="p">])</span>
     <span class="n">df_youtube</span><span class="p">[</span><span class="s1">'title'</span><span class="p">]</span> <span class="o">=</span> <span class="n">titles</span>
     <span class="n">df_youtube</span><span class="p">[</span><span class="s1">'channel'</span><span class="p">]</span> <span class="o">=</span> <span class="n">channels</span>
     <span class="n">df_youtube</span><span class="p">[</span><span class="s1">'url'</span><span class="p">]</span> <span class="o">=</span> <span class="s1">'https://www.youtube.com/watch?v='</span> <span class="o">+</span> <span class="n">df_youtube</span><span class="p">[</span><span class="s1">'video_id'</span><span class="p">]</span>
@@ -11736,7 +11760,7 @@ titles + channel via YouTube's free oEmbed endpoint.</p>
 <div class="jp-OutputArea-child">
 <div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
 <div class="jp-RenderedHTMLCommon jp-RenderedHTML jp-OutputArea-output" data-mime-type="text/html" tabindex="0">
-<div style="max-height:350px;overflow-y:auto;border:1px solid #ddd;border-radius:4px;padding:4px 8px;"><table border="1" class="dataframe">
+<table border="1" class="dataframe">
 <thead>
 <tr style="text-align: right;">
 <th>title</th>
@@ -11746,8 +11770,8 @@ titles + channel via YouTube's free oEmbed endpoint.</p>
 </thead>
 <tbody>
 <tr>
-<td><a href="https://www.youtube.com/watch?v=rdrKCilEhC0" target="_blank">rdrKCilEhC0</a></td>
-<td>NaN</td>
+<td><a href="https://www.youtube.com/watch?v=rdrKCilEhC0" target="_blank">The Milgram Experiment</a></td>
+<td></td>
 <td>1268</td>
 </tr>
 <tr>
@@ -11776,8 +11800,8 @@ titles + channel via YouTube's free oEmbed endpoint.</p>
 <td>262</td>
 </tr>
 <tr>
-<td><a href="https://www.youtube.com/watch?v=U1Qt6a-vaNM" target="_blank">U1Qt6a-vaNM</a></td>
-<td>NaN</td>
+<td><a href="https://www.youtube.com/watch?v=U1Qt6a-vaNM" target="_blank">JFK to 911: Everything Is A Rich Man's Trick</a></td>
+<td>Everything Is A Rich Man's Trick</td>
 <td>256</td>
 </tr>
 <tr>
@@ -11821,7 +11845,7 @@ titles + channel via YouTube's free oEmbed endpoint.</p>
 <td>195</td>
 </tr>
 </tbody>
-</table></div>
+</table>
 </div>
 </div>
 </div>

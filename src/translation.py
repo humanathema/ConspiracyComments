@@ -53,16 +53,55 @@ def translate_pubmed_url(url: str) -> str:
         pass
     return url
 
-def fetch_youtube_metadata(video_id: str) -> dict:
-    """Fetches title + channel name for a YouTube video via the free, keyless oEmbed endpoint."""
+def _clean_youtube_title(raw_title: str) -> str:
+    """Strip the ' - YouTube' suffix and reject generic placeholder titles
+    (deleted/private videos, or a Wayback wrapper page slipping through)."""
+    if not raw_title:
+        return ""
+    title = re.sub(r"\s*-\s*YouTube\s*$", "", raw_title).strip()
+    if title.lower() in ("", "youtube", "wayback machine"):
+        return ""
+    return title
+
+def fetch_youtube_metadata(video_id: str, timeout: float = 5) -> dict:
+    """
+    Fetches title + channel name for a YouTube video via the free, keyless
+    oEmbed endpoint. Falls back to the Wayback Machine for deleted/private
+    videos oEmbed can't resolve -- specifically the mobile
+    (m.youtube.com) URL, since archived desktop YouTube pages are
+    JS-rendered and don't carry the title in static HTML, while archived
+    mobile pages do. Channel name isn't recoverable via this fallback.
+    """
     url = f"https://www.youtube.com/oembed?url=https://www.youtube.com/watch?v={video_id}&format=json"
     try:
-        response = requests.get(url, timeout=5)
+        response = requests.get(url, timeout=timeout)
         if response.status_code == 200:
             data = response.json()
             return {"title": data.get("title", video_id), "channel": data.get("author_name", "")}
-    except Exception as e:
-        print(f"Failed to fetch YouTube video {video_id}: {e}")
+    except Exception:
+        pass
+
+    try:
+        mobile_url = f"https://m.youtube.com/watch?v={video_id}"
+        avail = requests.get(f"http://archive.org/wayback/available?url={mobile_url}", timeout=timeout)
+        if avail.status_code == 200:
+            snapshot = avail.json().get("archived_snapshots", {}).get("closest", {}).get("url")
+            if snapshot:
+                raw_snap_ts = snapshot.split("/web/")[1].split("/")[0]
+                raw_snap_url = snapshot.replace(f"/web/{raw_snap_ts}/", f"/web/{raw_snap_ts}id_/")
+                snap_response = requests.get(
+                    raw_snap_url, timeout=timeout,
+                    headers={"User-Agent": "Mozilla/5.0 (research corpus citation resolver)"}
+                )
+                if snap_response.status_code == 200:
+                    match = re.search(r"<title[^>]*>(.*?)</title>", snap_response.text, re.IGNORECASE | re.DOTALL)
+                    if match:
+                        title = _clean_youtube_title(re.sub(r"\s+", " ", match.group(1)).strip())
+                        if title:
+                            return {"title": title, "channel": ""}
+    except Exception:
+        pass
+
     return {"title": video_id, "channel": ""}
 
 def _extract_title(html: str, url: str) -> str:
