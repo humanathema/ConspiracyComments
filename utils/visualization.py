@@ -227,6 +227,65 @@ def plot_archetype_performance(df_commenters):
     plt.title("The Rhetoric/Adversarial Archetype: Does high-mistrust language yield more social capital?")
     plt.show()
 
+def plot_corpus_size_funnel(raw: int, usable: int, threads: int) -> None:
+    """
+    Corpus-overview bar chart: raw usable comments vs. lexically-scored
+    comments (thread count shown as an annotation since it's a different
+    unit and doesn't belong on the same bar scale).
+    """
+    stages = ['Raw Usable Comments\n(no length filter)', 'Lexically Scored Comments\n(length > 100 chars)']
+    values = [raw, usable]
+
+    plt.figure(figsize=(10, 6))
+    bars = plt.bar(stages, values, color=['#2c3e50', '#e67e22'], width=0.5)
+    for bar, val in zip(bars, values):
+        plt.text(bar.get_x() + bar.get_width() / 2, bar.get_height(),
+                  f"{val:,}", ha='center', va='bottom', fontsize=12, fontweight='bold')
+
+    plt.title(f"Corpus Size After Length Filtering  (across {threads:,} threads)", fontsize=16)
+    plt.ylabel("Comment Count")
+    plt.ylim(0, max(values) * 1.15)
+    plt.tight_layout()
+    plt.show()
+
+
+def plot_monthly_volume(df_monthly) -> None:
+    """
+    Area chart of comment volume per month across the corpus's time range.
+
+    Args:
+        df_monthly: DataFrame with columns ['month', 'n_comments'].
+    """
+    plt.figure(figsize=(14, 6))
+    plt.fill_between(df_monthly['month'], df_monthly['n_comments'], color='#e67e22', alpha=0.3)
+    plt.plot(df_monthly['month'], df_monthly['n_comments'], color='#2c3e50', linewidth=2)
+    plt.title("Comment Volume by Month, Full Corpus", fontsize=16)
+    plt.xlabel("Month")
+    plt.ylabel("Comment Count")
+    every_nth = max(1, len(df_monthly) // 20)
+    plt.gca().set_xticks(df_monthly['month'][::every_nth])
+    plt.xticks(rotation=45, ha='right')
+    plt.tight_layout()
+    plt.show()
+
+
+def plot_upvote_tier_distribution(df_tiers) -> None:
+    """
+    Bar chart of comment count per upvote tier.
+
+    Args:
+        df_tiers: DataFrame with columns ['upvote_tier', 'n'].
+    """
+    plt.figure(figsize=(10, 6))
+    plt.bar(df_tiers['upvote_tier'], df_tiers['n'], color='#2c3e50')
+    plt.title("Comment Distribution Across Upvote Tiers", fontsize=16)
+    plt.xlabel("Upvote Tier")
+    plt.ylabel("Comment Count")
+    plt.yscale('log')
+    plt.tight_layout()
+    plt.show()
+
+
 def plot_zscore_power_users(df_power_users, dim_cols):
     fig, axes = plt.subplots(2, 5, figsize=(22, 12), sharey=True)
     axes = axes.flatten()
