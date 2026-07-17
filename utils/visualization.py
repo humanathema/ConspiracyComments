@@ -128,6 +128,40 @@ def print_query_result(query: str, result_df: pd.DataFrame, title: Optional[str]
     display(result_df)
 
 
+def display_with_links(
+    df: pd.DataFrame,
+    url_col: str,
+    text_col: Optional[str] = None,
+    columns: Optional[list] = None,
+) -> None:
+    """
+    Display a dataframe with `url_col` rendered as a clickable link.
+
+    Args:
+        df: DataFrame to display.
+        url_col: Column holding the URL to link to.
+        text_col: If given, this column's value becomes the clickable
+            link text and `url_col` itself is dropped from the visible
+            table. If omitted, the URL itself is the visible+clickable text.
+        columns: Optional explicit column order/subset for the final
+            visible table (after the link substitution above).
+    """
+    d = df.copy()
+    if text_col:
+        d[text_col] = [
+            f'<a href="{u}" target="_blank">{t}</a>'
+            for u, t in zip(d[url_col], d[text_col])
+        ]
+        if url_col != text_col:
+            d = d.drop(columns=[url_col])
+    else:
+        d[url_col] = d[url_col].apply(lambda u: f'<a href="{u}" target="_blank">{u}</a>')
+
+    if columns:
+        d = d[columns]
+    display(HTML(d.to_html(escape=False, index=False)))
+
+
 import matplotlib.pyplot as plt
 import seaborn as sns
 import numpy as np

@@ -7638,12 +7638,12 @@ details.code-collapse[open] > summary::before { content: "\25BC  "; }
 </div>
 </div>
 </details></div>
-</div><div class="jp-Cell jp-CodeCell jp-Notebook-cell">
+</div><div class="jp-Cell jp-CodeCell jp-Notebook-cell jp-mod-noOutputs">
 <div class="jp-Cell-inputWrapper" tabindex="0"><details class="code-collapse"><summary>Show code</summary>
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
 <div class="jp-InputArea jp-Cell-inputArea">
-<div class="jp-InputPrompt jp-InputArea-prompt">In [1]:</div>
+<div class="jp-InputPrompt jp-InputArea-prompt">In [ ]:</div>
 <div class="jp-CodeMirrorEditor jp-Editor jp-InputArea-editor" data-type="inline">
 <div class="cm-editor cm-s-jupyter">
 <div class="highlight hl-ipython3"><pre><span></span><span class="kn">import</span><span class="w"> </span><span class="nn">re</span>
@@ -7659,6 +7659,7 @@ details.code-collapse[open] > summary::before { content: "\25BC  "; }
 <span class="kn">from</span><span class="w"> </span><span class="nn">src.translation</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
     <span class="n">fetch_pubmed_metadata</span><span class="p">,</span> <span class="n">translate_wikipedia_url</span><span class="p">,</span>
     <span class="n">fetch_youtube_metadata</span><span class="p">,</span> <span class="n">fetch_article_title</span><span class="p">,</span>
+    <span class="n">fetch_article_titles_batch</span><span class="p">,</span> <span class="n">resolve_titles_with_reddit_first</span><span class="p">,</span>
 <span class="p">)</span>
 
 <span class="c1"># --- File paths (all outputs live under BASE) ---</span>
@@ -7706,32 +7707,6 @@ details.code-collapse[open] > summary::before { content: "\25BC  "; }
 </div>
 </div>
 </details></div>
-<div class="jp-Cell-outputWrapper">
-<div class="jp-Collapser jp-OutputCollapser jp-Cell-outputCollapser">
-</div>
-<div class="jp-OutputArea jp-Cell-outputArea">
-<div class="jp-OutputArea-child">
-<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
-<div class="jp-RenderedHTMLCommon jp-RenderedHTML jp-OutputArea-output" data-mime-type="text/html" tabindex="0">
-<style>
-    .dataframe td {
-        white-space: normal !important;
-        word-wrap: break-word;
-        max-width: 300px;
-    }
-    .dataframe th { max-width: 300px; }
-</style>
-</div>
-</div>
-<div class="jp-OutputArea-child">
-<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
-<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="text/plain" tabindex="0">
-<pre>Ready.
-</pre>
-</div>
-</div>
-</div>
-</div>
 </div>
 <div class="jp-Cell jp-MarkdownCell jp-Notebook-cell">
 <div class="jp-Cell-inputWrapper" tabindex="0">
@@ -10791,13 +10766,12 @@ weighted avg       0.93      0.93      0.93       294
 <span class="s2">"""</span>
 
 <span class="k">def</span><span class="w"> </span><span class="nf">_resolve_wiki_titles</span><span class="p">(</span><span class="n">df</span><span class="p">):</span>
-    <span class="n">df</span><span class="p">[</span><span class="s1">'title'</span><span class="p">]</span> <span class="o">=</span> <span class="n">df</span><span class="p">[</span><span class="s1">'wiki_slug'</span><span class="p">]</span><span class="o">.</span><span class="n">apply</span><span class="p">(</span>
-        <span class="k">lambda</span> <span class="n">slug</span><span class="p">:</span> <span class="n">translate_wikipedia_url</span><span class="p">(</span><span class="sa">f</span><span class="s1">'https://en.wikipedia.org/wiki/</span><span class="si">{</span><span class="n">slug</span><span class="si">}</span><span class="s1">'</span><span class="p">)</span>
-    <span class="p">)</span>
-    <span class="k">return</span> <span class="n">df</span><span class="p">[[</span><span class="s1">'wiki_slug'</span><span class="p">,</span> <span class="s1">'title'</span><span class="p">,</span> <span class="s1">'reference_count'</span><span class="p">]]</span>
+    <span class="n">df</span><span class="p">[</span><span class="s1">'url'</span><span class="p">]</span> <span class="o">=</span> <span class="s1">'https://en.wikipedia.org/wiki/'</span> <span class="o">+</span> <span class="n">df</span><span class="p">[</span><span class="s1">'wiki_slug'</span><span class="p">]</span>
+    <span class="n">df</span><span class="p">[</span><span class="s1">'title'</span><span class="p">]</span> <span class="o">=</span> <span class="n">df</span><span class="p">[</span><span class="s1">'url'</span><span class="p">]</span><span class="o">.</span><span class="n">apply</span><span class="p">(</span><span class="n">translate_wikipedia_url</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">df</span><span class="p">[[</span><span class="s1">'wiki_slug'</span><span class="p">,</span> <span class="s1">'title'</span><span class="p">,</span> <span class="s1">'reference_count'</span><span class="p">,</span> <span class="s1">'url'</span><span class="p">]]</span>
 
 <span class="n">df_wiki</span> <span class="o">=</span> <span class="n">cached_query_csv</span><span class="p">(</span><span class="n">con</span><span class="p">,</span> <span class="n">BASE</span> <span class="o">+</span> <span class="s1">'top_wikipedia_canon.csv'</span><span class="p">,</span> <span class="n">wiki_query</span><span class="p">,</span> <span class="n">postprocess</span><span class="o">=</span><span class="n">_resolve_wiki_titles</span><span class="p">)</span>
-<span class="n">display</span><span class="p">(</span><span class="n">df_wiki</span><span class="p">)</span>
+<span class="n">viz</span><span class="o">.</span><span class="n">display_with_links</span><span class="p">(</span><span class="n">df_wiki</span><span class="p">,</span> <span class="n">url_col</span><span class="o">=</span><span class="s1">'url'</span><span class="p">,</span> <span class="n">text_col</span><span class="o">=</span><span class="s1">'title'</span><span class="p">,</span> <span class="n">columns</span><span class="o">=</span><span class="p">[</span><span class="s1">'title'</span><span class="p">,</span> <span class="s1">'reference_count'</span><span class="p">])</span>
 </pre></div>
 </div>
 </div>
@@ -10806,11 +10780,11 @@ weighted avg       0.93      0.93      0.93       294
 <div class="jp-Cell-outputWrapper">
 <div class="jp-Collapser jp-OutputCollapser jp-Cell-outputCollapser">
 </div>
-<div class="jp-OutputArea jp-Cell-outputArea" style="max-height:350px;overflow-y:auto;border:1px solid #ddd;border-radius:4px;padding:4px 8px;">
+<div class="jp-OutputArea jp-Cell-outputArea">
 <div class="jp-OutputArea-child">
 <div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
 <div class="jp-RenderedText jp-OutputArea-output" data-mime-type="text/plain" tabindex="0">
-<pre>Loading cached result from /Users/nash/Projects/ConspiracyComments/data/processed/top_wikipedia_canon.csv
+<pre>Cache miss — running query and caching to /Users/nash/Projects/ConspiracyComments/data/processed/top_wikipedia_canon.csv
 </pre>
 </div>
 </div>
@@ -10819,221 +10793,150 @@ weighted avg       0.93      0.93      0.93       294
 <div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
 <pre>&lt;&gt;:16: SyntaxWarning: invalid escape sequence '\s'
 &lt;&gt;:16: SyntaxWarning: invalid escape sequence '\s'
-/var/folders/ym/6mr3ypl97rj6468b4m65lq240000gp/T/ipykernel_94668/3855553391.py:16: SyntaxWarning: invalid escape sequence '\s'
+/var/folders/ym/6mr3ypl97rj6468b4m65lq240000gp/T/ipykernel_96119/3187427196.py:16: SyntaxWarning: invalid escape sequence '\s'
   def _resolve_wiki_titles(df):
 </pre>
 </div>
 </div>
 <div class="jp-OutputArea-child">
 <div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
+<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="text/plain" tabindex="0">
+<pre>FloatProgress(value=0.0, layout=Layout(width='auto'), style=ProgressStyle(bar_color='black'))</pre>
+</div>
+</div>
+<div class="jp-OutputArea-child">
+<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
 <div class="jp-RenderedHTMLCommon jp-RenderedHTML jp-OutputArea-output" data-mime-type="text/html" tabindex="0">
-<div style="max-height:350px;overflow-y:auto;border:1px solid #ddd;border-radius:4px;padding:4px 8px;"><div>
-<style scoped="">
-    .dataframe tbody tr th:only-of-type {
-        vertical-align: middle;
-    }
-
-    .dataframe tbody tr th {
-        vertical-align: top;
-    }
-
-    .dataframe thead th {
-        text-align: right;
-    }
-</style>
-<table border="1" class="dataframe">
+<div style="max-height:350px;overflow-y:auto;border:1px solid #ddd;border-radius:4px;padding:4px 8px;"><table border="1" class="dataframe">
 <thead>
 <tr style="text-align: right;">
-<th></th>
-<th>wiki_slug</th>
 <th>title</th>
 <th>reference_count</th>
 </tr>
 </thead>
 <tbody>
 <tr>
-<th>0</th>
-<td>Stockholm_syndrome</td>
-<td>Stockholm syndrome</td>
+<td><a href="https://en.wikipedia.org/wiki/Stockholm_syndrome" target="_blank">Stockholm syndrome</a></td>
 <td>1733</td>
 </tr>
 <tr>
-<th>1</th>
-<td>Operation_Mockingbird</td>
-<td>Operation Mockingbird</td>
+<td><a href="https://en.wikipedia.org/wiki/Operation_Mockingbird" target="_blank">Operation Mockingbird</a></td>
 <td>691</td>
 </tr>
 <tr>
-<th>2</th>
-<td>Operation_Northwoods</td>
-<td>Operation Northwoods</td>
+<td><a href="https://en.wikipedia.org/wiki/Operation_Northwoods" target="_blank">Operation Northwoods</a></td>
 <td>533</td>
 </tr>
 <tr>
-<th>3</th>
-<td>Haavara_Agreement</td>
-<td>Haavara Agreement</td>
+<td><a href="https://en.wikipedia.org/wiki/Haavara_Agreement" target="_blank">Haavara Agreement</a></td>
 <td>405</td>
 </tr>
 <tr>
-<th>4</th>
-<td>Consumerism</td>
-<td>Consumerism</td>
+<td><a href="https://en.wikipedia.org/wiki/Consumerism" target="_blank">Consumerism</a></td>
 <td>360</td>
 </tr>
 <tr>
-<th>5</th>
-<td>New_York_Stock_Exchange</td>
-<td>New York Stock Exchange</td>
+<td><a href="https://en.wikipedia.org/wiki/New_York_Stock_Exchange" target="_blank">New York Stock Exchange</a></td>
 <td>347</td>
 </tr>
 <tr>
-<th>6</th>
-<td>Reality_tunnel</td>
-<td>Reality tunnel</td>
+<td><a href="https://en.wikipedia.org/wiki/Reality_tunnel" target="_blank">Reality tunnel</a></td>
 <td>334</td>
 </tr>
 <tr>
-<th>7</th>
-<td>COINTELPRO</td>
-<td>COINTELPRO</td>
+<td><a href="https://en.wikipedia.org/wiki/COINTELPRO" target="_blank">COINTELPRO</a></td>
 <td>313</td>
 </tr>
 <tr>
-<th>8</th>
-<td>Operation_Paperclip</td>
-<td>Operation Paperclip</td>
+<td><a href="https://en.wikipedia.org/wiki/Operation_Paperclip" target="_blank">Operation Paperclip</a></td>
 <td>299</td>
 </tr>
 <tr>
-<th>9</th>
-<td>Donald_Trump_sexual_misconduct_allegations</td>
-<td>Donald Trump sexual misconduct allegations</td>
+<td><a href="https://en.wikipedia.org/wiki/Donald_Trump_sexual_misconduct_allegations" target="_blank">Donald Trump sexual misconduct allegations</a></td>
 <td>296</td>
 </tr>
 <tr>
-<th>10</th>
-<td>Unethical_human_experimentation_in_the_United_States</td>
-<td>Unethical human experimentation in the United States</td>
+<td><a href="https://en.wikipedia.org/wiki/Unethical_human_experimentation_in_the_United_States" target="_blank">Unethical human experimentation in the United States</a></td>
 <td>289</td>
 </tr>
 <tr>
-<th>11</th>
-<td>Foundations_of_Geopolitics</td>
-<td>Foundations of Geopolitics</td>
+<td><a href="https://en.wikipedia.org/wiki/Foundations_of_Geopolitics" target="_blank">Foundations of Geopolitics</a></td>
 <td>285</td>
 </tr>
 <tr>
-<th>12</th>
-<td>Project_for_the_New_American_Century</td>
-<td>Project for the New American Century</td>
+<td><a href="https://en.wikipedia.org/wiki/Project_for_the_New_American_Century" target="_blank">Project for the New American Century</a></td>
 <td>284</td>
 </tr>
 <tr>
-<th>13</th>
-<td>2019_Military_World_Games</td>
-<td>2019 Military World Games</td>
+<td><a href="https://en.wikipedia.org/wiki/2019_Military_World_Games" target="_blank">2019 Military World Games</a></td>
 <td>278</td>
 </tr>
 <tr>
-<th>14</th>
-<td>Et_cetera</td>
-<td>Et cetera</td>
+<td><a href="https://en.wikipedia.org/wiki/Et_cetera" target="_blank">Et cetera</a></td>
 <td>276</td>
 </tr>
 <tr>
-<th>15</th>
-<td>Operation_Popeye</td>
-<td>Operation Popeye</td>
+<td><a href="https://en.wikipedia.org/wiki/Operation_Popeye" target="_blank">Operation Popeye</a></td>
 <td>275</td>
 </tr>
 <tr>
-<th>16</th>
-<td>Project_MKUltra</td>
-<td>Project MKUltra</td>
+<td><a href="https://en.wikipedia.org/wiki/Project_MKUltra" target="_blank">Project MKUltra</a></td>
 <td>269</td>
 </tr>
 <tr>
-<th>17</th>
-<td>List_of_suicide_crisis_lines</td>
-<td>List of suicide crisis lines</td>
+<td><a href="https://en.wikipedia.org/wiki/List_of_suicide_crisis_lines" target="_blank">List of suicide crisis lines</a></td>
 <td>245</td>
 </tr>
 <tr>
-<th>18</th>
-<td>Mahatma_Gandhi</td>
-<td>Mahatma Gandhi</td>
+<td><a href="https://en.wikipedia.org/wiki/Mahatma_Gandhi" target="_blank">Mahatma Gandhi</a></td>
 <td>244</td>
 </tr>
 <tr>
-<th>19</th>
-<td>Anne,_Queen_of_Great_Britain</td>
-<td>Anne, Queen of Great Britain</td>
+<td><a href="https://en.wikipedia.org/wiki/Queen_of_the_United_Kingdom" target="_blank">Queen of the United Kingdom</a></td>
 <td>212</td>
 </tr>
 <tr>
-<th>20</th>
-<td>Queen_of_the_United_Kingdom</td>
-<td>Queen of the United Kingdom</td>
+<td><a href="https://en.wikipedia.org/wiki/Anne,_Queen_of_Great_Britain" target="_blank">Anne, Queen of Great Britain</a></td>
 <td>212</td>
 </tr>
 <tr>
-<th>21</th>
-<td>Operation_Earnest_Voice</td>
-<td>Operation Earnest Voice</td>
+<td><a href="https://en.wikipedia.org/wiki/Operation_Earnest_Voice" target="_blank">Operation Earnest Voice</a></td>
 <td>201</td>
 </tr>
 <tr>
-<th>22</th>
-<td>USS_Liberty_incident</td>
-<td>USS Liberty incident</td>
+<td><a href="https://en.wikipedia.org/wiki/USS_Liberty_incident" target="_blank">USS Liberty incident</a></td>
 <td>198</td>
 </tr>
 <tr>
-<th>23</th>
-<td>A_Clean_Break:_A_New_Strategy_for_Securing_the_Realm</td>
-<td>A Clean Break: A New Strategy for Securing the Realm</td>
+<td><a href="https://en.wikipedia.org/wiki/A_Clean_Break:_A_New_Strategy_for_Securing_the_Realm" target="_blank">A Clean Break: A New Strategy for Securing the Realm</a></td>
 <td>191</td>
 </tr>
 <tr>
-<th>24</th>
-<td>Criticism_of_the_Food_and_Drug_Administration</td>
-<td>Criticism of the Food and Drug Administration</td>
+<td><a href="https://en.wikipedia.org/wiki/Criticism_of_the_Food_and_Drug_Administration" target="_blank">Criticism of the Food and Drug Administration</a></td>
 <td>185</td>
 </tr>
 <tr>
-<th>25</th>
-<td>Cloud_seeding</td>
-<td>Cloud seeding</td>
+<td><a href="https://en.wikipedia.org/wiki/Cloud_seeding" target="_blank">Cloud seeding</a></td>
 <td>183</td>
 </tr>
 <tr>
-<th>26</th>
-<td>Georgia_Guidestones</td>
-<td>Georgia Guidestones</td>
+<td><a href="https://en.wikipedia.org/wiki/Georgia_Guidestones" target="_blank">Georgia Guidestones</a></td>
 <td>179</td>
 </tr>
 <tr>
-<th>27</th>
-<td>Lavon_Affair</td>
-<td>Lavon Affair</td>
+<td><a href="https://en.wikipedia.org/wiki/Lavon_Affair" target="_blank">Lavon Affair</a></td>
 <td>179</td>
 </tr>
 <tr>
-<th>28</th>
-<td>Monarchy_of_Australia</td>
-<td>Monarchy of Australia</td>
+<td><a href="https://en.wikipedia.org/wiki/Monarchy_of_Australia" target="_blank">Monarchy of Australia</a></td>
 <td>174</td>
 </tr>
 <tr>
-<th>29</th>
-<td>Monarchy_of_Canada</td>
-<td>Monarchy of Canada</td>
+<td><a href="https://en.wikipedia.org/wiki/Monarchy_of_Canada" target="_blank">Monarchy of Canada</a></td>
 <td>174</td>
 </tr>
 </tbody>
-</table>
-</div></div>
+</table></div>
 </div>
 </div>
 </div>
@@ -11070,10 +10973,11 @@ weighted avg       0.93      0.93      0.93       294
         <span class="n">time</span><span class="o">.</span><span class="n">sleep</span><span class="p">(</span><span class="mf">0.34</span><span class="p">)</span>  <span class="c1"># respect NCBI rate limits</span>
     <span class="n">df</span><span class="p">[</span><span class="s1">'title'</span><span class="p">]</span> <span class="o">=</span> <span class="n">titles</span>
     <span class="n">df</span><span class="p">[</span><span class="s1">'authors'</span><span class="p">]</span> <span class="o">=</span> <span class="n">authors</span>
-    <span class="k">return</span> <span class="n">df</span><span class="p">[[</span><span class="s1">'pubmed_id'</span><span class="p">,</span> <span class="s1">'title'</span><span class="p">,</span> <span class="s1">'authors'</span><span class="p">,</span> <span class="s1">'reference_count'</span><span class="p">]]</span>
+    <span class="n">df</span><span class="p">[</span><span class="s1">'url'</span><span class="p">]</span> <span class="o">=</span> <span class="s1">'https://pubmed.ncbi.nlm.nih.gov/'</span> <span class="o">+</span> <span class="n">df</span><span class="p">[</span><span class="s1">'pubmed_id'</span><span class="p">]</span><span class="o">.</span><span class="n">astype</span><span class="p">(</span><span class="nb">str</span><span class="p">)</span> <span class="o">+</span> <span class="s1">'/'</span>
+    <span class="k">return</span> <span class="n">df</span><span class="p">[[</span><span class="s1">'pubmed_id'</span><span class="p">,</span> <span class="s1">'title'</span><span class="p">,</span> <span class="s1">'authors'</span><span class="p">,</span> <span class="s1">'reference_count'</span><span class="p">,</span> <span class="s1">'url'</span><span class="p">]]</span>
 
 <span class="n">df_pubmed</span> <span class="o">=</span> <span class="n">cached_query_csv</span><span class="p">(</span><span class="n">con</span><span class="p">,</span> <span class="n">BASE</span> <span class="o">+</span> <span class="s1">'top_pubmed_studies.csv'</span><span class="p">,</span> <span class="n">pubmed_query</span><span class="p">,</span> <span class="n">postprocess</span><span class="o">=</span><span class="n">_resolve_pubmed_metadata</span><span class="p">)</span>
-<span class="n">display</span><span class="p">(</span><span class="n">df_pubmed</span><span class="p">)</span>
+<span class="n">viz</span><span class="o">.</span><span class="n">display_with_links</span><span class="p">(</span><span class="n">df_pubmed</span><span class="p">,</span> <span class="n">url_col</span><span class="o">=</span><span class="s1">'url'</span><span class="p">,</span> <span class="n">text_col</span><span class="o">=</span><span class="s1">'title'</span><span class="p">,</span> <span class="n">columns</span><span class="o">=</span><span class="p">[</span><span class="s1">'title'</span><span class="p">,</span> <span class="s1">'authors'</span><span class="p">,</span> <span class="s1">'reference_count'</span><span class="p">])</span>
 </pre></div>
 </div>
 </div>
@@ -11086,32 +10990,22 @@ weighted avg       0.93      0.93      0.93       294
 <div class="jp-OutputArea-child">
 <div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
 <div class="jp-RenderedText jp-OutputArea-output" data-mime-type="text/plain" tabindex="0">
-<pre>Loading cached result from /Users/nash/Projects/ConspiracyComments/data/processed/top_pubmed_studies.csv
+<pre>Cache miss — running query and caching to /Users/nash/Projects/ConspiracyComments/data/processed/top_pubmed_studies.csv
 </pre>
 </div>
 </div>
 <div class="jp-OutputArea-child">
 <div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
+<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="text/plain" tabindex="0">
+<pre>FloatProgress(value=0.0, layout=Layout(width='auto'), style=ProgressStyle(bar_color='black'))</pre>
+</div>
+</div>
+<div class="jp-OutputArea-child">
+<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
 <div class="jp-RenderedHTMLCommon jp-RenderedHTML jp-OutputArea-output" data-mime-type="text/html" tabindex="0">
-<div style="max-height:350px;overflow-y:auto;border:1px solid #ddd;border-radius:4px;padding:4px 8px;"><div>
-<style scoped="">
-    .dataframe tbody tr th:only-of-type {
-        vertical-align: middle;
-    }
-
-    .dataframe tbody tr th {
-        vertical-align: top;
-    }
-
-    .dataframe thead th {
-        text-align: right;
-    }
-</style>
-<table border="1" class="dataframe">
+<div style="max-height:350px;overflow-y:auto;border:1px solid #ddd;border-radius:4px;padding:4px 8px;"><table border="1" class="dataframe">
 <thead>
 <tr style="text-align: right;">
-<th></th>
-<th>pubmed_id</th>
 <th>title</th>
 <th>authors</th>
 <th>reference_count</th>
@@ -11119,218 +11013,157 @@ weighted avg       0.93      0.93      0.93       294
 </thead>
 <tbody>
 <tr>
-<th>0</th>
-<td>12145534</td>
-<td>Abnormal measles-mumps-rubella antibodies and CNS autoimmunity in children with autism.</td>
+<td><a href="https://pubmed.ncbi.nlm.nih.gov/12145534/" target="_blank">Abnormal measles-mumps-rubella antibodies and CNS autoimmunity in children with autism.</a></td>
 <td>Singh VK, Lin SX, Newell E, Nelson C</td>
 <td>195</td>
 </tr>
 <tr>
-<th>1</th>
-<td>21623535</td>
-<td>A positive association found between autism prevalence and childhood vaccination uptake across the U.S. population.</td>
+<td><a href="https://pubmed.ncbi.nlm.nih.gov/21623535/" target="_blank">A positive association found between autism prevalence and childhood vaccination uptake across the U.S. population.</a></td>
 <td>Delong G</td>
 <td>187</td>
 </tr>
 <tr>
-<th>2</th>
-<td>17454560</td>
-<td>A case series of children with apparent mercury toxic encephalopathies manifesting with clinical symptoms of regressive autistic disorders.</td>
+<td><a href="https://pubmed.ncbi.nlm.nih.gov/17454560/" target="_blank">A case series of children with apparent mercury toxic encephalopathies manifesting with clinical symptoms of regressive autistic disorders.</a></td>
 <td>Geier DA, Geier MR</td>
 <td>164</td>
 </tr>
 <tr>
-<th>3</th>
-<td>21058170</td>
-<td>Hepatitis B vaccination of male neonates and autism diagnosis, NHIS 1997-2002.</td>
+<td><a href="https://pubmed.ncbi.nlm.nih.gov/21058170/" target="_blank">Hepatitis B vaccination of male neonates and autism diagnosis, NHIS 1997-2002.</a></td>
 <td>Gallagher CM, Goodman MS</td>
 <td>155</td>
 </tr>
 <tr>
-<th>4</th>
-<td>21993250</td>
-<td>Hypothesis: conjugate vaccines may predispose children to autism spectrum disorders.</td>
+<td><a href="https://pubmed.ncbi.nlm.nih.gov/21993250/" target="_blank">Hypothesis: conjugate vaccines may predispose children to autism spectrum disorders.</a></td>
 <td>Richmand BJ</td>
 <td>141</td>
 </tr>
 <tr>
-<th>5</th>
-<td>11339848</td>
-<td>Autism: a novel form of mercury poisoning.</td>
+<td><a href="https://pubmed.ncbi.nlm.nih.gov/11339848/" target="_blank">Autism: a novel form of mercury poisoning.</a></td>
 <td>Bernard S, Enayati A, Redwood L, Roger H, Binstock T</td>
 <td>130</td>
 </tr>
 <tr>
-<th>6</th>
-<td>17114826</td>
-<td>Aluminum adjuvant linked to Gulf War illness induces motor neuron death in mice.</td>
+<td><a href="https://pubmed.ncbi.nlm.nih.gov/17114826/" target="_blank">Aluminum adjuvant linked to Gulf War illness induces motor neuron death in mice.</a></td>
 <td>Petrik MS, Wong MC, Tabata RC, Garry RF, Shaw CA</td>
 <td>123</td>
 </tr>
 <tr>
-<th>7</th>
-<td>12933322</td>
-<td>Reduced levels of mercury in first baby haircuts of autistic children.</td>
+<td><a href="https://pubmed.ncbi.nlm.nih.gov/12933322/" target="_blank">Reduced levels of mercury in first baby haircuts of autistic children.</a></td>
 <td>Holmes AS, Blaxill MF, Haley BE</td>
 <td>107</td>
 </tr>
 <tr>
-<th>8</th>
-<td>22099159</td>
-<td>Do aluminum vaccine adjuvants contribute to the rising prevalence of autism?</td>
+<td><a href="https://pubmed.ncbi.nlm.nih.gov/22099159/" target="_blank">Do aluminum vaccine adjuvants contribute to the rising prevalence of autism?</a></td>
 <td>Tomljenovic L, Shaw CA</td>
 <td>105</td>
 </tr>
 <tr>
-<th>9</th>
-<td>12849883</td>
-<td>Elevated levels of measles antibodies in children with autism.</td>
+<td><a href="https://pubmed.ncbi.nlm.nih.gov/12849883/" target="_blank">Elevated levels of measles antibodies in children with autism.</a></td>
 <td>Singh VK, Jensen RL</td>
 <td>102</td>
 </tr>
 <tr>
-<th>10</th>
-<td>22591873</td>
-<td>Polio programme: let us declare victory and move on.</td>
+<td><a href="https://pubmed.ncbi.nlm.nih.gov/22591873/" target="_blank">Polio programme: let us declare victory and move on.</a></td>
 <td>Vashisht N, Puliyel J</td>
 <td>99</td>
 </tr>
 <tr>
-<th>11</th>
-<td>21299355</td>
-<td>Theoretical aspects of autism: causes--a review.</td>
+<td><a href="https://pubmed.ncbi.nlm.nih.gov/21299355/" target="_blank">Theoretical aspects of autism: causes--a review.</a></td>
 <td>Ratajczak HV</td>
 <td>98</td>
 </tr>
 <tr>
-<th>12</th>
-<td>25377033</td>
-<td>Commentary--Controversies surrounding mercury in vaccines: autism denial as impediment to universal immunisation.</td>
-<td>Chhawchharia R, Puliyel JM</td>
-<td>96</td>
-</tr>
-<tr>
-<th>13</th>
-<td>19106436</td>
-<td>A comprehensive review of mercury provoked autism.</td>
+<td><a href="https://pubmed.ncbi.nlm.nih.gov/19106436/" target="_blank">A comprehensive review of mercury provoked autism.</a></td>
 <td>Geier DA, King PG, Sykes LK, Geier MR</td>
 <td>96</td>
 </tr>
 <tr>
-<th>14</th>
-<td>17674242</td>
-<td>A prospective study of thimerosal-containing Rho(D)-immune globulin administration as a risk factor for autistic disorders.</td>
+<td><a href="https://pubmed.ncbi.nlm.nih.gov/25377033/" target="_blank">Commentary--Controversies surrounding mercury in vaccines: autism denial as impediment to universal immunisation.</a></td>
+<td>Chhawchharia R, Puliyel JM</td>
+<td>96</td>
+</tr>
+<tr>
+<td><a href="https://pubmed.ncbi.nlm.nih.gov/17674242/" target="_blank">A prospective study of thimerosal-containing Rho(D)-immune globulin administration as a risk factor for autistic disorders.</a></td>
 <td>Geier DA, Geier MR</td>
 <td>95</td>
 </tr>
 <tr>
-<th>15</th>
-<td>23902317</td>
-<td>Human papilloma virus vaccine and primary ovarian failure: another facet of the autoimmune/inflammatory syndrome induced by adjuvants.</td>
+<td><a href="https://pubmed.ncbi.nlm.nih.gov/23902317/" target="_blank">Human papilloma virus vaccine and primary ovarian failure: another facet of the autoimmune/inflammatory syndrome induced by adjuvants.</a></td>
 <td>Colafrancesco S, Perricone C, Tomljenovic L, Shoenfeld Y</td>
 <td>95</td>
 </tr>
 <tr>
-<th>16</th>
-<td>19043938</td>
-<td>A possible central mechanism in autism spectrum disorders, part 1.</td>
+<td><a href="https://pubmed.ncbi.nlm.nih.gov/19043938/" target="_blank">A possible central mechanism in autism spectrum disorders, part 1.</a></td>
 <td>Blaylock RL</td>
 <td>95</td>
 </tr>
 <tr>
-<th>17</th>
-<td>15780490</td>
-<td>The potential importance of steroids in the treatment of autistic spectrum disorders and other disorders involving mercury toxicity.</td>
+<td><a href="https://pubmed.ncbi.nlm.nih.gov/15780490/" target="_blank">The potential importance of steroids in the treatment of autistic spectrum disorders and other disorders involving mercury toxicity.</a></td>
 <td>Geier MR, Geier DA</td>
 <td>94</td>
 </tr>
 <tr>
-<th>18</th>
-<td>24675092</td>
-<td>Transcriptomic analyses of neurotoxic effects in mouse brain after intermittent neonatal administration of thimerosal.</td>
+<td><a href="https://pubmed.ncbi.nlm.nih.gov/24675092/" target="_blank">Transcriptomic analyses of neurotoxic effects in mouse brain after intermittent neonatal administration of thimerosal.</a></td>
 <td>Li X, Qu F, Xie W, Wang F, Liu H, Song S, Chen T, Zhang Y, Zhu S, Wang Y, Guo C, Tang TS</td>
 <td>94</td>
 </tr>
 <tr>
-<th>19</th>
-<td>16870260</td>
-<td>Cultured lymphocytes from autistic children and non-autistic siblings up-regulate heat shock protein RNA in response to thimerosal challenge.</td>
+<td><a href="https://pubmed.ncbi.nlm.nih.gov/16870260/" target="_blank">Cultured lymphocytes from autistic children and non-autistic siblings up-regulate heat shock protein RNA in response to thimerosal challenge.</a></td>
 <td>Walker SJ, Segal J, Aschner M</td>
 <td>93</td>
 </tr>
 <tr>
-<th>20</th>
-<td>12142947</td>
-<td>The role of mercury in the pathogenesis of autism.</td>
+<td><a href="https://pubmed.ncbi.nlm.nih.gov/12142947/" target="_blank">The role of mercury in the pathogenesis of autism.</a></td>
 <td>Bernard S, Enayati A, Roger H, Binstock T, Redwood L</td>
 <td>91</td>
 </tr>
 <tr>
-<th>21</th>
-<td>21907498</td>
-<td>Conjugate vaccines and autism.</td>
+<td><a href="https://pubmed.ncbi.nlm.nih.gov/21907498/" target="_blank">Conjugate vaccines and autism.</a></td>
 <td>Rose NR</td>
 <td>89</td>
 </tr>
 <tr>
-<th>22</th>
-<td>24995277</td>
-<td>Methodological issues and evidence of malfeasance in research purporting to show thimerosal in vaccines is safe.</td>
+<td><a href="https://pubmed.ncbi.nlm.nih.gov/24995277/" target="_blank">Methodological issues and evidence of malfeasance in research purporting to show thimerosal in vaccines is safe.</a></td>
 <td>Hooker B, Kern J, Geier D, Haley B, Sykes L, King P, Geier M</td>
 <td>84</td>
 </tr>
 <tr>
-<th>23</th>
-<td>18445737</td>
-<td>Acetaminophen (paracetamol) use, measles-mumps-rubella vaccination, and autistic disorder: the results of a parent survey.</td>
+<td><a href="https://pubmed.ncbi.nlm.nih.gov/18445737/" target="_blank">Acetaminophen (paracetamol) use, measles-mumps-rubella vaccination, and autistic disorder: the results of a parent survey.</a></td>
 <td>Schultz ST, Klonoff-Cohen HS, Wingard DL, Akshoomoff NA, Macera CA, Ji M</td>
 <td>67</td>
 </tr>
 <tr>
-<th>24</th>
-<td>25198681</td>
-<td>A dose-response relationship between organic mercury exposure from thimerosal-containing vaccines and neurodevelopmental disorders.</td>
+<td><a href="https://pubmed.ncbi.nlm.nih.gov/25198681/" target="_blank">A dose-response relationship between organic mercury exposure from thimerosal-containing vaccines and neurodevelopmental disorders.</a></td>
 <td>Geier DA, Hooker BS, Kern JK, King PG, Sykes LK, Geier MR</td>
 <td>51</td>
 </tr>
 <tr>
-<th>25</th>
-<td>18454680</td>
-<td>Genetic basis for adverse events after smallpox vaccination.</td>
+<td><a href="https://pubmed.ncbi.nlm.nih.gov/18454680/" target="_blank">Genetic basis for adverse events after smallpox vaccination.</a></td>
 <td>Reif DM, McKinney BA, Motsinger AA, Chanock SJ, Edwards KM, Rock MT, Moore JH, Crowe JE</td>
 <td>49</td>
 </tr>
 <tr>
-<th>26</th>
-<td>23932735</td>
-<td>Administration of aluminium to neonatal mice in vaccine-relevant amounts is associated with adverse long term neurological outcomes.</td>
+<td><a href="https://pubmed.ncbi.nlm.nih.gov/23932735/" target="_blank">Administration of aluminium to neonatal mice in vaccine-relevant amounts is associated with adverse long term neurological outcomes.</a></td>
 <td>Shaw CA, Li Y, Tomljenovic L</td>
 <td>47</td>
 </tr>
 <tr>
-<th>27</th>
-<td>24791031</td>
-<td>Genetic and Environmental Influences of General Cognitive Ability: Is g a valid latent construct?</td>
+<td><a href="https://pubmed.ncbi.nlm.nih.gov/24791031/" target="_blank">Genetic and Environmental Influences of General Cognitive Ability: Is g a valid latent construct?</a></td>
 <td>Panizzon MS, Vuoksimaa E, Spoon KM, Jacobson KC, Lyons MJ, Franz CE, Xian H, Vasilopoulos T, Kremen WS</td>
 <td>45</td>
 </tr>
 <tr>
-<th>28</th>
-<td>17952650</td>
-<td>Cannabinoids and gliomas.</td>
-<td>Velasco G, Carracedo A, Blázquez C, Lorente M, Aguado T, Haro A, Sánchez C, Galve-Roperh I, Guzmán M</td>
-<td>44</td>
-</tr>
-<tr>
-<th>29</th>
-<td>19916793</td>
-<td>The dual effects of delta(9)-tetrahydrocannabinol on cholangiocarcinoma cells: anti-invasion activity at low concentration and apoptosis induction at high concentration.</td>
+<td><a href="https://pubmed.ncbi.nlm.nih.gov/19916793/" target="_blank">The dual effects of delta(9)-tetrahydrocannabinol on cholangiocarcinoma cells: anti-invasion activity at low concentration and apoptosis induction at high concentration.</a></td>
 <td>Leelawat S, Leelawat K, Narong S, Matangkasombut O</td>
 <td>44</td>
 </tr>
+<tr>
+<td><a href="https://pubmed.ncbi.nlm.nih.gov/17952650/" target="_blank">Cannabinoids and gliomas.</a></td>
+<td>Velasco G, Carracedo A, Blázquez C, Lorente M, Aguado T, Haro A, Sánchez C, Galve-Roperh I, Guzmán M</td>
+<td>44</td>
+</tr>
 </tbody>
-</table>
-</div></div>
+</table></div>
 </div>
 </div>
 </div>
@@ -11417,6 +11250,65 @@ specific leaked documents -- rather than stopping at the domain.</p>
 </div>
 </div>
 </div>
+</div><div class="jp-Cell jp-CodeCell jp-Notebook-cell">
+<div class="jp-Cell-inputWrapper" tabindex="0"><details class="code-collapse"><summary>Show code</summary>
+<div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
+</div>
+<div class="jp-InputArea jp-Cell-inputArea">
+<div class="jp-InputPrompt jp-InputArea-prompt">In [3]:</div>
+<div class="jp-CodeMirrorEditor jp-Editor jp-InputArea-editor" data-type="inline">
+<div class="cm-editor cm-s-jupyter">
+<div class="highlight hl-ipython3"><pre><span></span><span class="c1"># Reddit's own submitted post titles for these URLs -- when a URL was</span>
+<span class="c1"># itself submitted as a link post (not just mentioned in a comment), the</span>
+<span class="c1"># submitter's title is free, deterministic, already in the corpus, and</span>
+<span class="c1"># often more informative than the raw page &lt;title&gt; (e.g. a submission</span>
+<span class="c1"># titled with the actual finding, not just the outlet's own headline).</span>
+<span class="c1"># Used as the first-choice source below, before any external fetch.</span>
+<span class="n">post_titles_query</span> <span class="o">=</span> <span class="sa">f</span><span class="s2">"""</span>
+<span class="s2">    WITH post_urls AS (</span>
+<span class="s2">        SELECT url, title, score,</span>
+<span class="s2">               ROW_NUMBER() OVER (PARTITION BY url ORDER BY score DESC) as rn</span>
+<span class="s2">        FROM read_json_auto('</span><span class="si">{</span><span class="n">RAW_POSTS</span><span class="si">}</span><span class="s2">', union_by_name=true, ignore_errors=true)</span>
+<span class="s2">        WHERE url IS NOT NULL AND url != ''</span>
+<span class="s2">    )</span>
+<span class="s2">    SELECT url, title as reddit_title</span>
+<span class="s2">    FROM post_urls</span>
+<span class="s2">    WHERE rn = 1</span>
+<span class="s2">"""</span>
+<span class="n">df_post_titles</span> <span class="o">=</span> <span class="n">cached_query_csv</span><span class="p">(</span><span class="n">con</span><span class="p">,</span> <span class="n">BASE</span> <span class="o">+</span> <span class="s1">'post_title_lookup.csv'</span><span class="p">,</span> <span class="n">post_titles_query</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"</span><span class="si">{</span><span class="nb">len</span><span class="p">(</span><span class="n">df_post_titles</span><span class="p">)</span><span class="si">:</span><span class="s2">,</span><span class="si">}</span><span class="s2"> distinct submitted URLs with a Reddit post title"</span><span class="p">)</span>
+<span class="n">reddit_title_lookup</span> <span class="o">=</span> <span class="nb">dict</span><span class="p">(</span><span class="nb">zip</span><span class="p">(</span><span class="n">df_post_titles</span><span class="p">[</span><span class="s1">'url'</span><span class="p">],</span> <span class="n">df_post_titles</span><span class="p">[</span><span class="s1">'reddit_title'</span><span class="p">]))</span>
+</pre></div>
+</div>
+</div>
+</div>
+</details></div>
+<div class="jp-Cell-outputWrapper">
+<div class="jp-Collapser jp-OutputCollapser jp-Cell-outputCollapser">
+</div>
+<div class="jp-OutputArea jp-Cell-outputArea">
+<div class="jp-OutputArea-child">
+<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
+<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="text/plain" tabindex="0">
+<pre>Cache miss — running query and caching to /Users/nash/Projects/ConspiracyComments/data/processed/post_title_lookup.csv
+</pre>
+</div>
+</div>
+<div class="jp-OutputArea-child">
+<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
+<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="text/plain" tabindex="0">
+<pre>FloatProgress(value=0.0, layout=Layout(width='auto'), style=ProgressStyle(bar_color='black'))</pre>
+</div>
+</div>
+<div class="jp-OutputArea-child">
+<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
+<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="text/plain" tabindex="0">
+<pre>1,742,404 distinct submitted URLs with a Reddit post title
+</pre>
+</div>
+</div>
+</div>
+</div>
 </div>
 <div class="jp-Cell jp-MarkdownCell jp-Notebook-cell">
 <div class="jp-Cell-inputWrapper" tabindex="0">
@@ -11435,30 +11327,25 @@ for the most-cited specific mainstream-news URLs.</p>
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
 <div class="jp-InputArea jp-Cell-inputArea">
-<div class="jp-InputPrompt jp-InputArea-prompt">In [5]:</div>
+<div class="jp-InputPrompt jp-InputArea-prompt">In [4]:</div>
 <div class="jp-CodeMirrorEditor jp-Editor jp-InputArea-editor" data-type="inline">
 <div class="cm-editor cm-s-jupyter">
-<div class="highlight hl-ipython3"><pre><span></span><span class="c1"># Self-contained outlet list (deliberately smaller than Section 9.3's full</span>
-<span class="c1"># taxonomy -- this is a narrative "what specifically gets linked" pass,</span>
-<span class="c1"># not the epistemic-type regression work that section is built for).</span>
-<span class="n">MAINSTREAM_NEWS_DOMAINS</span> <span class="o">=</span> <span class="p">[</span>
-    <span class="s1">'nytimes.com'</span><span class="p">,</span> <span class="s1">'washingtonpost.com'</span><span class="p">,</span> <span class="s1">'theguardian.com'</span><span class="p">,</span> <span class="s1">'reuters.com'</span><span class="p">,</span>
-    <span class="s1">'bbc.com'</span><span class="p">,</span> <span class="s1">'bbc.co.uk'</span><span class="p">,</span> <span class="s1">'cnn.com'</span><span class="p">,</span> <span class="s1">'nbcnews.com'</span><span class="p">,</span> <span class="s1">'cbsnews.com'</span><span class="p">,</span>
-    <span class="s1">'abcnews.go.com'</span><span class="p">,</span> <span class="s1">'npr.org'</span><span class="p">,</span> <span class="s1">'bloomberg.com'</span><span class="p">,</span> <span class="s1">'apnews.com'</span><span class="p">,</span> <span class="s1">'forbes.com'</span><span class="p">,</span>
-    <span class="s1">'foxnews.com'</span><span class="p">,</span> <span class="s1">'usatoday.com'</span><span class="p">,</span> <span class="s1">'wsj.com'</span><span class="p">,</span> <span class="s1">'theatlantic.com'</span><span class="p">,</span>
-<span class="p">]</span>
+<div class="highlight hl-ipython3"><pre><span></span><span class="c1"># Full patched taxonomy list (Section 9.3's base `taxonomy['mainstream_news']`</span>
+<span class="c1"># + its `additional_taxonomy` patch, merged and de-duplicated) -- using the</span>
+<span class="c1"># complete, already-improved domain set rather than a smaller ad hoc subset.</span>
+<span class="n">MAINSTREAM_NEWS_DOMAINS</span> <span class="o">=</span> <span class="p">[</span><span class="s1">'abcnews.go.com'</span><span class="p">,</span> <span class="s1">'aljazeera.com'</span><span class="p">,</span> <span class="s1">'apnews.com'</span><span class="p">,</span> <span class="s1">'bbc.co.uk'</span><span class="p">,</span> <span class="s1">'bbc.com'</span><span class="p">,</span> <span class="s1">'bloomberg.com'</span><span class="p">,</span> <span class="s1">'businessinsider.com'</span><span class="p">,</span> <span class="s1">'cbc.ca'</span><span class="p">,</span> <span class="s1">'cbsnews.com'</span><span class="p">,</span> <span class="s1">'cnbc.com'</span><span class="p">,</span> <span class="s1">'cnn.com'</span><span class="p">,</span> <span class="s1">'dailymail.co.uk'</span><span class="p">,</span> <span class="s1">'edition.cnn.com'</span><span class="p">,</span> <span class="s1">'forbes.com'</span><span class="p">,</span> <span class="s1">'foxnews.com'</span><span class="p">,</span> <span class="s1">'haaretz.com'</span><span class="p">,</span> <span class="s1">'healthline.com'</span><span class="p">,</span> <span class="s1">'history.com'</span><span class="p">,</span> <span class="s1">'huffingtonpost.com'</span><span class="p">,</span> <span class="s1">'huffpost.com'</span><span class="p">,</span> <span class="s1">'independent.co.uk'</span><span class="p">,</span> <span class="s1">'jpost.com'</span><span class="p">,</span> <span class="s1">'latimes.com'</span><span class="p">,</span> <span class="s1">'livescience.com'</span><span class="p">,</span> <span class="s1">'metabunk.org'</span><span class="p">,</span> <span class="s1">'msn.com'</span><span class="p">,</span> <span class="s1">'nbcnews.com'</span><span class="p">,</span> <span class="s1">'news.bbc.co.uk'</span><span class="p">,</span> <span class="s1">'news.yahoo.com'</span><span class="p">,</span> <span class="s1">'newsweek.com'</span><span class="p">,</span> <span class="s1">'npr.org'</span><span class="p">,</span> <span class="s1">'nydailynews.com'</span><span class="p">,</span> <span class="s1">'nypost.com'</span><span class="p">,</span> <span class="s1">'nytimes.com'</span><span class="p">,</span> <span class="s1">'pbs.org'</span><span class="p">,</span> <span class="s1">'politico.com'</span><span class="p">,</span> <span class="s1">'reuters.com'</span><span class="p">,</span> <span class="s1">'rollingstone.com'</span><span class="p">,</span> <span class="s1">'salon.com'</span><span class="p">,</span> <span class="s1">'sciencedaily.com'</span><span class="p">,</span> <span class="s1">'scientificamerican.com'</span><span class="p">,</span> <span class="s1">'telegraph.co.uk'</span><span class="p">,</span> <span class="s1">'theatlantic.com'</span><span class="p">,</span> <span class="s1">'theconversation.com'</span><span class="p">,</span> <span class="s1">'thedailybeast.com'</span><span class="p">,</span> <span class="s1">'theguardian.com'</span><span class="p">,</span> <span class="s1">'thehill.com'</span><span class="p">,</span> <span class="s1">'thesun.co.uk'</span><span class="p">,</span> <span class="s1">'theverge.com'</span><span class="p">,</span> <span class="s1">'time.com'</span><span class="p">,</span> <span class="s1">'timesofisrael.com'</span><span class="p">,</span> <span class="s1">'usatoday.com'</span><span class="p">,</span> <span class="s1">'usnews.com'</span><span class="p">,</span> <span class="s1">'vanityfair.com'</span><span class="p">,</span> <span class="s1">'vice.com'</span><span class="p">,</span> <span class="s1">'vox.com'</span><span class="p">,</span> <span class="s1">'washingtonexaminer.com'</span><span class="p">,</span> <span class="s1">'washingtonpost.com'</span><span class="p">,</span> <span class="s1">'washingtontimes.com'</span><span class="p">,</span> <span class="s1">'webmd.com'</span><span class="p">,</span> <span class="s1">'wired.com'</span><span class="p">,</span> <span class="s1">'wsj.com'</span><span class="p">,</span> <span class="s1">'yahoo.com'</span><span class="p">]</span>
 
 <span class="n">df_news_articles</span> <span class="o">=</span> <span class="n">df_urls</span><span class="p">[</span><span class="n">df_urls</span><span class="p">[</span><span class="s1">'domain'</span><span class="p">]</span><span class="o">.</span><span class="n">isin</span><span class="p">(</span><span class="n">MAINSTREAM_NEWS_DOMAINS</span><span class="p">)]</span> \
-    <span class="o">.</span><span class="n">nlargest</span><span class="p">(</span><span class="mi">15</span><span class="p">,</span> <span class="s1">'citations'</span><span class="p">)</span><span class="o">.</span><span class="n">reset_index</span><span class="p">(</span><span class="n">drop</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+    <span class="o">.</span><span class="n">nlargest</span><span class="p">(</span><span class="mi">20</span><span class="p">,</span> <span class="s1">'citations'</span><span class="p">)</span><span class="o">.</span><span class="n">reset_index</span><span class="p">(</span><span class="n">drop</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
 
 <span class="n">NEWS_ARTICLES_CACHE</span> <span class="o">=</span> <span class="n">BASE</span> <span class="o">+</span> <span class="s1">'top_mainstream_articles.csv'</span>
 <span class="k">if</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">exists</span><span class="p">(</span><span class="n">NEWS_ARTICLES_CACHE</span><span class="p">):</span>
     <span class="n">df_news_articles</span> <span class="o">=</span> <span class="n">pd</span><span class="o">.</span><span class="n">read_csv</span><span class="p">(</span><span class="n">NEWS_ARTICLES_CACHE</span><span class="p">)</span>
 <span class="k">else</span><span class="p">:</span>
-    <span class="n">df_news_articles</span><span class="p">[</span><span class="s1">'title'</span><span class="p">]</span> <span class="o">=</span> <span class="n">df_news_articles</span><span class="p">[</span><span class="s1">'url'</span><span class="p">]</span><span class="o">.</span><span class="n">apply</span><span class="p">(</span><span class="n">fetch_article_title</span><span class="p">)</span>
+    <span class="n">df_news_articles</span><span class="p">[</span><span class="s1">'title'</span><span class="p">]</span> <span class="o">=</span> <span class="n">resolve_titles_with_reddit_first</span><span class="p">(</span><span class="n">df_news_articles</span><span class="p">[</span><span class="s1">'url'</span><span class="p">],</span> <span class="n">reddit_title_lookup</span><span class="p">)</span>
     <span class="n">df_news_articles</span><span class="o">.</span><span class="n">to_csv</span><span class="p">(</span><span class="n">NEWS_ARTICLES_CACHE</span><span class="p">,</span> <span class="n">index</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span>
 
-<span class="n">display</span><span class="p">(</span><span class="n">df_news_articles</span><span class="p">[[</span><span class="s1">'domain'</span><span class="p">,</span> <span class="s1">'title'</span><span class="p">,</span> <span class="s1">'citations'</span><span class="p">,</span> <span class="s1">'avg_upvotes'</span><span class="p">,</span> <span class="s1">'url'</span><span class="p">]])</span>
+<span class="n">viz</span><span class="o">.</span><span class="n">display_with_links</span><span class="p">(</span><span class="n">df_news_articles</span><span class="p">,</span> <span class="n">url_col</span><span class="o">=</span><span class="s1">'url'</span><span class="p">,</span> <span class="n">text_col</span><span class="o">=</span><span class="s1">'title'</span><span class="p">,</span> <span class="n">columns</span><span class="o">=</span><span class="p">[</span><span class="s1">'domain'</span><span class="p">,</span> <span class="s1">'title'</span><span class="p">,</span> <span class="s1">'citations'</span><span class="p">,</span> <span class="s1">'avg_upvotes'</span><span class="p">])</span>
 </pre></div>
 </div>
 </div>
@@ -11471,155 +11358,138 @@ for the most-cited specific mainstream-news URLs.</p>
 <div class="jp-OutputArea-child">
 <div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
 <div class="jp-RenderedHTMLCommon jp-RenderedHTML jp-OutputArea-output" data-mime-type="text/html" tabindex="0">
-<div style="max-height:350px;overflow-y:auto;border:1px solid #ddd;border-radius:4px;padding:4px 8px;"><div>
-<style scoped="">
-    .dataframe tbody tr th:only-of-type {
-        vertical-align: middle;
-    }
-
-    .dataframe tbody tr th {
-        vertical-align: top;
-    }
-
-    .dataframe thead th {
-        text-align: right;
-    }
-</style>
-<table border="1" class="dataframe">
+<div style="max-height:350px;overflow-y:auto;border:1px solid #ddd;border-radius:4px;padding:4px 8px;"><table border="1" class="dataframe">
 <thead>
 <tr style="text-align: right;">
-<th></th>
 <th>domain</th>
 <th>title</th>
 <th>citations</th>
 <th>avg_upvotes</th>
-<th>url</th>
 </tr>
 </thead>
 <tbody>
 <tr>
-<th>0</th>
 <td>reuters.com</td>
-<td>https://www.reuters.com/article/us-pfizer-settlement-sb-idUSTRE5813XB20090903</td>
+<td><a href="https://www.reuters.com/article/us-pfizer-settlement-sb-idUSTRE5813XB20090903" target="_blank">Pfizer to pay $2.3 billion, agrees to criminal plea. (Reuters 2009)</a></td>
 <td>497</td>
 <td>10.72</td>
-<td>https://www.reuters.com/article/us-pfizer-settlement-sb-idUSTRE5813XB20090903</td>
 </tr>
 <tr>
-<th>1</th>
 <td>reuters.com</td>
-<td>https://www.reuters.com/article/health-vaccine-idUSL1N0YQ0W820150604</td>
+<td><a href="https://www.reuters.com/article/health-vaccine-idUSL1N0YQ0W820150604" target="_blank">https://www.reuters.com/article/health-vaccine-idUSL1N0YQ0W820150604</a></td>
 <td>445</td>
 <td>9.32</td>
-<td>https://www.reuters.com/article/health-vaccine-idUSL1N0YQ0W820150604</td>
 </tr>
 <tr>
-<th>2</th>
 <td>reuters.com</td>
-<td>https://www.reuters.com/article/us-maryland-lawsuit-infections-idUSKCN1OY1N3</td>
+<td><a href="https://www.reuters.com/article/us-maryland-lawsuit-infections-idUSKCN1OY1N3" target="_blank">Johns Hopkins, Bristol-Myers must face $1 billion syphilis infections suit | Reuters</a></td>
 <td>411</td>
 <td>9.50</td>
-<td>https://www.reuters.com/article/us-maryland-lawsuit-infections-idUSKCN1OY1N3</td>
 </tr>
 <tr>
-<th>3</th>
 <td>reuters.com</td>
-<td>https://www.reuters.com/article/us-merck-settlement/merck-settles-vioxx-claims-for-4-85-bln-idUSWNAS178420071109</td>
+<td><a href="https://www.reuters.com/article/us-merck-settlement/merck-settles-vioxx-claims-for-4-85-bln-idUSWNAS178420071109" target="_blank">Merck &amp; Co has agreed to pay $4.85 billion to settle U.S. claims of heart attacks and strokes allegedly linked to its withdrawn painkiller Vioxx. (Reuters 2007)</a></td>
 <td>408</td>
 <td>10.25</td>
-<td>https://www.reuters.com/article/us-merck-settlement/merck-settles-vioxx-claims-for-4-85-bln-idUSWNAS178420071109</td>
 </tr>
 <tr>
-<th>4</th>
 <td>nytimes.com</td>
-<td>https://www.nytimes.com/2020/08/29/health/coronavirus-testing.html</td>
+<td><a href="https://www.nytimes.com/2020/08/29/health/coronavirus-testing.html" target="_blank">Your Coronavirus Test Is Positive. Maybe It Shouldn’t Be.</a></td>
 <td>401</td>
 <td>5.00</td>
-<td>https://www.nytimes.com/2020/08/29/health/coronavirus-testing.html</td>
 </tr>
 <tr>
-<th>5</th>
 <td>cbsnews.com</td>
-<td>Merck Created Hit List to "Destroy," "Neutralize" or "Discredit" Dissenting Doctors - CBS News</td>
+<td><a href="https://www.cbsnews.com/news/merck-created-hit-list-to-destroy-neutralize-or-discredit-dissenting-doctors/" target="_blank">Merck made a "hit list" of doctors who criticized Vioxx...The list, emailed between Merck employees, contained doctors' names with the labels "neutralise," "neutralised" or "discredit" next to them.</a></td>
 <td>399</td>
 <td>10.99</td>
-<td>https://www.cbsnews.com/news/merck-created-hit-list-to-destroy-neutralize-or-discredit-dissenting-doctors/</td>
 </tr>
 <tr>
-<th>6</th>
+<td>thedailybeast.com</td>
+<td><a href="https://www.thedailybeast.com/the-billionaire-pedophile-who-could-bring-down-donald-trump-and-hillary-clinton" target="_blank">Jeffrey Epstein Could Bring Down Trump and Hillary Clinton</a></td>
+<td>378</td>
+<td>2.72</td>
+</tr>
+<tr>
 <td>reuters.com</td>
-<td>https://www.reuters.com/article/us-pfizer-whistleblower-idUSN021592920090903</td>
+<td><a href="https://www.reuters.com/article/us-pfizer-whistleblower-idUSN021592920090903" target="_blank">“At Pfizer I was expected to increase profits at all costs, even when sales meant endangering lives.”</a></td>
 <td>377</td>
 <td>13.15</td>
-<td>https://www.reuters.com/article/us-pfizer-whistleblower-idUSN021592920090903</td>
 </tr>
 <tr>
-<th>7</th>
+<td>time.com</td>
+<td><a href="https://time.com/5936036/secret-2020-election-campaign/" target="_blank">They're literally admitting to stealing the election using corporate america and the cabal.</a></td>
+<td>365</td>
+<td>3.76</td>
+</tr>
+<tr>
 <td>nytimes.com</td>
-<td>https://www.nytimes.com/2019/10/12/business/jeffrey-epstein-bill-gates.html</td>
+<td><a href="https://www.nytimes.com/2019/10/12/business/jeffrey-epstein-bill-gates.html" target="_blank">Bill Gates Met With Jeffrey Epstein Many Times, Despite His Past</a></td>
 <td>363</td>
 <td>12.01</td>
-<td>https://www.nytimes.com/2019/10/12/business/jeffrey-epstein-bill-gates.html</td>
 </tr>
 <tr>
-<th>8</th>
 <td>reuters.com</td>
-<td>https://www.reuters.com/article/us-pfizer-lawsuit-idUSKCN10D1D8</td>
+<td><a href="https://www.reuters.com/article/us-pfizer-lawsuit-idUSKCN10D1D8" target="_blank">Pfizer reached a $486 million settlement of litigation accusing it of causing big losses for shareholders by concealing safety risks associated with its Celebrex and Bextra pain-relieving drugs. (Reuters 2016)</a></td>
 <td>355</td>
 <td>11.12</td>
-<td>https://www.reuters.com/article/us-pfizer-lawsuit-idUSKCN10D1D8</td>
 </tr>
 <tr>
-<th>9</th>
 <td>cbsnews.com</td>
-<td>New Merck Allegations: A Fake Journal; Ghostwritten Studies; Vioxx Pop Songs; PR Execs Harass Reporters - CBS News</td>
+<td><a href="https://www.cbsnews.com/news/new-merck-allegations-a-fake-journal-ghostwritten-studies-vioxx-pop-songs-pr-execs-harass-reporters/" target="_blank">New Merck Allegations: A Fake Journal; Ghostwritten Studies; Vioxx Pop Songs; PR Execs Harass Reporters - CBS News</a></td>
 <td>355</td>
 <td>10.32</td>
-<td>https://www.cbsnews.com/news/new-merck-allegations-a-fake-journal-ghostwritten-studies-vioxx-pop-songs-pr-execs-harass-reporters/</td>
 </tr>
 <tr>
-<th>10</th>
 <td>nytimes.com</td>
-<td>https://www.nytimes.com/2007/01/22/health/22whoop.html</td>
+<td><a href="https://www.nytimes.com/2007/01/22/health/22whoop.html" target="_blank">TIL of a false epidemic of whooping cough at Dartmouth-Hitchcock Medical Center in 2007, all due to false positives from the PCR Test</a></td>
 <td>343</td>
 <td>6.62</td>
-<td>https://www.nytimes.com/2007/01/22/health/22whoop.html</td>
 </tr>
 <tr>
-<th>11</th>
 <td>reuters.com</td>
-<td>https://www.reuters.com/article/us-pfizer-settlement-idUSBRE8760WM20120807</td>
+<td><a href="https://www.reuters.com/article/us-pfizer-settlement-idUSBRE8760WM20120807" target="_blank">https://www.reuters.com/article/us-pfizer-settlement-idUSBRE8760WM20120807</a></td>
 <td>339</td>
 <td>11.54</td>
-<td>https://www.reuters.com/article/us-pfizer-settlement-idUSBRE8760WM20120807</td>
 </tr>
 <tr>
-<th>12</th>
 <td>theguardian.com</td>
-<td>Nigeria sues Pfizer for $7bn over 'illegal' tests on children | World news | The Guardian</td>
+<td><a href="https://www.theguardian.com/world/2007/jun/05/health.healthandwellbeing1" target="_blank">Nigeria sues Pfizer for $7bn over 'illegal' tests on children. (The Guardian 2007)</a></td>
 <td>338</td>
 <td>11.32</td>
-<td>https://www.theguardian.com/world/2007/jun/05/health.healthandwellbeing1</td>
 </tr>
 <tr>
-<th>13</th>
 <td>nytimes.com</td>
-<td>https://www.nytimes.com/1973/08/10/archives/from-a-china-traveler.html</td>
+<td><a href="https://www.nytimes.com/1973/08/10/archives/from-a-china-traveler.html" target="_blank">"The social experiment in China under Chairman Mao's leadership is one of the most important and successful in human history." - David Rockefeller, (NYT 1973)</a></td>
 <td>334</td>
 <td>9.10</td>
-<td>https://www.nytimes.com/1973/08/10/archives/from-a-china-traveler.html</td>
 </tr>
 <tr>
-<th>14</th>
 <td>reuters.com</td>
-<td>https://www.reuters.com/article/us-glaxo-settlement-idUSBRE8610S720120702</td>
+<td><a href="https://www.reuters.com/article/us-glaxo-settlement-idUSBRE8610S720120702" target="_blank">GlaxoSmithKline settles healthcare fraud case for $3 billion | Reuters</a></td>
 <td>327</td>
 <td>10.36</td>
-<td>https://www.reuters.com/article/us-glaxo-settlement-idUSBRE8610S720120702</td>
+</tr>
+<tr>
+<td>reuters.com</td>
+<td><a href="https://www.reuters.com/article/us-purdue-pharma-settlement-history-fact/purdue-oxycontin-settlement-would-rank-among-largest-in-pharma-history-idUSKCN1VW2KL" target="_blank">https://www.reuters.com/article/us-purdue-pharma-settlement-history-fact/purdue-oxycontin-settlement-would-rank-among-largest-in-pharma-history-idUSKCN1VW2KL</a></td>
+<td>323</td>
+<td>8.65</td>
+</tr>
+<tr>
+<td>abcnews.go.com</td>
+<td><a href="https://abcnews.go.com/Politics/Health/astrazeneca-pay-520-million-illegally-marketing-seroquel-schizophrenia/story?id=10488647" target="_blank">Drug Giant AstraZeneca to pay $520 Million to settle fraud case. (ABCnews 2010)</a></td>
+<td>319</td>
+<td>10.28</td>
+</tr>
+<tr>
+<td>latimes.com</td>
+<td><a href="https://www.latimes.com/archives/la-xpm-2008-dec-19-oe-stein19-story.html" target="_blank">Fact: Jews run Hollywood. Jewish journalist claims.</a></td>
+<td>313</td>
+<td>16.57</td>
 </tr>
 </tbody>
-</table>
-</div></div>
+</table></div>
 </div>
 </div>
 </div>
@@ -11631,7 +11501,189 @@ for the most-cited specific mainstream-news URLs.</p>
 </div>
 <div class="jp-InputArea jp-Cell-inputArea"><div class="jp-InputPrompt jp-InputArea-prompt">
 </div><div class="jp-RenderedHTMLCommon jp-RenderedMarkdown jp-MarkdownOutput" data-mime-type="text/markdown">
-<h4 id="4.1.2-Top-Referenced-YouTube-Videos">4.1.2 Top Referenced YouTube Videos<a class="anchor-link" href="#4.1.2-Top-Referenced-YouTube-Videos">¶</a></h4><p><code>social_video</code> domains (youtube.com, youtu.be) resolved to actual video
+<h4 id="4.1.2-Common-Articles-(Alternative-Media)">4.1.2 Common Articles (Alternative Media)<a class="anchor-link" href="#4.1.2-Common-Articles-(Alternative-Media)">¶</a></h4><p>Same drill-down, scoped to the <code>alt_media</code> taxonomy category (Section
+9.3) -- the sites r/conspiracy cites as counter-narrative sources, as
+opposed to the mainstream outlets above.</p>
+</div>
+</div>
+</div>
+</div><div class="jp-Cell jp-CodeCell jp-Notebook-cell">
+<div class="jp-Cell-inputWrapper" tabindex="0"><details class="code-collapse"><summary>Show code</summary>
+<div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
+</div>
+<div class="jp-InputArea jp-Cell-inputArea">
+<div class="jp-InputPrompt jp-InputArea-prompt">In [5]:</div>
+<div class="jp-CodeMirrorEditor jp-Editor jp-InputArea-editor" data-type="inline">
+<div class="cm-editor cm-s-jupyter">
+<div class="highlight hl-ipython3"><pre><span></span><span class="n">ALT_MEDIA_DOMAINS</span> <span class="o">=</span> <span class="p">[</span><span class="s1">'911research.wtc7.net'</span><span class="p">,</span> <span class="s1">'activistpost.com'</span><span class="p">,</span> <span class="s1">'beforeitsnews.com'</span><span class="p">,</span> <span class="s1">'bitchute.com'</span><span class="p">,</span> <span class="s1">'breitbart.com'</span><span class="p">,</span> <span class="s1">'childrenshealthdefense.org'</span><span class="p">,</span> <span class="s1">'collective-evolution.com'</span><span class="p">,</span> <span class="s1">'corbettreport.com'</span><span class="p">,</span> <span class="s1">'globalresearch.ca'</span><span class="p">,</span> <span class="s1">'greenwald.substack.com'</span><span class="p">,</span> <span class="s1">'humansarefree.com'</span><span class="p">,</span> <span class="s1">'infowars.com'</span><span class="p">,</span> <span class="s1">'lewrockwell.com'</span><span class="p">,</span> <span class="s1">'mercola.com'</span><span class="p">,</span> <span class="s1">'mileswmathis.com'</span><span class="p">,</span> <span class="s1">'mintpressnews.com'</span><span class="p">,</span> <span class="s1">'naturalnews.com'</span><span class="p">,</span> <span class="s1">'off-guardian.org'</span><span class="p">,</span> <span class="s1">'prisonplanet.com'</span><span class="p">,</span> <span class="s1">'rt.com'</span><span class="p">,</span> <span class="s1">'rumble.com'</span><span class="p">,</span> <span class="s1">'saidit.net'</span><span class="p">,</span> <span class="s1">'steemit.com'</span><span class="p">,</span> <span class="s1">'thedailysheeple.com'</span><span class="p">,</span> <span class="s1">'theepochtimes.com'</span><span class="p">,</span> <span class="s1">'thefreethoughtproject.com'</span><span class="p">,</span> <span class="s1">'thegatewaypundit.com'</span><span class="p">,</span> <span class="s1">'theintercept.com'</span><span class="p">,</span> <span class="s1">'therabbithole.wiki'</span><span class="p">,</span> <span class="s1">'veteranstoday.com'</span><span class="p">,</span> <span class="s1">'voat.co'</span><span class="p">,</span> <span class="s1">'whale.to'</span><span class="p">,</span> <span class="s1">'whatreallyhappened.com'</span><span class="p">,</span> <span class="s1">'yournewswire.com'</span><span class="p">,</span> <span class="s1">'zerohedge.com'</span><span class="p">]</span>
+
+<span class="n">df_alt_articles</span> <span class="o">=</span> <span class="n">df_urls</span><span class="p">[</span><span class="n">df_urls</span><span class="p">[</span><span class="s1">'domain'</span><span class="p">]</span><span class="o">.</span><span class="n">isin</span><span class="p">(</span><span class="n">ALT_MEDIA_DOMAINS</span><span class="p">)]</span> \
+    <span class="o">.</span><span class="n">nlargest</span><span class="p">(</span><span class="mi">20</span><span class="p">,</span> <span class="s1">'citations'</span><span class="p">)</span><span class="o">.</span><span class="n">reset_index</span><span class="p">(</span><span class="n">drop</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+
+<span class="n">ALT_ARTICLES_CACHE</span> <span class="o">=</span> <span class="n">BASE</span> <span class="o">+</span> <span class="s1">'top_alt_media_articles.csv'</span>
+<span class="k">if</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">exists</span><span class="p">(</span><span class="n">ALT_ARTICLES_CACHE</span><span class="p">):</span>
+    <span class="n">df_alt_articles</span> <span class="o">=</span> <span class="n">pd</span><span class="o">.</span><span class="n">read_csv</span><span class="p">(</span><span class="n">ALT_ARTICLES_CACHE</span><span class="p">)</span>
+<span class="k">else</span><span class="p">:</span>
+    <span class="n">df_alt_articles</span><span class="p">[</span><span class="s1">'title'</span><span class="p">]</span> <span class="o">=</span> <span class="n">resolve_titles_with_reddit_first</span><span class="p">(</span><span class="n">df_alt_articles</span><span class="p">[</span><span class="s1">'url'</span><span class="p">],</span> <span class="n">reddit_title_lookup</span><span class="p">)</span>
+    <span class="n">df_alt_articles</span><span class="o">.</span><span class="n">to_csv</span><span class="p">(</span><span class="n">ALT_ARTICLES_CACHE</span><span class="p">,</span> <span class="n">index</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span>
+
+<span class="n">viz</span><span class="o">.</span><span class="n">display_with_links</span><span class="p">(</span><span class="n">df_alt_articles</span><span class="p">,</span> <span class="n">url_col</span><span class="o">=</span><span class="s1">'url'</span><span class="p">,</span> <span class="n">text_col</span><span class="o">=</span><span class="s1">'title'</span><span class="p">,</span> <span class="n">columns</span><span class="o">=</span><span class="p">[</span><span class="s1">'domain'</span><span class="p">,</span> <span class="s1">'title'</span><span class="p">,</span> <span class="s1">'citations'</span><span class="p">,</span> <span class="s1">'avg_upvotes'</span><span class="p">])</span>
+</pre></div>
+</div>
+</div>
+</div>
+</details></div>
+<div class="jp-Cell-outputWrapper">
+<div class="jp-Collapser jp-OutputCollapser jp-Cell-outputCollapser">
+</div>
+<div class="jp-OutputArea jp-Cell-outputArea" style="max-height:350px;overflow-y:auto;border:1px solid #ddd;border-radius:4px;padding:4px 8px;">
+<div class="jp-OutputArea-child">
+<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
+<div class="jp-RenderedHTMLCommon jp-RenderedHTML jp-OutputArea-output" data-mime-type="text/html" tabindex="0">
+<div style="max-height:350px;overflow-y:auto;border:1px solid #ddd;border-radius:4px;padding:4px 8px;"><table border="1" class="dataframe">
+<thead>
+<tr style="text-align: right;">
+<th>domain</th>
+<th>title</th>
+<th>citations</th>
+<th>avg_upvotes</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>whale.to</td>
+<td><a href="http://whale.to/b/josephson.pdf" target="_blank">http://whale.to/b/josephson.pdf</a></td>
+<td>770</td>
+<td>7.82</td>
+</tr>
+<tr>
+<td>whale.to</td>
+<td><a href="http://whale.to/a/bealle.htm" target="_blank">T h e D R U G  S T O R Y By  Morris A. Bealle</a></td>
+<td>737</td>
+<td>7.80</td>
+</tr>
+<tr>
+<td>mintpressnews.com</td>
+<td><a href="https://www.mintpressnews.com/shocking-origins-jeffrey-epstein-blackmail-roy-cohn/260621/" target="_blank">Hidden in Plain Sight: The Shocking Origins of the Jeffrey Epstein Case — Epstein is only the latest incarnation of a much older, more extensive and sophisticated operation that offers a frightening window into how deeply tied the U.S. government is to the modern-day equivalents of organized crime.</a></td>
+<td>647</td>
+<td>20.11</td>
+</tr>
+<tr>
+<td>mintpressnews.com</td>
+<td><a href="https://www.mintpressnews.com/mega-group-maxwells-mossad-spy-story-jeffrey-epstein-scandal/261172/" target="_blank">Mega Group, Maxwells and Mossad: The Spy Story at the Heart of the Jeffrey Epstein Scandal</a></td>
+<td>521</td>
+<td>23.12</td>
+</tr>
+<tr>
+<td>off-guardian.org</td>
+<td><a href="https://off-guardian.org/2020/06/27/covid19-pcr-tests-are-scientifically-meaningless/" target="_blank">COVID19 PCR Tests are Scientifically Meaningless; Though the whole world relies on RT-PCR to “diagnose” Sars-Cov-2 infection, the science is clear they are not fit for purpose</a></td>
+<td>496</td>
+<td>3.18</td>
+</tr>
+<tr>
+<td>mintpressnews.com</td>
+<td><a href="https://www.mintpressnews.com/blackmail-jeffrey-epstein-trump-mentor-reagan-era/260760/" target="_blank">Government by Blackmail: Jeffrey Epstein, Roy Cohn and the Dark Secrets of the Reagan Era</a></td>
+<td>485</td>
+<td>22.98</td>
+</tr>
+<tr>
+<td>steemit.com</td>
+<td><a href="https://steemit.com/security/@tinfoilfedora/the-gentlemans-guide-to-forum-spies-spooks-feds-etc" target="_blank">The Gentleman's Guide To Forum Spies (spooks, feds, paid disrupters, etc.) - COINTELPRO Techniques for dilution, misdirection and control of a internet forum - 25 techniques they use</a></td>
+<td>429</td>
+<td>1.87</td>
+</tr>
+<tr>
+<td>mintpressnews.com</td>
+<td><a href="https://www.mintpressnews.com/genesis-jeffrey-epstein-bill-clinton-relationship/261455/" target="_blank">Part 4 is here! From “Spook Air” to the “Lolita Express”: The Genesis and Evolution of the Jeffrey Epstein-Bill Clinton Relationship</a></td>
+<td>324</td>
+<td>24.82</td>
+</tr>
+<tr>
+<td>bitchute.com</td>
+<td><a href="https://www.bitchute.com/video/MAhnDM3crW4/" target="_blank">WW2 Hoax Air Raids</a></td>
+<td>306</td>
+<td>2.92</td>
+</tr>
+<tr>
+<td>bitchute.com</td>
+<td><a href="https://www.bitchute.com/video/JzJc0WMzdX8/" target="_blank">Fake History: Why It's Called Free-Masonry</a></td>
+<td>296</td>
+<td>1.82</td>
+</tr>
+<tr>
+<td>mintpressnews.com</td>
+<td><a href="https://www.mintpressnews.com/cia-israel-mossad-jeffrey-epstein-orwellian-nightmare/261692/" target="_blank">How the CIA, Mossad and “the Epstein Network” are Exploiting Mass Shootings to Create an Orwellian Nightmare</a></td>
+<td>254</td>
+<td>26.73</td>
+</tr>
+<tr>
+<td>off-guardian.org</td>
+<td><a href="https://off-guardian.org/2021/01/31/phantom-virus-in-search-of-sars-cov-2/" target="_blank">Phantom Virus: In search of Sars-CoV-2. Health authorities cannot present decisive proof that a new virus named SARS-CoV-2 is haunting us. This alone turns the talk of dangerous viral mutations into irresponsible fearmongering.</a></td>
+<td>252</td>
+<td>6.43</td>
+</tr>
+<tr>
+<td>voat.co</td>
+<td><a href="https://voat.co/" target="_blank">PSA - Please check out voat.co. Its a censorship free version of "reddit" based in Switzerland. Its starting to get more and more populated. Continue the SLC discussion there or whatever you want. Reddit is done, go VOAT!</a></td>
+<td>231</td>
+<td>1.82</td>
+</tr>
+<tr>
+<td>bitchute.com</td>
+<td><a href="https://www.bitchute.com/video/BgEJ5VI1TQXq/" target="_blank">The Persecution of Revisionists - The Holocaust Unveiled By Mark Farrel 2006</a></td>
+<td>226</td>
+<td>14.00</td>
+</tr>
+<tr>
+<td>voat.co</td>
+<td><a href="https://voat.co/v/pizzagate/1497611" target="_blank">For those JUST diving into Pizzagate or starting your research, start here. Summary of all Pizzagate evidence thus far in the investigation.</a></td>
+<td>205</td>
+<td>9.47</td>
+</tr>
+<tr>
+<td>theintercept.com</td>
+<td><a href="https://theintercept.com/2014/02/24/jtrig-manipulation/" target="_blank">How Covert Agents Infiltrate the Internet to Manipulate, Deceive, and Destroy Reputations - Joint Threat Research Intelligence Group</a></td>
+<td>187</td>
+<td>7.09</td>
+</tr>
+<tr>
+<td>steemit.com</td>
+<td><a href="https://steemit.com/news/@clarityofsignal/large-compilation-of-great-reset-agenda-21-resources-exposing-the-draconian-plans-of-the-parasitic-global-elite-being" target="_blank">They Managed To Convince You That Sunshine, Social Interaction, Fresh Air And Loving Your Neighbor Was Bad for You - They Muzzled You, Divided, Propagandized, Censored And Shamed You. They Punished You For Being You - Why?</a></td>
+<td>168</td>
+<td>5.13</td>
+</tr>
+<tr>
+<td>steemit.com</td>
+<td><a href="https://steemit.com/news/@clarityofsignal/huge-cache-of-white-helmets-exposed-links-all-in-one-massive-volume-for-sharing-and-red-pilling-over-400-images-in-22-files" target="_blank">Huge Cache of White Helmets Exposed Links All In One Massive Volume For Sharing and Red Pilling - Over 400 Images in 22 Files</a></td>
+<td>166</td>
+<td>3.02</td>
+</tr>
+<tr>
+<td>zerohedge.com</td>
+<td><a href="https://www.zerohedge.com/news/2019-07-07/trump-was-only-one-help-prosecutor-2009-epstein-case" target="_blank">Trump Was 'Only One' To Help Prosecutor In 2009 Epstein Case</a></td>
+<td>162</td>
+<td>2.14</td>
+</tr>
+<tr>
+<td>theintercept.com</td>
+<td><a href="https://theintercept.com/2014/09/25/managing-nightmare-cia-media-destruction-gary-webb/" target="_blank">Documents reveal that the CIA worked with several newspapers, including the L.A. Times, to destroy Gary Webb, the journalist who exposed the CIA's cocaine smuggling connections.</a></td>
+<td>161</td>
+<td>5.58</td>
+</tr>
+</tbody>
+</table></div>
+</div>
+</div>
+</div>
+</div>
+</div>
+<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell">
+<div class="jp-Cell-inputWrapper" tabindex="0">
+<div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
+</div>
+<div class="jp-InputArea jp-Cell-inputArea"><div class="jp-InputPrompt jp-InputArea-prompt">
+</div><div class="jp-RenderedHTMLCommon jp-RenderedMarkdown jp-MarkdownOutput" data-mime-type="text/markdown">
+<h4 id="4.1.3-Top-Referenced-YouTube-Videos">4.1.3 Top Referenced YouTube Videos<a class="anchor-link" href="#4.1.3-Top-Referenced-YouTube-Videos">¶</a></h4><p><code>social_video</code> domains (youtube.com, youtu.be) resolved to actual video
 titles + channel via YouTube's free oEmbed endpoint.</p>
 </div>
 </div>
@@ -11667,10 +11719,11 @@ titles + channel via YouTube's free oEmbed endpoint.</p>
         <span class="n">channels</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">meta</span><span class="p">[</span><span class="s1">'channel'</span><span class="p">])</span>
     <span class="n">df_youtube</span><span class="p">[</span><span class="s1">'title'</span><span class="p">]</span> <span class="o">=</span> <span class="n">titles</span>
     <span class="n">df_youtube</span><span class="p">[</span><span class="s1">'channel'</span><span class="p">]</span> <span class="o">=</span> <span class="n">channels</span>
-    <span class="n">df_youtube</span> <span class="o">=</span> <span class="n">df_youtube</span><span class="p">[[</span><span class="s1">'video_id'</span><span class="p">,</span> <span class="s1">'title'</span><span class="p">,</span> <span class="s1">'channel'</span><span class="p">,</span> <span class="s1">'citations'</span><span class="p">]]</span>
+    <span class="n">df_youtube</span><span class="p">[</span><span class="s1">'url'</span><span class="p">]</span> <span class="o">=</span> <span class="s1">'https://www.youtube.com/watch?v='</span> <span class="o">+</span> <span class="n">df_youtube</span><span class="p">[</span><span class="s1">'video_id'</span><span class="p">]</span>
+    <span class="n">df_youtube</span> <span class="o">=</span> <span class="n">df_youtube</span><span class="p">[[</span><span class="s1">'video_id'</span><span class="p">,</span> <span class="s1">'title'</span><span class="p">,</span> <span class="s1">'channel'</span><span class="p">,</span> <span class="s1">'citations'</span><span class="p">,</span> <span class="s1">'url'</span><span class="p">]]</span>
     <span class="n">df_youtube</span><span class="o">.</span><span class="n">to_csv</span><span class="p">(</span><span class="n">YOUTUBE_CACHE</span><span class="p">,</span> <span class="n">index</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span>
 
-<span class="n">display</span><span class="p">(</span><span class="n">df_youtube</span><span class="p">)</span>
+<span class="n">viz</span><span class="o">.</span><span class="n">display_with_links</span><span class="p">(</span><span class="n">df_youtube</span><span class="p">,</span> <span class="n">url_col</span><span class="o">=</span><span class="s1">'url'</span><span class="p">,</span> <span class="n">text_col</span><span class="o">=</span><span class="s1">'title'</span><span class="p">,</span> <span class="n">columns</span><span class="o">=</span><span class="p">[</span><span class="s1">'title'</span><span class="p">,</span> <span class="s1">'channel'</span><span class="p">,</span> <span class="s1">'citations'</span><span class="p">])</span>
 </pre></div>
 </div>
 </div>
@@ -11683,25 +11736,9 @@ titles + channel via YouTube's free oEmbed endpoint.</p>
 <div class="jp-OutputArea-child">
 <div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
 <div class="jp-RenderedHTMLCommon jp-RenderedHTML jp-OutputArea-output" data-mime-type="text/html" tabindex="0">
-<div style="max-height:350px;overflow-y:auto;border:1px solid #ddd;border-radius:4px;padding:4px 8px;"><div>
-<style scoped="">
-    .dataframe tbody tr th:only-of-type {
-        vertical-align: middle;
-    }
-
-    .dataframe tbody tr th {
-        vertical-align: top;
-    }
-
-    .dataframe thead th {
-        text-align: right;
-    }
-</style>
-<table border="1" class="dataframe">
+<div style="max-height:350px;overflow-y:auto;border:1px solid #ddd;border-radius:4px;padding:4px 8px;"><table border="1" class="dataframe">
 <thead>
 <tr style="text-align: right;">
-<th></th>
-<th>video_id</th>
 <th>title</th>
 <th>channel</th>
 <th>citations</th>
@@ -11709,113 +11746,82 @@ titles + channel via YouTube's free oEmbed endpoint.</p>
 </thead>
 <tbody>
 <tr>
-<th>0</th>
-<td>rdrKCilEhC0</td>
-<td>rdrKCilEhC0</td>
+<td><a href="https://www.youtube.com/watch?v=rdrKCilEhC0" target="_blank">rdrKCilEhC0</a></td>
 <td>NaN</td>
 <td>1268</td>
 </tr>
 <tr>
-<th>1</th>
-<td>bXmuWecIQos</td>
-<td>Surplus: Terrorized into Being Consumers (2003) Full</td>
+<td><a href="https://www.youtube.com/watch?v=bXmuWecIQos" target="_blank">Surplus: Terrorized into Being Consumers (2003) Full</a></td>
 <td>Shae Kermiet</td>
 <td>356</td>
 </tr>
 <tr>
-<th>2</th>
-<td>7Eeo-82Eac8</td>
-<td>X Factor Winner Reveals World's Secret Religion - Altiyan Childs</td>
+<td><a href="https://www.youtube.com/watch?v=7Eeo-82Eac8" target="_blank">X Factor Winner Reveals World's Secret Religion - Altiyan Childs</a></td>
 <td>Will Jova</td>
 <td>349</td>
 </tr>
 <tr>
-<th>3</th>
-<td>6_s1Zbs20aA</td>
-<td>The Fed's Money "Printing" Explained</td>
+<td><a href="https://www.youtube.com/watch?v=6_s1Zbs20aA" target="_blank">The Fed's Money "Printing" Explained</a></td>
 <td>The Hated One</td>
 <td>347</td>
 </tr>
 <tr>
-<th>4</th>
-<td>uW3a1bw5XlE</td>
-<td>Israeli Minister "We always use the anti-Semitism trick or bring up the Holocaust"</td>
+<td><a href="https://www.youtube.com/watch?v=uW3a1bw5XlE" target="_blank">Israeli Minister "We always use the anti-Semitism trick or bring up the Holocaust"</a></td>
 <td>91177info</td>
 <td>265</td>
 </tr>
 <tr>
-<th>5</th>
-<td>KpuKu3F0BvY</td>
-<td>American Moon (English Version)</td>
+<td><a href="https://www.youtube.com/watch?v=KpuKu3F0BvY" target="_blank">American Moon (English Version)</a></td>
 <td>luogocomune2</td>
 <td>262</td>
 </tr>
 <tr>
-<th>6</th>
-<td>U1Qt6a-vaNM</td>
-<td>U1Qt6a-vaNM</td>
+<td><a href="https://www.youtube.com/watch?v=U1Qt6a-vaNM" target="_blank">U1Qt6a-vaNM</a></td>
 <td>NaN</td>
 <td>256</td>
 </tr>
 <tr>
-<th>7</th>
-<td>t_fOYW-GXdc</td>
-<td>D-day was boring.</td>
+<td><a href="https://www.youtube.com/watch?v=t_fOYW-GXdc" target="_blank">D-day was boring.</a></td>
 <td>RFTKOHIAH</td>
 <td>248</td>
 </tr>
 <tr>
-<th>8</th>
-<td>Yqb59n69Z80</td>
-<td>Attorney Bradley Edwards Explains the Latest on Jeffrey Epstein's Prosecution</td>
+<td><a href="https://www.youtube.com/watch?v=Yqb59n69Z80" target="_blank">Attorney Bradley Edwards Explains the Latest on Jeffrey Epstein's Prosecution</a></td>
 <td>The Conscious Resistance</td>
 <td>236</td>
 </tr>
 <tr>
-<th>9</th>
-<td>KYL94OjXHYY</td>
-<td>SUN GAZING TUTORIAL (Become a GOD)</td>
+<td><a href="https://www.youtube.com/watch?v=KYL94OjXHYY" target="_blank">SUN GAZING TUTORIAL (Become a GOD)</a></td>
 <td>SPIRITUAL So</td>
 <td>225</td>
 </tr>
 <tr>
-<th>10</th>
-<td>5EarOB411BA</td>
-<td>The Milky Way From the Window Seat on a Plane - Timelapse</td>
+<td><a href="https://www.youtube.com/watch?v=5EarOB411BA" target="_blank">The Milky Way From the Window Seat on a Plane - Timelapse</a></td>
 <td>Aryeh Nirenberg</td>
 <td>222</td>
 </tr>
 <tr>
-<th>11</th>
-<td>09maaUaRT4M</td>
-<td>MASS PSYCHOSIS - How an Entire Population Becomes MENTALLY ILL</td>
+<td><a href="https://www.youtube.com/watch?v=09maaUaRT4M" target="_blank">MASS PSYCHOSIS - How an Entire Population Becomes MENTALLY ILL</a></td>
 <td>After Skool</td>
 <td>207</td>
 </tr>
 <tr>
-<th>12</th>
-<td>dQw4w9WgXcQ</td>
-<td>Rick Astley - Never Gonna Give You Up (Official Video) (4K Remaster)</td>
+<td><a href="https://www.youtube.com/watch?v=dQw4w9WgXcQ" target="_blank">Rick Astley - Never Gonna Give You Up (Official Video) (4K Remaster)</a></td>
 <td>Rick Astley</td>
 <td>202</td>
 </tr>
 <tr>
-<th>13</th>
-<td>ZtlhThIk3iI</td>
-<td>From Chemtrails to Pseudo-Life: The Dark Agenda of Synthetic Biology</td>
+<td><a href="https://www.youtube.com/watch?v=ZtlhThIk3iI" target="_blank">From Chemtrails to Pseudo-Life: The Dark Agenda of Synthetic Biology</a></td>
 <td>livemusic</td>
 <td>197</td>
 </tr>
 <tr>
-<th>14</th>
-<td>gbUK4cFCTPg</td>
-<td>BEST MODERN EXPOSURE OF FREEMASONRY - TIME TO WAKE UP SAINTS</td>
+<td><a href="https://www.youtube.com/watch?v=gbUK4cFCTPg" target="_blank">BEST MODERN EXPOSURE OF FREEMASONRY - TIME TO WAKE UP SAINTS</a></td>
 <td>Robert Clancy</td>
 <td>195</td>
 </tr>
 </tbody>
-</table>
-</div></div>
+</table></div>
 </div>
 </div>
 </div>
@@ -11827,7 +11833,7 @@ titles + channel via YouTube's free oEmbed endpoint.</p>
 </div>
 <div class="jp-InputArea jp-Cell-inputArea"><div class="jp-InputPrompt jp-InputArea-prompt">
 </div><div class="jp-RenderedHTMLCommon jp-RenderedMarkdown jp-MarkdownOutput" data-mime-type="text/markdown">
-<h4 id="4.1.3-Top-WikiLeaks-Documents">4.1.3 Top WikiLeaks Documents<a class="anchor-link" href="#4.1.3-Top-WikiLeaks-Documents">¶</a></h4><p>Same drill-down pattern, scoped to <code>wikileaks.org</code> (the <code>leak_whistleblower</code>
+<h4 id="4.1.4-Top-WikiLeaks-Documents">4.1.4 Top WikiLeaks Documents<a class="anchor-link" href="#4.1.4-Top-WikiLeaks-Documents">¶</a></h4><p>Same drill-down pattern, scoped to <code>wikileaks.org</code> (the <code>leak_whistleblower</code>
 category in Section 9.3's taxonomy) -- what specific leaked documents/pages
 actually get cited, not just "WikiLeaks" as an undifferentiated domain.</p>
 </div>
@@ -11848,11 +11854,11 @@ actually get cited, not just "WikiLeaks" as an undifferentiated domain.</p>
 <span class="k">if</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">exists</span><span class="p">(</span><span class="n">WIKILEAKS_CACHE</span><span class="p">):</span>
     <span class="n">df_wikileaks</span> <span class="o">=</span> <span class="n">pd</span><span class="o">.</span><span class="n">read_csv</span><span class="p">(</span><span class="n">WIKILEAKS_CACHE</span><span class="p">)</span>
 <span class="k">elif</span> <span class="nb">len</span><span class="p">(</span><span class="n">df_wikileaks</span><span class="p">)</span> <span class="o">&gt;</span> <span class="mi">0</span><span class="p">:</span>
-    <span class="n">df_wikileaks</span><span class="p">[</span><span class="s1">'title'</span><span class="p">]</span> <span class="o">=</span> <span class="n">df_wikileaks</span><span class="p">[</span><span class="s1">'url'</span><span class="p">]</span><span class="o">.</span><span class="n">apply</span><span class="p">(</span><span class="n">fetch_article_title</span><span class="p">)</span>
+    <span class="n">df_wikileaks</span><span class="p">[</span><span class="s1">'title'</span><span class="p">]</span> <span class="o">=</span> <span class="n">resolve_titles_with_reddit_first</span><span class="p">(</span><span class="n">df_wikileaks</span><span class="p">[</span><span class="s1">'url'</span><span class="p">],</span> <span class="n">reddit_title_lookup</span><span class="p">)</span>
     <span class="n">df_wikileaks</span><span class="o">.</span><span class="n">to_csv</span><span class="p">(</span><span class="n">WIKILEAKS_CACHE</span><span class="p">,</span> <span class="n">index</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span>
 
 <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">df_wikileaks</span><span class="p">)</span> <span class="o">&gt;</span> <span class="mi">0</span><span class="p">:</span>
-    <span class="n">display</span><span class="p">(</span><span class="n">df_wikileaks</span><span class="p">[[</span><span class="s1">'domain'</span><span class="p">,</span> <span class="s1">'title'</span><span class="p">,</span> <span class="s1">'citations'</span><span class="p">,</span> <span class="s1">'avg_upvotes'</span><span class="p">,</span> <span class="s1">'url'</span><span class="p">]])</span>
+    <span class="n">viz</span><span class="o">.</span><span class="n">display_with_links</span><span class="p">(</span><span class="n">df_wikileaks</span><span class="p">,</span> <span class="n">url_col</span><span class="o">=</span><span class="s1">'url'</span><span class="p">,</span> <span class="n">text_col</span><span class="o">=</span><span class="s1">'title'</span><span class="p">,</span> <span class="n">columns</span><span class="o">=</span><span class="p">[</span><span class="s1">'domain'</span><span class="p">,</span> <span class="s1">'title'</span><span class="p">,</span> <span class="s1">'citations'</span><span class="p">,</span> <span class="s1">'avg_upvotes'</span><span class="p">])</span>
 <span class="k">else</span><span class="p">:</span>
     <span class="nb">print</span><span class="p">(</span><span class="s2">"No wikileaks.org URLs met the citations &gt; 2 threshold in this corpus sample."</span><span class="p">)</span>
 </pre></div>
@@ -11867,155 +11873,108 @@ actually get cited, not just "WikiLeaks" as an undifferentiated domain.</p>
 <div class="jp-OutputArea-child">
 <div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
 <div class="jp-RenderedHTMLCommon jp-RenderedHTML jp-OutputArea-output" data-mime-type="text/html" tabindex="0">
-<div style="max-height:350px;overflow-y:auto;border:1px solid #ddd;border-radius:4px;padding:4px 8px;"><div>
-<style scoped="">
-    .dataframe tbody tr th:only-of-type {
-        vertical-align: middle;
-    }
-
-    .dataframe tbody tr th {
-        vertical-align: top;
-    }
-
-    .dataframe thead th {
-        text-align: right;
-    }
-</style>
-<table border="1" class="dataframe">
+<div style="max-height:350px;overflow-y:auto;border:1px solid #ddd;border-radius:4px;padding:4px 8px;"><table border="1" class="dataframe">
 <thead>
 <tr style="text-align: right;">
-<th></th>
 <th>domain</th>
 <th>title</th>
 <th>citations</th>
 <th>avg_upvotes</th>
-<th>url</th>
 </tr>
 </thead>
 <tbody>
 <tr>
-<th>0</th>
 <td>wikileaks.org</td>
-<td>FBI pedophile symbols - WikiLeaks</td>
+<td><a href="https://wikileaks.org/wiki/FBI_pedophile_symbols" target="_blank">FBI List of pedophile symbols and logos - 2007 Wiki</a></td>
 <td>278</td>
 <td>15.58</td>
-<td>https://wikileaks.org/wiki/FBI_pedophile_symbols</td>
 </tr>
 <tr>
-<th>1</th>
 <td>wikileaks.org</td>
-<td>The Global Intelligence Files - RE: Get ready for "Chicago Hot Dog Friday"</td>
+<td><a href="https://wikileaks.org/gifiles/docs/12/1223066_re-get-ready-for-chicago-hot-dog-friday-.html" target="_blank">'I think Obama spent about $65,000 of the tax-payers money flying in pizza/dogs from Chicago for a private party at the White House'</a></td>
 <td>195</td>
 <td>9.27</td>
-<td>https://wikileaks.org/gifiles/docs/12/1223066_re-get-ready-for-chicago-hot-dog-friday-.html</td>
 </tr>
 <tr>
-<th>2</th>
 <td>wikileaks.org</td>
-<td>WikiLeaks - Hillary Clinton Email Archive</td>
+<td><a href="https://wikileaks.org/clinton-emails/emailid/14333" target="_blank">TRI to Clinton regarding: "Moloch" - UNCLASSIFIED U.S. Department of State Case No. F-2014-20439</a></td>
 <td>182</td>
 <td>5.61</td>
-<td>https://wikileaks.org/clinton-emails/emailid/14333</td>
 </tr>
 <tr>
-<th>3</th>
 <td>wikileaks.org</td>
-<td>WikiLeaks - The Podesta Emails</td>
+<td><a href="https://wikileaks.org/podesta-emails/emailid/30613" target="_blank">People are beginning to ask the important question: "Do you think I'll do better playing dominos on cheese than on pasta"?</a></td>
 <td>169</td>
 <td>9.82</td>
-<td>https://wikileaks.org/podesta-emails/emailid/30613</td>
 </tr>
 <tr>
-<th>4</th>
 <td>wikileaks.org</td>
-<td>WikiLeaks - The Podesta Emails</td>
+<td><a href="https://wikileaks.org/podesta-emails/emailid/32795" target="_blank">Did you leave a handkerchief</a></td>
 <td>139</td>
 <td>5.42</td>
-<td>https://wikileaks.org/podesta-emails/emailid/32795</td>
 </tr>
 <tr>
-<th>5</th>
 <td>wikileaks.org</td>
-<td>WikiLeaks - The Podesta Emails</td>
+<td><a href="https://wikileaks.org/podesta-emails/emailid/46736" target="_blank">Wikileaks Podesta Email Discusses Children in a Hot Tub: "We plan to heat the pool, so a swim is a possibility. Bonnie will be Uber Service to transport Ruby, Emerson, and Maeve Luzzatto (11, 9, and almost 7) so you’ll have some further entertainment, and they will be in that pool for sure."</a></td>
 <td>128</td>
 <td>10.76</td>
-<td>https://wikileaks.org/podesta-emails/emailid/46736</td>
 </tr>
 <tr>
-<th>6</th>
 <td>wikileaks.org</td>
-<td>WikiLeaks - The Podesta Emails</td>
+<td><a href="https://wikileaks.org/podesta-emails/" target="_blank">WikiLeaks just dropped Podesta emails</a></td>
 <td>105</td>
 <td>6.06</td>
-<td>https://wikileaks.org/podesta-emails/</td>
 </tr>
 <tr>
-<th>7</th>
 <td>file.wikileaks.org</td>
-<td>https://file.wikileaks.org/file/FBI-pedophile-symbols.pdf</td>
+<td><a href="https://file.wikileaks.org/file/FBI-pedophile-symbols.pdf" target="_blank">FBI: Symbols that identify pedophiles</a></td>
 <td>88</td>
 <td>5.47</td>
-<td>https://file.wikileaks.org/file/FBI-pedophile-symbols.pdf</td>
 </tr>
 <tr>
-<th>8</th>
 <td>wikileaks.org</td>
-<td>WikiLeaks - The Podesta Emails</td>
+<td><a href="https://wikileaks.org/podesta-emails/emailid/55433" target="_blank">Hi John, The World found a pizza-related email we think is proof you're a sick pedophile. Is it yours? MSM can censor #pizzagate if you want. Know you’re busy, so feel free to hide for 35 days, deflect to Russian hackers if it’s not yours or you don’t want it. - Everyone</a></td>
 <td>85</td>
 <td>6.78</td>
-<td>https://wikileaks.org/podesta-emails/emailid/55433</td>
 </tr>
 <tr>
-<th>9</th>
 <td>wikileaks.org</td>
-<td>WikiLeaks - The Podesta Emails</td>
+<td><a href="https://wikileaks.org/podesta-emails/emailid/6225" target="_blank">WikiLeaks - The Podesta Emails</a></td>
 <td>81</td>
 <td>4.64</td>
-<td>https://wikileaks.org/podesta-emails/emailid/6225</td>
 </tr>
 <tr>
-<th>10</th>
 <td>wikileaks.org</td>
-<td>WikiLeaks - Hillary Clinton Email Archive</td>
+<td><a href="https://wikileaks.org/clinton-emails/" target="_blank">[WikiLeaks] Hillary Clinton Email Dump</a></td>
 <td>79</td>
 <td>4.10</td>
-<td>https://wikileaks.org/clinton-emails/</td>
 </tr>
 <tr>
-<th>11</th>
 <td>wikileaks.org</td>
-<td>Julian Assange - Google Is Not What It Seems</td>
+<td><a href="https://wikileaks.org/google-is-not-what-it-seems/" target="_blank">Julian Assange - Google Is Not What It Seems</a></td>
 <td>79</td>
 <td>5.70</td>
-<td>https://wikileaks.org/google-is-not-what-it-seems/</td>
 </tr>
 <tr>
-<th>12</th>
 <td>wikileaks.org</td>
-<td>WikiLeaks - The Podesta Emails</td>
+<td><a href="https://wikileaks.org/podesta-emails/emailid/15893" target="_blank">First big evidence of satanism from the Podesta emails</a></td>
 <td>78</td>
 <td>8.51</td>
-<td>https://wikileaks.org/podesta-emails/emailid/15893</td>
 </tr>
 <tr>
-<th>13</th>
 <td>search.wikileaks.org</td>
-<td>GI Files -</td>
+<td><a href="https://search.wikileaks.org/gifiles/?q=antique+jetpack&amp;mfrom=&amp;mto=&amp;title=¬itle=&amp;date=&amp;nofrom=¬o=&amp;count=50&amp;sort=0&amp;file=&amp;docid=&amp;relid=0#searchresult" target="_blank">a</a></td>
 <td>75</td>
 <td>13.07</td>
-<td>https://search.wikileaks.org/gifiles/?q=antique+jetpack&amp;mfrom=&amp;mto=&amp;title=&amp;notitle=&amp;date=&amp;nofrom=&amp;noto=&amp;count=50&amp;sort=0&amp;file=&amp;docid=&amp;relid=0#searchresult</td>
 </tr>
 <tr>
-<th>14</th>
 <td>wikileaks.org</td>
-<td>WikiLeaks - The Podesta Emails</td>
+<td><a href="https://wikileaks.org/podesta-emails/emailid/48488" target="_blank">WikiLeaks - The Podesta Emails</a></td>
 <td>73</td>
 <td>11.19</td>
-<td>https://wikileaks.org/podesta-emails/emailid/48488</td>
 </tr>
 </tbody>
-</table>
-</div></div>
+</table></div>
 </div>
 </div>
 </div>
