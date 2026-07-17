@@ -2289,3 +2289,114 @@ mistake this session kept finding and fixing elsewhere (measuring the
 wrong thing and trusting it because the pipeline ran without erroring).
 Report the κ from task 1 and get it reviewed before anyone decides
 whether/how to integrate this into the core analysis.
+
+## 19. Full-lineage pipeline audit + duplicate-ID root cause — STAGED,
+## large, do not attempt live in a token-constrained session
+
+Nash's request (2026-07-17): the existing `pipeline_validity_audit.md`
+(§16's deliverable) is too narrow — it only covers the 10 CURRENT
+pipeline components and misses the project's actual history, including
+approaches that were tried, found flawed, and superseded (the concrete
+example raised: an early spaCy-based FactAppeal approach — see
+`data/processed/spacy_attributed_comments.parquet`, 279.9MB per
+`DATA_MANIFEST.md`, and `src/*` files referencing `spacy_attributed`/
+`spacy_audit_scratchpad.csv` — this predates and was replaced by the
+current TF-IDF+LogReg FactAppeal classifier documented in §8b, but
+nothing explains *why* it was replaced or what was wrong with it).
+
+**Also concretely needed, found while investigating a data-quality bug
+this session**: `empath_scores_full.parquet` and
+`research_corpus_staged_scores_full21m.parquet` (the two files every
+regression this entire project depends on) have ~58,669 duplicate
+comment IDs each, causing 0.85% pseudo-replication in the actual
+regression population (confirmed 2026-07-17: 1,985,823 rows, only
+1,968,864 unique ids). **Root-caused as far as is practical without a
+large notebook-archaeology effort**: neither file's own construction
+step introduces the duplication (`empath_scores_full.parquet` is a
+straight DuckDB passthrough from `lexical_scores_full.parquet`, no
+join, confirmed via `ConspiracyMaster_Refactored.ipynb` cell 50; and
+`research_corpus_staged_scores_full21m.parquet` is a straight
+passthrough from `empath_scores_full.parquet`, confirmed via
+`src/score_main_corpus_staged.py` line 169). So the duplication is
+inherited from `lexical_scores_full.parquet`'s own construction, or
+further back from raw comment ingestion. **17 archived notebooks**
+reference `lexical_scores_full.parquet` construction (grep hit list:
+`notebooks/archive/ConspiracyConcise.ipynb`,
+`ConspiracyFindings.ipynb`, `ConspiracyMaster.ipynb` [6.8MB],
+`ConspiracyMaster_Architected.ipynb`, `ConspiracyMaster_Archive.ipynb`,
+`ConspiracyMaster_Cleaned.ipynb`, `ConspiracyMaster_Cleaned_backup.ipynb`,
+`ConspiracyMaster_FINAL.ipynb`, `ConspiracyMaster_Final_Architecture
+copy.ipynb` [57MB], `ConspiracyMaster_Final_Architecture.ipynb`,
+`ConspiracyMaster_Organized.ipynb`, `ConspiracyMaster_Refactored_9_8.ipynb`,
+`ConspiracyMaster_mechanical_clean.ipynb`, `ConspiracyMaster_stripped.ipynb`,
+`clean_notebook.ipynb`, plus `notebooks/legacy_production/ConspiracyResearch1.ipynb`
+and `Conspiracy_Pipeline.ipynb`) — pinning down the exact construction
+step and whether it's a raw-source duplicate (e.g. an overlapping glob
+pattern reading the same raw comment file twice) or a join-fanout
+requires reading through this volume, genuinely large, not attempted
+here.
+
+**Practical interim note, separate from root-causing it**: whatever the
+ultimate source, the fix for ANY downstream regression is cheap and
+doesn't require rebuilding the source parquets — add a dedup at query
+time, e.g. `QUALIFY ROW_NUMBER() OVER (PARTITION BY id) = 1` on the
+`s`/`e` join in `rerun_refined_regressions_v2.py`,
+`run_pure_population_analysis.py`, and any other script joining against
+these two files. Not yet applied anywhere. At 0.85% duplication this is
+very unlikely to overturn any existing finding's significance or flip a
+coefficient's sign, but it's a real independence-assumption violation
+worth fixing before final numbers.
+
+### Task for Antigravity: full-lineage audit, in this order
+
+1. **Trace `lexical_scores_full.parquet`'s construction** across the 17
+   notebooks listed above. Find the actual cell/script that builds it,
+   determine whether the ~58,669-duplicate-id issue originates there or
+   even earlier (check the raw comment ingestion glob patterns for
+   overlapping source files — recall this project's raw comment archive
+   is itself split across multiple numbered files,
+   `r_conspiracy_comments1.jsonl.gz` through `...10`, with some numbers
+   missing per the data-loss incident in §-1 — check whether any glob
+   pattern used to build early pipeline stages could plausibly double-
+   count overlapping ranges across those files).
+2. **Audit the spaCy FactAppeal predecessor** (`spacy_attributed_comments.parquet`,
+   `spacy_audit_scratchpad.csv`, and whatever notebook cells produced
+   them) using the same 8-part questionnaire from §16 — what it was,
+   why it was replaced, what was actually wrong with it (not just "it
+   was superseded"), and whether any of its outputs are still
+   referenced anywhere live (should not be, but verify, don't assume).
+3. **Broaden `pipeline_validity_audit.md`** (or produce a new
+   `pipeline_lineage_audit.md`, don't overwrite the existing corrected
+   file) covering the succession of notebooks that led to
+   `ConspiracyMaster_Refactored.ipynb` — not every archived notebook in
+   equal depth, but enough to answer: what major approaches were tried
+   and abandoned, and why (this is exactly the kind of "methods decision
+   for the write-up" Nash's supervisor has repeatedly asked him to keep
+   track of — see the email excerpt earlier in this project's history).
+4. **Regenerate `DATA_MANIFEST.md`** against the CURRENT state of
+   `data/processed/` (it's dated 2026-07-06 and predates essentially
+   everything from this session — the r/politics control, the recovered
+   posts archive, the mainstream-expert augmentation work, the
+   consensus-stance queue, all of it). Check if the original generation
+   script still exists before writing a new one from scratch.
+
+**This is explicitly staged, not urgent, and should not be attempted in
+a single token-constrained session** — it involves reading through tens
+of megabytes of notebook JSON. Break it into the four numbered pieces
+above if picking it up incrementally.
+
+### Other staleness found in this same review pass, smaller and separate
+- `walkthrough.md` and `research_notes/*.md` (7 files) are still built
+  on the contaminated entity list and the invalid TopMinds control, and
+  have no in-file marker saying so — someone opening the repo cold has
+  no way to know. Cheap fix: add a one-line banner at the top of each
+  pointing to this handoff doc, don't rewrite the content.
+- `README.md`'s comparison-corpora list and `src/` description are both
+  mildly stale (doesn't mention r/politics as the actual control;
+  undersells what's in `src/` now beyond the original Vertex AI
+  classification pipeline). Small, cheap fix whenever convenient.
+- `research_notes/notes.txt` (untracked) is not a research note — it's
+  raw pasted conspiracy-theory content, looks like an accidental scratch
+  dump. Flagged for Nash to deal with directly, not touched here (same
+  handling as the unrelated `Untitled.ipynb` found earlier this
+  project).
