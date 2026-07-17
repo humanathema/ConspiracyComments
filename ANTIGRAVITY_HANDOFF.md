@@ -89,6 +89,7 @@ you need to understand *why*, not just *what*.
 | `handoff/task_attribution_scorer_wiring.md` | Finish validating the attribution scorer against human labels, then (only after review) wire it into the core `has_maverick` measure. |
 | `handoff/task_consensus_stance_completion.md` | Rate the remaining ~88 comments in the consensus-stance queue, then run the formal stance × traction analysis. |
 | `handoff/task_markdown_cleanup.md` | Small: add "superseded, see this handoff" banners to `walkthrough.md`/`research_notes/*.md`, fix two stale details in `README.md`. |
+| `handoff/task_notebook_and_repo_polish.md` | **Do before the next `git push`.** Wider dormant-work audit of the master notebook (not just spaCy FactAppeal), notebook cleanup for the now-public/supervisor-shared repo, README expansion, and fixing hardcoded `/Users/nash/...` paths to be portable. |
 
 Each task file is short and self-contained on purpose — if it references
 something it doesn't explain, that's a bug in the task file, flag it
