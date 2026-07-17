@@ -2,9 +2,10 @@
 Common DuckDB query patterns and helper functions.
 """
 
+import os
 import duckdb
 import pandas as pd
-from typing import Optional, Any, List, Tuple
+from typing import Callable, Optional, Any, List, Tuple
 
 
 def get_connection(memory: bool = False) -> duckdb.DuckDBPyConnection:
@@ -158,6 +159,47 @@ def binned_query(
         results.append(df)
     
     return pd.concat(results, ignore_index=True)
+
+
+def cached_query_csv(
+    con: duckdb.DuckDBPyConnection,
+    cache_path: str,
+    query: str,
+    index: bool = False,
+    postprocess: Optional[Callable[[pd.DataFrame], pd.DataFrame]] = None,
+    verbose: bool = True,
+) -> pd.DataFrame:
+    """
+    Run `query` and cache the result to `cache_path` (CSV), or load from
+    cache if it already exists. Encapsulates the check-cache/else-query-
+    and-save pattern used throughout the notebook.
+
+    Args:
+        con: DuckDB connection.
+        cache_path: CSV path to read from / write to.
+        query: SQL query string (only run on a cache miss).
+        index: Passed through to DataFrame.to_csv.
+        postprocess: Optional function applied to the freshly-queried
+            DataFrame before it's cached (not applied on a cache hit,
+            since the cached CSV already reflects it from when it was
+            first written).
+        verbose: Print a one-line cache-hit/miss status message.
+
+    Returns:
+        DataFrame, either loaded from cache or freshly queried.
+    """
+    if os.path.exists(cache_path):
+        if verbose:
+            print(f"Loading cached result from {cache_path}")
+        return pd.read_csv(cache_path)
+
+    if verbose:
+        print(f"Cache miss — running query and caching to {cache_path}")
+    df = con.execute(query).df()
+    if postprocess is not None:
+        df = postprocess(df)
+    df.to_csv(cache_path, index=index)
+    return df
 
 
 def sample_records(

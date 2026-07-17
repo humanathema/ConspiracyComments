@@ -12,12 +12,13 @@ class Paths:
     
     def __init__(self, base: Optional[str] = None):
         """
-        Initialize paths. If base is None, defaults to /Users/nash/Projects/ConspiracyComments/
-        
+        Initialize paths. If base is None, defaults to the repo root
+        (two directories up from this file: utils/file_paths.py -> repo root).
+
         Args:
             base: Base directory path. If None, uses default.
         """
-        self.base = Path(base or '/Users/nash/Projects/ConspiracyComments/')
+        self.base = Path(base or Path(__file__).resolve().parents[1])
         
     @property
     def raw_comments(self) -> str:
