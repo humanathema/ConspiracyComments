@@ -90,6 +90,7 @@ you need to understand *why*, not just *what*.
 | `handoff/task_consensus_stance_completion.md` | Rate the remaining ~88 comments in the consensus-stance queue, then run the formal stance × traction analysis. |
 | `handoff/task_markdown_cleanup.md` | Small: add "superseded, see this handoff" banners to `walkthrough.md`/`research_notes/*.md`, fix two stale details in `README.md`. |
 | `handoff/task_notebook_and_repo_polish.md` | **Do before the next `git push`.** Wider dormant-work audit of the master notebook (not just spaCy FactAppeal), notebook cleanup for the now-public/supervisor-shared repo, README expansion, and fixing hardcoded `/Users/nash/...` paths to be portable. |
+| `handoff/task_full_project_documentation_audit.md` | Large, read-only. Full inventory of every `src/`/`utils/` file (purpose/status/evidence/confidence) plus a mined narrative history from `ANTIGRAVITY_HANDOFF.md`'s git log and `ARCHIVE_full_session_history.md`, written to a new `handoff/PROJECT_INVENTORY.md`. Every claim needs a citation — this is what makes it cheaply spot-checkable afterward. Has real overlap with `task_pipeline_lineage_audit.md` — read that task's overlap note before starting. |
 
 Each task file is short and self-contained on purpose — if it references
 something it doesn't explain, that's a bug in the task file, flag it
