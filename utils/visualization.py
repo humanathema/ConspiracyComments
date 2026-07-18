@@ -166,99 +166,158 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 import numpy as np
 
+# --- Shared style: applied once at import time ---
+NAVY, ORANGE, GREEN, PURPLE, RED, TEAL = '#2c3e50', '#e67e22', '#27ae60', '#8e44ad', '#c0392b', '#16a085'
+PALETTE = [NAVY, ORANGE, GREEN, PURPLE, RED, TEAL]
+
+sns.set_theme(style='white', font='sans-serif')
+plt.rcParams.update({
+    'figure.facecolor': 'white',
+    'axes.facecolor': 'white',
+    'axes.titlesize': 15,
+    'axes.titleweight': 'bold',
+    'axes.titlepad': 14,
+    'axes.labelsize': 11,
+    'axes.edgecolor': '#888',
+    'xtick.labelsize': 10,
+    'ytick.labelsize': 10,
+    'xtick.color': '#444',
+    'ytick.color': '#444',
+    'legend.frameon': False,
+    'legend.fontsize': 10,
+})
+
+
+def _despine(ax=None, keep_left=True, keep_bottom=True):
+    """Strip chart-junk spines, keep a light left/bottom axis by default."""
+    sns.despine(ax=ax, left=not keep_left, bottom=not keep_bottom)
+
+
+def _light_grid(ax=None, axis='y'):
+    """A faint, single-axis gridline -- enough to read values off, not a cage."""
+    (ax or plt.gca()).grid(True, axis=axis, alpha=0.25, linewidth=0.7, color='#999')
+    (ax or plt.gca()).set_axisbelow(True)
+
+
 def plot_lexical_divergence(flashpoint_scores, control_scores):
-    plt.figure(figsize=(12, 6))
-    sns.kdeplot(flashpoint_scores, color='red', label='Flashpoint (Viral)', fill=True, alpha=0.2)
-    sns.kdeplot(control_scores, color='blue', label='Inward-Facing (Quiet)', fill=True, alpha=0.2)
+    plt.figure(figsize=(11, 5.5))
+    sns.kdeplot(flashpoint_scores, color=RED, label='Flashpoint (Viral)', fill=True, alpha=0.25, linewidth=1.5)
+    sns.kdeplot(control_scores, color=NAVY, label='Inward-Facing (Quiet)', fill=True, alpha=0.25, linewidth=1.5)
     plt.title("Lexical Divergence: Flashpoints vs. Inward-Facing Threads")
+    _light_grid()
+    _despine()
     plt.legend()
+    plt.tight_layout()
     plt.show()
 
 def plot_linguistic_gravity(df_rankings, target_month):
-    plt.figure(figsize=(14, 8))
-    sns.set_style("whitegrid")
+    plt.figure(figsize=(12, 6.5))
     sns.scatterplot(
-        data=df_rankings, 
-        x='total_comment_volume', 
-        y='lexical_score', 
-        alpha=0.3, 
-        color='#e67e22',
-        s=30
+        data=df_rankings,
+        x='total_comment_volume',
+        y='lexical_score',
+        alpha=0.25,
+        color=ORANGE,
+        s=25,
+        linewidth=0,
     )
     sns.regplot(
-        data=df_rankings, 
-        x='total_comment_volume', 
-        y='lexical_score', 
-        scatter=False, 
-        color='#2c3e50', 
-        line_kws={'linewidth': 3}
+        data=df_rankings,
+        x='total_comment_volume',
+        y='lexical_score',
+        scatter=False,
+        color=NAVY,
+        line_kws={'linewidth': 3},
     )
     plt.xscale('log')
-    plt.title(f"The Linguistic Gravity of r/conspiracy ({target_month})\\nDoes volume lead to convergence?", fontsize=16)
-    plt.xlabel("Total Comments Posted (Log Scale)", fontsize=12)
-    plt.ylabel("Lexical Convergence Score", fontsize=12)
+    plt.title(f"The Linguistic Gravity of r/conspiracy ({target_month})\nDoes volume lead to convergence?")
+    plt.xlabel("Total Comments Posted (Log Scale)")
+    plt.ylabel("Lexical Convergence Score")
+    _light_grid()
+    _despine()
     plt.tight_layout()
     plt.show()
 
 def plot_binned_linguistic_gravity(df_rankings, binned_data, target_month):
-    plt.figure(figsize=(14, 8))
+    plt.figure(figsize=(12, 6.5))
     sns.scatterplot(
-        data=df_rankings, 
-        x='total_comment_volume', 
-        y='lexical_score', 
-        alpha=0.15, 
-        color='#e67e22',
-        s=20
+        data=df_rankings,
+        x='total_comment_volume',
+        y='lexical_score',
+        alpha=0.12,
+        color=ORANGE,
+        s=18,
+        linewidth=0,
     )
     plt.plot(
-        binned_data['bin_mid'], 
-        binned_data['lexical_score'], 
-        color='#2c3e50', 
-        linewidth=4, 
-        marker='o', 
-        markersize=10, 
-        label='Median Score per Activity Tier'
+        binned_data['bin_mid'],
+        binned_data['lexical_score'],
+        color=NAVY,
+        linewidth=3,
+        marker='o',
+        markersize=9,
+        label='Median Score per Activity Tier',
     )
     plt.xscale('log')
     plt.ylim(0, 1.0)
-    plt.title(f"Actual Linguistic Convergence: Binned Median Activity ({target_month})", fontsize=16)
-    plt.xlabel("Total Comments Posted (Log Scale)", fontsize=12)
-    plt.ylabel("Lexical Convergence Score", fontsize=12)
+    plt.title(f"Actual Linguistic Convergence: Binned Median Activity ({target_month})")
+    plt.xlabel("Total Comments Posted (Log Scale)")
+    plt.ylabel("Lexical Convergence Score")
+    _light_grid()
+    _despine()
     plt.legend()
+    plt.tight_layout()
     plt.show()
 
 def plot_epistemic_impact(thread_significance):
-    plt.figure(figsize=(10, 6))
-    sns.scatterplot(
-        data=thread_significance, 
-        x='total_raw_upvotes', 
-        y='weighted_epistemic_impact', 
-        hue='insider_density', 
-        palette='viridis'
+    plt.figure(figsize=(9, 5.5))
+    sc = sns.scatterplot(
+        data=thread_significance,
+        x='total_raw_upvotes',
+        y='weighted_epistemic_impact',
+        hue='insider_density',
+        palette='viridis',
+        linewidth=0,
+        s=35,
     )
+    sc.legend(title='Insider Density', frameon=False, bbox_to_anchor=(1.02, 1), loc='upper left')
     plt.title("Raw Upvotes vs. Weighted Epistemic Impact")
     plt.xlabel("Total Raw Upvotes")
     plt.ylabel("Significant Approval (Weighted)")
+    _light_grid()
+    _despine()
+    plt.tight_layout()
     plt.show()
 
 def plot_epistemic_strategy_correlation(corr_matrix):
-    plt.figure(figsize=(10, 8))
-    sns.heatmap(corr_matrix[['score']].sort_values(by='score', ascending=False), annot=True, cmap='coolwarm')
+    plt.figure(figsize=(7, 7))
+    sns.heatmap(
+        corr_matrix[['score']].sort_values(by='score', ascending=False),
+        annot=True, fmt='.2f', cmap='RdBu_r', center=0,
+        linewidths=0.6, linecolor='white', cbar_kws={'shrink': 0.7},
+    )
     plt.title("Correlation: Epistemic Strategy vs. Upvotes")
+    plt.tight_layout()
     plt.show()
 
 def plot_archetype_performance(df_commenters):
-    plt.figure(figsize=(14, 8))
+    plt.figure(figsize=(12, 6.5))
     sns.scatterplot(
-        data=df_commenters, 
-        x='rhetoric_norm', 
-        y='score', 
-        size='rhetoric_norm', 
-        alpha=0.6, 
-        sizes=(20, 200)
+        data=df_commenters,
+        x='rhetoric_norm',
+        y='score',
+        size='rhetoric_norm',
+        alpha=0.5,
+        sizes=(15, 160),
+        color=ORANGE,
+        linewidth=0,
+        legend=False,
     )
     plt.yscale('symlog')
-    plt.title("The Rhetoric/Adversarial Archetype: Does high-mistrust language yield more social capital?")
+    plt.title("The Rhetoric/Adversarial Archetype: Does High-Mistrust Language Yield More Social Capital?")
+    _light_grid()
+    _despine()
+    plt.tight_layout()
     plt.show()
 
 def plot_corpus_size_funnel(raw: int, usable: int, threads: int) -> None:
@@ -270,15 +329,17 @@ def plot_corpus_size_funnel(raw: int, usable: int, threads: int) -> None:
     stages = ['Raw Usable Comments\n(no length filter)', 'Lexically Scored Comments\n(length > 100 chars)']
     values = [raw, usable]
 
-    plt.figure(figsize=(10, 6))
-    bars = plt.bar(stages, values, color=['#2c3e50', '#e67e22'], width=0.5)
+    plt.figure(figsize=(9, 5.5))
+    bars = plt.bar(stages, values, color=[NAVY, ORANGE], width=0.5)
     for bar, val in zip(bars, values):
         plt.text(bar.get_x() + bar.get_width() / 2, bar.get_height(),
                   f"{val:,}", ha='center', va='bottom', fontsize=12, fontweight='bold')
 
-    plt.title(f"Corpus Size After Length Filtering  (across {threads:,} threads)", fontsize=16)
+    plt.title(f"Corpus Size After Length Filtering  (across {threads:,} threads)")
     plt.ylabel("Comment Count")
     plt.ylim(0, max(values) * 1.15)
+    _light_grid()
+    _despine()
     plt.tight_layout()
     plt.show()
 
@@ -290,15 +351,17 @@ def plot_monthly_volume(df_monthly) -> None:
     Args:
         df_monthly: DataFrame with columns ['month', 'n_comments'].
     """
-    plt.figure(figsize=(14, 6))
-    plt.fill_between(df_monthly['month'], df_monthly['n_comments'], color='#e67e22', alpha=0.3)
-    plt.plot(df_monthly['month'], df_monthly['n_comments'], color='#2c3e50', linewidth=2)
-    plt.title("Comment Volume by Month, Full Corpus", fontsize=16)
+    plt.figure(figsize=(13, 5.5))
+    plt.fill_between(df_monthly['month'], df_monthly['n_comments'], color=ORANGE, alpha=0.25)
+    plt.plot(df_monthly['month'], df_monthly['n_comments'], color=NAVY, linewidth=1.8)
+    plt.title("Comment Volume by Month, Full Corpus")
     plt.xlabel("Month")
     plt.ylabel("Comment Count")
     every_nth = max(1, len(df_monthly) // 20)
     plt.gca().set_xticks(df_monthly['month'][::every_nth])
     plt.xticks(rotation=45, ha='right')
+    _light_grid()
+    _despine()
     plt.tight_layout()
     plt.show()
 
@@ -310,12 +373,13 @@ def plot_upvote_tier_distribution(df_tiers) -> None:
     Args:
         df_tiers: DataFrame with columns ['upvote_tier', 'n'].
     """
-    plt.figure(figsize=(10, 6))
-    plt.bar(df_tiers['upvote_tier'], df_tiers['n'], color='#2c3e50')
-    plt.title("Comment Distribution Across Upvote Tiers", fontsize=16)
+    plt.figure(figsize=(9, 5.5))
+    plt.bar(df_tiers['upvote_tier'], df_tiers['n'], color=NAVY, width=0.6)
+    plt.title("Comment Distribution Across Upvote Tiers")
     plt.xlabel("Upvote Tier")
     plt.ylabel("Comment Count")
     plt.yscale('log')
+    _despine()
     plt.tight_layout()
     plt.show()
 
@@ -328,13 +392,14 @@ def plot_spam_bot_top_authors(df_top) -> None:
     Args:
         df_top: DataFrame with columns ['author', 'dup_ratio', 'is_likely_bot'].
     """
-    colors = ['#c0392b' if is_bot else '#e67e22' for is_bot in df_top['is_likely_bot']]
-    plt.figure(figsize=(10, max(4, 0.35 * len(df_top))))
+    colors = [RED if is_bot else ORANGE for is_bot in df_top['is_likely_bot']]
+    plt.figure(figsize=(9, max(4, 0.35 * len(df_top))))
     plt.barh(df_top['author'], df_top['dup_ratio'], color=colors)
     plt.gca().invert_yaxis()
     plt.xscale('log')
     plt.xlabel("Comments / Distinct Texts (dup_ratio, log scale)")
-    plt.title("Most Duplicative Authors: Bots (red) vs. Repeat Posters (orange)", fontsize=14)
+    plt.title("Most Duplicative Authors: Bots (red) vs. Repeat Posters (orange)")
+    _despine()
     plt.tight_layout()
     plt.show()
 
@@ -350,15 +415,16 @@ def plot_near_duplicate_cluster_sizes(df_clusters) -> None:
     single = df_clusters[df_clusters['n_distinct_authors'] == 1]['cluster_size']
     cross = df_clusters[df_clusters['n_distinct_authors'] > 1]['cluster_size']
 
-    plt.figure(figsize=(10, 6))
+    plt.figure(figsize=(9, 5.5))
     bins = np.logspace(np.log10(2), np.log10(max(df_clusters['cluster_size'].max(), 3)), 25)
-    plt.hist([single, cross], bins=bins, stacked=True, color=['#e67e22', '#c0392b'],
+    plt.hist([single, cross], bins=bins, stacked=True, color=[ORANGE, RED],
               label=['Single author', 'Cross-author'])
     plt.xscale('log')
     plt.yscale('log')
     plt.xlabel("Cluster Size (near-duplicate comments)")
     plt.ylabel("Number of Clusters")
-    plt.title("Near-Duplicate Cluster Size Distribution", fontsize=14)
+    plt.title("Near-Duplicate Cluster Size Distribution")
+    _despine()
     plt.legend()
     plt.tight_layout()
     plt.show()
@@ -373,16 +439,17 @@ def plot_yearly_lexical_trends(df_yearly) -> None:
             'avg_evidence', 'avg_authority', 'avg_rhetorical'].
     """
     dims = ['avg_hedge', 'avg_certainty', 'avg_evidence', 'avg_authority', 'avg_rhetorical']
-    colors = ['#2c3e50', '#e67e22', '#27ae60', '#8e44ad', '#c0392b']
 
-    plt.figure(figsize=(13, 6))
-    for dim, color in zip(dims, colors):
-        plt.plot(df_yearly['year'], df_yearly[dim], marker='o', color=color,
+    plt.figure(figsize=(12, 5.5))
+    for dim, color in zip(dims, PALETTE):
+        plt.plot(df_yearly['year'], df_yearly[dim], marker='o', markersize=4, color=color,
                   label=dim.replace('avg_', '').capitalize(), linewidth=2)
-    plt.title("Epistemic Dimension Averages by Year", fontsize=16)
+    plt.title("Epistemic Dimension Averages by Year")
     plt.xlabel("Year")
     plt.ylabel("Average Score per Comment")
-    plt.legend()
+    _light_grid()
+    _despine()
+    plt.legend(bbox_to_anchor=(1.02, 1), loc='upper left')
     plt.tight_layout()
     plt.show()
 
@@ -395,11 +462,12 @@ def plot_domain_type_citations(type_summary) -> None:
         type_summary: columns ['epistemic_type', 'total_citations', ...].
     """
     df = type_summary.sort_values('total_citations', ascending=True)
-    plt.figure(figsize=(10, 7))
-    plt.barh(df['epistemic_type'], df['total_citations'], color='#e67e22')
+    plt.figure(figsize=(9, 6.5))
+    plt.barh(df['epistemic_type'], df['total_citations'], color=ORANGE)
     plt.xscale('log')
     plt.xlabel("Total Citations (log scale)")
-    plt.title("Citation Volume by Source Domain Type", fontsize=16)
+    plt.title("Citation Volume by Source Domain Type")
+    _despine()
     plt.tight_layout()
     plt.show()
 
@@ -413,17 +481,21 @@ def plot_tier_signature_shifts(df_brigade_test) -> None:
         df_brigade_test: columns ['upvote_tier', 'avg_controversiality',
             'expertise_talk_percentage'].
     """
-    fig, axes = plt.subplots(1, 2, figsize=(14, 6))
+    fig, axes = plt.subplots(1, 2, figsize=(13, 5.5))
 
-    axes[0].bar(df_brigade_test['upvote_tier'], df_brigade_test['avg_controversiality'], color='#2c3e50')
+    axes[0].bar(df_brigade_test['upvote_tier'], df_brigade_test['avg_controversiality'], color=NAVY, width=0.6)
     axes[0].set_title("Avg. Controversiality by Tier")
     axes[0].tick_params(axis='x', rotation=20)
+    _light_grid(axes[0])
+    _despine(axes[0])
 
-    axes[1].bar(df_brigade_test['upvote_tier'], df_brigade_test['expertise_talk_percentage'], color='#e67e22')
+    axes[1].bar(df_brigade_test['upvote_tier'], df_brigade_test['expertise_talk_percentage'], color=ORANGE, width=0.6)
     axes[1].set_title("% Mentioning Expertise Vocabulary")
     axes[1].tick_params(axis='x', rotation=20)
+    _light_grid(axes[1])
+    _despine(axes[1])
 
-    plt.suptitle("Structural Signature Shifts Across Upvote Tiers", fontsize=16)
+    plt.suptitle("Structural Signature Shifts Across Upvote Tiers", fontweight='bold')
     plt.tight_layout()
     plt.show()
 
@@ -440,9 +512,10 @@ def plot_insider_segment_profile(df_insider_matrix) -> None:
     dims = ['avg_evidence', 'avg_adversarial', 'avg_hedge', 'avg_certainty', 'avg_pattern', 'avg_meta']
     heat_data = df_insider_matrix.set_index('insider_segment')[dims]
 
-    plt.figure(figsize=(11, 4))
-    sns.heatmap(heat_data, annot=True, fmt='.4f', cmap='YlOrRd', cbar_kws={'label': 'Avg. score'})
-    plt.title("Insider-Only Epistemic Profile by Segment", fontsize=14)
+    plt.figure(figsize=(10, 3.8))
+    sns.heatmap(heat_data, annot=True, fmt='.4f', cmap='YlOrRd', linewidths=0.6, linecolor='white',
+                 cbar_kws={'label': 'Avg. score', 'shrink': 0.85})
+    plt.title("Insider-Only Epistemic Profile by Segment")
     plt.ylabel("")
     plt.xlabel("")
     plt.tight_layout()
@@ -462,10 +535,11 @@ def plot_source_category_totals(totals: dict) -> None:
     values = list(totals.values())
     order = sorted(range(len(values)), key=lambda i: values[i])
 
-    plt.figure(figsize=(10, 6))
-    plt.barh([labels[i] for i in order], [values[i] for i in order], color='#2c3e50')
+    plt.figure(figsize=(9, 5.5))
+    plt.barh([labels[i] for i in order], [values[i] for i in order], color=NAVY)
     plt.xlabel("Total References (top-N shown per category)")
-    plt.title("Source Citation Volume by Category", fontsize=16)
+    plt.title("Source Citation Volume by Category")
+    _despine()
     plt.tight_layout()
     plt.show()
 
@@ -478,9 +552,10 @@ def plot_epistemic_stance_heatmap(matrix) -> None:
         matrix: crosstab DataFrame with a 'Total' row/column to exclude.
     """
     heat = matrix.drop(index='Total', errors='ignore').drop(columns='Total', errors='ignore')
-    plt.figure(figsize=(10, 6))
-    sns.heatmap(heat, annot=True, fmt='d', cmap='YlGnBu')
-    plt.title("Epistemic Move × Human Stance (HITL Annotations)", fontsize=14)
+    plt.figure(figsize=(9, 5.5))
+    sns.heatmap(heat, annot=True, fmt='d', cmap='YlGnBu', linewidths=0.6, linecolor='white',
+                 cbar_kws={'shrink': 0.85})
+    plt.title("Epistemic Move × Human Stance (HITL Annotations)")
     plt.tight_layout()
     plt.show()
 
@@ -493,11 +568,12 @@ def plot_hitl_queue_progress(df_progress) -> None:
         df_progress: columns ['queue', 'labeled', 'remaining'].
     """
     df = df_progress.sort_values('labeled', ascending=True)
-    plt.figure(figsize=(10, 5))
-    plt.barh(df['queue'], df['labeled'], color='#27ae60', label='Labeled')
-    plt.barh(df['queue'], df['remaining'], left=df['labeled'], color='#ddd', label='Remaining')
+    plt.figure(figsize=(9, 4.5))
+    plt.barh(df['queue'], df['labeled'], color=GREEN, label='Labeled')
+    plt.barh(df['queue'], df['remaining'], left=df['labeled'], color='#e4e4e4', label='Remaining')
     plt.xlabel("Rows")
-    plt.title("HITL Queue Progress", fontsize=16)
+    plt.title("HITL Queue Progress")
+    _despine()
     plt.legend()
     plt.tight_layout()
     plt.show()
@@ -512,37 +588,63 @@ def plot_hitl_label_distributions(dist_by_queue: dict) -> None:
         dist_by_queue: dict {queue_name: pandas Series of label -> count}.
     """
     df = pd.DataFrame(dist_by_queue).fillna(0)
-    df.plot(kind='bar', figsize=(11, 6), color=['#2c3e50', '#e67e22', '#27ae60'])
-    plt.title("Label Distribution by Queue (Completed Queues)", fontsize=16)
+    ax = df.plot(kind='bar', figsize=(10, 5.5), color=[NAVY, ORANGE, GREEN])
+    plt.title("Label Distribution by Queue (Completed Queues)")
     plt.ylabel("Count")
     plt.xticks(rotation=20)
+    _light_grid(ax)
+    _despine(ax)
     plt.legend(title='Queue')
     plt.tight_layout()
     plt.show()
 
 
 def plot_zscore_power_users(df_power_users, dim_cols):
-    fig, axes = plt.subplots(2, 5, figsize=(22, 12), sharey=True)
+    fig, axes = plt.subplots(2, 5, figsize=(20, 10), sharey=True)
     axes = axes.flatten()
 
     for i, dim in enumerate(dim_cols):
         ax = axes[i]
         sns.scatterplot(
-            data=df_power_users, 
-            x=dim, 
-            y='score', 
-            alpha=0.6, 
-            size=dim, 
-            sizes=(20, 200), 
-            ax=ax, 
-            color='#e67e22'
+            data=df_power_users,
+            x=dim,
+            y='score',
+            alpha=0.5,
+            size=dim,
+            sizes=(15, 160),
+            ax=ax,
+            color=ORANGE,
+            linewidth=0,
+            legend=False,
         )
-        
-        ax.set_title(f"{dim.replace('_count', '').capitalize()} (Z-Score)")
+        ax.set_title(f"{dim.replace('_count', '').capitalize()} (Z-Score)", fontsize=12)
         ax.set_yscale('symlog')
         ax.set_xlabel("Deviation from Mean (Z-Score)")
+        _despine(ax)
         if i == 0: ax.set_ylabel("Total Upvotes Earned")
 
+    plt.tight_layout()
+    plt.show()
+
+
+def plot_top_citations_bar(df, label_col, count_col, title, top_n=15):
+    """
+    Horizontal bar chart of the top-N rows in a citation/reference table
+    by count_col, for a quick-glance companion to the full HTML table.
+
+    Args:
+        df: DataFrame already sorted descending by count_col (as the
+            existing citation tables are).
+        label_col: column to use as the bar label (e.g. 'title').
+        count_col: column to use as the bar length (e.g. 'reference_count').
+        title: chart title.
+        top_n: how many rows to show (default 15).
+    """
+    d = df.head(top_n).sort_values(count_col, ascending=True)
+    plt.figure(figsize=(10, max(4, 0.35 * len(d))))
+    plt.barh(d[label_col].astype(str).str.slice(0, 60), d[count_col], color='#2c3e50')
+    plt.xlabel(count_col.replace('_', ' ').title())
+    plt.title(title, fontsize=14)
     plt.tight_layout()
     plt.show()
 
