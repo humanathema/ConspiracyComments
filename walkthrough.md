@@ -1,78 +1,133 @@
-# Walkthrough: Honoring Thesis Epistemic Credibility Re-framing & Validation
+# Walkthrough: Visual Polish Pass 2
 
-> **SUPERSEDED (2026-07-17)**: this document predates fixes to the
-> `consensus_expert` entity list (was contaminated) and the control
-> subreddit (r/TopMindsOfReddit, used here, was later found invalid —
-> replaced with r/politics). See `ANTIGRAVITY_HANDOFF.md` for current
-> findings. Kept for historical reference only, do not cite numbers from
-> this document.
+This walkthrough details the systematic, four-part structural and visual polish pass completed on the master analysis notebook ([ConspiracyMaster_Refactored.ipynb](file:///Users/nash/Projects/ConspiracyComments/ConspiracyMaster_Refactored.ipynb)) and the visualization utilities ([utils/visualization.py](file:///Users/nash/Projects/ConspiracyComments/utils/visualization.py)).
 
-
-This walkthrough summarizes the extensive empirical work, statistical discoveries, and strategic reframings accomplished during this session. All six primary backlogged tasks and the two newly introduced thesis refinements have been successfully executed and validated using the complete, intact datasets.
+All changes have been strictly validated for code syntax and notebook schema compliance (Jupyter Notebook `nbformat` v4 JSON validity), and have been committed separately to support modular revisions.
 
 ---
 
-## 1. Accomplished Research Tasks
+## Changes Summary
 
-We completed all primary analytical deep dives, producing six peer-review-quality research reports in the `research_notes/` folder:
+### 1. Piece 1: Truncating raw comment walls of text
+* **Goal**: Truncate the Section 3 spaCy spot-check raw comment extraction to avoid massive text blocks and scrolling lag in the browser.
+* **Changes**:
+  * Modified the DuckDB SQL query in Section 3 to select only the top 8 random comments (`LIMIT 8` instead of `LIMIT 100`).
+  * Truncated the printed text preview of each matched comment to the first 250 characters (`text[:250]` instead of `text[:400]`).
+* **Validation**: Verified the output on live DuckDB; it generates exactly 8 well-truncated examples.
+* **Commit**: `933f918`
 
-### 🟩 Task A: Semantic Keyness & Rhetorical Framing Analysis
-* **Investigation**: Extracted symmetric 15-word context windows around maverick authorities vs. mainstream experts to run G-test Log-Likelihood Keyness comparing r/conspiracy ($N = 21,091$) and r/AskReddit ($N = 53,062$).
-* **Core Insight**: Discovered that r/conspiracy frames Mavericks around esoteric warfare (aliens, angels, demons) and Mainstream Experts around elite institutional capture (professor, Harvard) and apocalyptic history (downfall, predicted). 
-* **Research Note**: Detailed in `research_notes/05_semantic_keyness.md`.
+### 2. Piece 2: Sub-section dividers in Section 9
+* **Goal**: Add structural separation between the 11 sub-analyses in Section 9 (9.2 BERTopic through 9.12 fuzzy near-duplicates) so they don't blend together.
+* **Changes**:
+  * Prepended a clean horizontal rule (`---`) as its own line before each heading in markdown cells 80, 85, 92, 95, 102, 109, 123, 141, 145, 163, and 169.
+  * Purposely skipped 9.1 (`### 9.1 Extended 11-Dimension Lexicon`) since it immediately follows the main Section 9 heading and doesn't need redundant spacing.
+* **Validation**: Verified markdown rule counts before and after insertion; verified correct header rendering in static HTML.
+* **Commit**: `9180be3`
 
-### 🟩 Refinement A: The "Inherited Canon" vs. "Contemporary Resistance" Split
-* **Investigation**: Split mainstream experts into `canonical_expert` (historical canons like Plato, Aristotle, Einstein) and `consensus_expert` (contemporary consensus figures like Fauci, Walensky, Gates) to resolve the conflation in mainstream expert reception.
-* **Core Insight**: Discovered that **r/conspiracy does not reject expert authority universally**. It severely penalizes contemporary consensus experts ($coef = -0.5692, p = 0.002$), but heavily rewards appeals to Canonical/Historical Experts ($coef = +0.7259, p = 0.001$). Keyness proves classical figures are quoted for abstract philosophical *ideas* and *quotes* about *truth* and *government* to validate subcultural claims, while modern consensus figures are discussed in terms of dogmatic institutional compliance (*science, trust, vaccine, gatekeeping*).
-* **Research Note**: Detailed in `research_notes/06_refined_credibility.md`.
+### 3. Piece 3: Horizontal bar charts for Section 4 citation tables
+* **Goal**: Introduce a small horizontal bar chart alongside each of the 6 source category citation tables (Wikipedia, PubMed, Mainstream News, Alternative Media, YouTube, and WikiLeaks) as a quick visual companion.
+* **Changes**:
+  * Appended the `plot_top_citations_bar(df, label_col, count_col, title, top_n=15)` helper function to `utils/visualization.py` using a matching dark/navy design aesthetic.
+  * Inserted 6 new code cells calling this plotting helper directly under each corresponding `display_with_links` call.
+  * Preempted and resolved naming collisions where the Wikipedia check matched the WikiLeaks dataframe prefix.
+  * Removed legacy cell `id` fields to ensure **zero notebook JSON format warnings** on HTML compilation.
+* **Validation**: Wrote a verification test suite that loaded all 6 cached CSVs against the plotting helper and ran headless; everything completed with zero exceptions.
+* **Commit**: `cc0b688`
 
-### 🟩 Refinement B: The 12-Year Temporal Control Baseline (r/TopMindsOfReddit)
-* **Investigation**: Addressed the single-day sampling bias of AskReddit (which was limited to Jan 15, 2025) by scoring a stratified random sample of $50,000$ comments from **r/TopMindsOfReddit spanning a 12-year window (2014-2026)**.
-* **Core Insight**: Confirmed that in this robust, seasonally balanced mainstream baseline, canonical experts are completely neutral ($p = 0.512$), and alternative mavericks are actively penalized ($coef = -0.2858, p = 0.002$). This mathematically isolates the **"Maverick Premium" (+0.7423) and "Canonical Appeals" (+0.7259) as highly specific, structured subcultural practices unique to online conspiracy environments**, rather than platform-wide Reddit dynamics.
-* **Research Note**: Detailed in `research_notes/06_refined_credibility.md`.
-
-### 🟩 Task B: Unpacking the `pe_prob` Negative Flip
-* **Investigation**: Analyzed why personal experience (`pe_prob`) flips to predicting significantly lower engagement in the cleanest insider environments.
-* **Core Insight**: Discovered **omitted variable bias** on comment length. Personal experiences are naturally longer ($r=0.30$), and Reddit penalizes long-winded comments. Controlling for `log_char_length` shrinks the `pe_prob` coefficient by 70% and completely erases its negative significance ($p=0.370$ in Logit).
-* **Research Note**: Detailed in `research_notes/01_pe_and_insiders.md`.
-
-### 🟩 Task C: Deconstructing the 100% Insider Presence Threshold Drop
-* **Investigation**: Checked why the maverick-authority point estimate drops and loses significance in strict 1.0 (100% insider) threads.
-* **Core Insight**: Proved that 100% insider threads are a **structural selection artifact**. Threads can only hit 100% insider presence if they are very small (median size of **6 comments** vs. **23** for the 0.75-0.99 band). Small threads have highly suppressed voting environments (high traction rates are cut in half from 12.5% to 5.8%), which starves the regression model of statistical power.
-* **Research Note**: Detailed in `research_notes/01_pe_and_insiders.md`.
-
-### 🟩 Task D: The r/AskReddit External Control Baseline
-* **Investigation**: Ran our load-bearing Gen-2 staged classification and regression pipeline over the r/AskReddit comment corpus ($N=53,062$) to test if our findings are conspiracy-specific.
-* **Core Insight**: Proved that citing outside URLs (`has_link`) and engaging in adversarial logic audits (`ps_prob`) are strongly penalized on Reddit generally, while mavericks and personal experiences are uniquely received inside r/conspiracy.
-* **Research Note**: Detailed in `research_notes/02_askreddit_baseline.md`.
-
-### 🟩 Task E: Interactive Stance Detection in Comment Replies
-* **Investigation**: Designed and prototyped a high-precision, rule/lexicon-based agreement/disagreement classifier to analyze replies ($N=7,657$) to pure-population parent comments.
-* **Core Insight**: Proved that sharing a lived experience narrative increases explicit agreement rates in replies by 60% and lowers disagreement, functioning as an interactive shield against debate, while questioning details (`ps_prob`) or citing external URLs (`has_link`) nearly doubles the rate of disagreement in child replies.
-* **Research Note**: Detailed in `research_notes/03_stance_replies.md`.
-
-### 🟩 Task F: Multidimensional Link-Type Regressions
-* **Investigation**: Classified linked domains using the project's pre-built Epistemic Domain Taxonomy (Cell 61) and ran regressions side-by-side across r/conspiracy and r/AskReddit.
-* **Core Insight**: Uncovered the **"Admissions Paradox" / "Hostile Sourcing" Tactic**. While citing official government institutions (`link_government_official`) is neutral/negative in mainstream spaces, it receives a **massive traction premium inside r/conspiracy ($coef = +1.2138, p = 0.001$)**. Conspiracy commenters selectively cite `.gov` links to leverage institutional "admissions" against the institution itself, a move that is highly rewarded in subcultural circles.
-* **Research Note**: Detailed in `research_notes/04_link_types.md`.
-
----
-
-## 2. Updated Code and Scripts
-
-The following scripts were developed and executed to produce these results:
-1. **[refine_thesis_models.py](file:///Users/nash/Projects/ConspiracyComments/src/refine_thesis_models.py)**: Splits mainstream experts into canonical vs. consensus, draws and scores the 12-year TopMinds control baseline sample, and runs the refined logit models and G-test keyness analyses.
-2. **[run_semantic_keyness.py](file:///Users/nash/Projects/ConspiracyComments/src/run_semantic_keyness.py)**: Performs symmetric context-window extractions and G-test Log-Likelihood Keyness calculations on mavericks vs. mainstream expert mentions.
-3. **[investigate_pe.py](file:///Users/nash/.gemini/antigravity/brain/a197f96b-40d9-4364-a4c6-0676da9f06e9/scratch/investigate_pe.py)**: Performs length-control regression sweeps and extracts structural metrics for Group A vs. Group B.
-4. **[run_askreddit_control.py](file:///Users/nash/Projects/ConspiracyComments/src/run_askreddit_control.py)**: Applies Stage 2 models to r/AskReddit and runs baseline control models.
-5. **[stance_detection_prototype.py](file:///Users/nash/.gemini/antigravity/brain/a197f96b-40d9-4364-a4c6-0676da9f06e9/scratch/stance_detection_prototype.py)**: Implements regex-based agreement/disagreement stance classification on comment replies.
-6. **[run_link_type_regressions.py](file:///Users/nash/Projects/ConspiracyComments/src/run_link_type_regressions.py)**: Extracted, classified, and regressed domain indicators across subreddits using the pre-built Epistemic Domain Taxonomy.
+### 4. Piece 4: Introductions for major sections
+* **Goal**: Address abrupt section transitions where code, imports, or tables began immediately without introductory prose.
+* **Changes**:
+  * Added a comprehensive introduction to the notebook top-level heading (**Section 0**), clarifying scope, datasets, and methods.
+  * Updated **Section 1** (`## 0. Imports and File Paths`) to explicitly outline the Python package imports, paths, and DuckDB connection setup.
+  * Updated **Section 7** (`## 7. Time Series`) to introduce the temporal, year-over-year citation patterns and epistemic dimension changes.
+  * Updated **Section 8** (`## 8. Human-in-the-Loop Annotation`) to outline the methodology and interface of the active learning pipeline.
+* **Validation**: Verified JSON notebook parseability; regenerated static HTML with all intro prose rendered in beautiful typography.
+### 5. Bugfix: Out-of-Order Cell Execution NameError
+* **Goal**: Resolve a sequential execution crash (`NameError: name 'parsed_data' is not defined`) in Section 3 of the notebook.
+* **Changes**:
+  * Located a logical ordering conflict where Cell 31 attempted to load and verify label distributions on a dataframe built from `parsed_data`, but `parsed_data` was not defined or populated until Cell 32.
+  * Swapped the cells' physical indices so that the FactAppeal CSV lines are parsed, labels are target-matched, and `parsed_data` and `df` are fully populated *before* any downstream print or analysis executes.
+* **Validation**: Verified sequential run-through capability for Section 3; verified zero schema validation or `id` Warnings in nbformat.
+* **Commit**: `c2efd2c`
 
 ---
 
-## 3. Thesis Discussion Chapter Recommendations
-* **Anchor Insider Purity at 0.75 - 0.85**: Frame the 1.00 (fully insider) threshold as a mathematical selection artifact of tiny, low-traction threads rather than a rhetorical transition.
-* **Standardize Length Controls**: Report models with and without `log_char_length` controls to explain the "personal experience" engagement paradox.
-* **Report the Dual-Axis Expert Model**: Differentiate between "Classical Canons" (which carry a +0.7259 premium) and "Contemporary Consensus Authorities" (which carry a -0.5692 penalty) to demonstrate that the subculture selectively embraces and co-opts traditional authority while rejecting contemporary state/corporate experts.
-* **Cite the 12-Year Control Baseline**: Highlight r/TopMindsOfReddit's 12-year span to prove your findings are seasonally/temporally robust and completely free of single-day trending biases.
-* **Hostile Sourcing (The Admissions Paradox)**: Frame government links as a highly specialized, adversarial sourcing technique where the establishment's own documents are turned into primary weapons of alternative validation.
+## Visual Polish Pass 2 - Part 2 (Outputs & Added Charts)
+
+Following the initial pass, we executed a secondary visual-refinement pass focusing on output noise suppression, redundancy reduction, and adding companion charts to heavy plain-text tables in Section 3 and Section 4.
+
+### 1. Piece 1: Suppress Section 3 batch-cache verbose print loop
+* **Goal**: Suppress the massive 950-line `Skipping X to Y (already cached)` diagnostic loop in Section 3 when batch inference has nothing new to do.
+* **Changes**:
+  * Modified the batch loop in **Cell 19** to bypass per-chunk console logging.
+  * Added counter tracking for `n_skipped` and `n_new` chunks.
+  * Replaced the noisy verbose log with a single summary print statement:
+    ```python
+    print(f"Skipped {n_skipped:,} already-cached chunks, processed {n_new:,} new chunks.")
+    ```
+* **Validation**: Output is compressed down from ~950 lines of uninviting text to 1 highly clean summary line.
+* **Commit**: `c673fba`
+
+### 2. Piece 2: Eliminate duplicate FactAppeal training
+* **Goal**: Resolve work duplication in Section 3 where both Cells 15 and 16 trained and evaluated the exact same model.
+* **Changes**:
+  * Audited both cells. Cell 15 is fully production-ready, featuring check-caching and saving mechanics, while Cell 16 was a leftover draft cell.
+  * Removed **Cell 16** completely from the notebook structure to streamline sequential executions.
+* **Validation**: Verified that the notebook runs warning-free and model compilation runs exactly once.
+* **Commit**: `eaa992f`
+
+### 3. Piece 3: Section 3 attribution distribution and engagement bar charts
+* **Goal**: Surface findings visually from the attribution-class distribution and attribution-class vs. engagement tables.
+* **Changes**:
+  * Appended two custom horizontal plotting helpers to `utils/visualization.py`:
+    * `plot_attribution_class_distribution`: Displays counts by class with percentage overlays.
+    * `plot_attribution_class_vs_engagement`: Visualizes average upvotes using a warm orange/coral accent theme.
+  * Modified notebook **Cell 23** and **Cell 24** queries to assign their dataframes to variables, print, and call the new plotting companions in inserted cells below.
+* **Validation**: Ran localized headless Matplotlib verification testing over the Parquet files; both charts rendered flawlessly with zero runtime exceptions.
+* **Commit**: `53ff3ed`
+
+### 4. Piece 4: Section 4 top-level domains bar chart
+* **Goal**: Introduce a bar chart for Section 4's top-level domain table (citations limit 50).
+* **Changes**:
+  * Assigned the DuckDB SELECT query to `df_top_domains` in **Cell 36** and printed it.
+  * Inserted a companion code cell immediately below to call:
+    ```python
+    viz.plot_top_citations_bar(df_top_domains, 'domain', 'citations', 'Top 15 Cited Domains', top_n=15)
+    ```
+* **Validation**: Confirmed notebook parseability and correct headless Matplotlib chart compilation.
+* **Commit**: `c565c26`
+
+### 5. Piece 5: Re-verify HTML postprocessor scrolling containment
+* **Goal**: Confirm that any remaining large text prints are encapsulated in scrollable boxes.
+* **Changes**:
+  * Verified that `scripts/postprocess_notebook_html.py` wraps any output cell exceeding 2,000 characters in a scrollbox limited to a max height of 350px.
+  * Re-compiled and postprocessed the master notebook to update `docs/index.html`.
+* **Validation**: Rebuilding made 25 outputs scrollable (>2000 chars) and collapsed 142 code cells.
+* **Commit**: `b934a52`
+
+---
+
+## Live Production Verification
+All changes were pushed live to the custom production domain `https://kahatahi.co.nz/ConspiracyComments/`.
+
+Using direct Python scraper scripts with cache-busting request parameters, we audited the raw server HTML to guarantee zero caching lag. The live deployment results are fully verified:
+
+* **Piece 1 (Section 3 batch log summary)**: ✅ **FOUND & VERIFIED**
+* **Piece 2 (Leftover Cell 16 training code)**: ✅ **DELETED & REMOVED** (TfidfVectorizer occurrences count dropped from 7 to 5)
+* **Piece 3a (Class distribution chart call)**: ✅ **FOUND & VERIFIED**
+* **Piece 3b (Engagement chart call)**: ✅ **FOUND & VERIFIED**
+* **Piece 4 (Top domains chart call)**: ✅ **FOUND & VERIFIED**
+* **Piece 5 (Output threshold scrolling style)**: ✅ **FOUND & VERIFIED**
+
+---
+
+## Static HTML Export Rebuild
+
+The static notebook export is rebuilt and postprocessed using the following commands:
+
+```bash
+jupyter nbconvert --to html ConspiracyMaster_Refactored.ipynb
+python3 scripts/postprocess_notebook_html.py ConspiracyMaster_Refactored.html docs/index.html
+```
+
+All 142 code cells are collapsed by default, 31 sections are neatly wrapped, the interactive Table of Contents operates smoothly, and the oversized scrollbars keep the document extremely legible.
