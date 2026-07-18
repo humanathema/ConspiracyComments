@@ -648,3 +648,37 @@ def plot_top_citations_bar(df, label_col, count_col, title, top_n=15):
     plt.tight_layout()
     plt.show()
 
+
+def plot_attribution_class_distribution(df, title="SpaCy Attribution Class Distribution"):
+    """
+    Horizontal bar chart of the attribution class distribution, with percentages.
+    """
+    d = df.sort_values('n', ascending=True)
+    plt.figure(figsize=(10, max(4, 0.4 * len(d))))
+    bars = plt.barh(d['attribution_class'].astype(str), d['n'], color='#2c3e50')
+    plt.xlabel("Count of Comments")
+    plt.title(title, fontsize=14)
+    
+    # Add percentages as text labels
+    for bar, pct in zip(bars, d['pct']):
+        width = bar.get_width()
+        plt.text(width + (width * 0.01), bar.get_y() + bar.get_height()/2, f"{pct:.1f}%", 
+                 va='center', ha='left', fontsize=9, color='#333333')
+                  
+    plt.tight_layout()
+    plt.show()
+
+
+def plot_attribution_class_vs_engagement(df, title="Average Upvotes by Attribution Class"):
+    """
+    Horizontal bar chart of average upvotes per attribution class.
+    """
+    d = df.sort_values('avg_upvotes', ascending=True)
+    plt.figure(figsize=(10, max(4, 0.4 * len(d))))
+    plt.barh(d['attribution_class'].astype(str), d['avg_upvotes'], color='#e74c3c')
+    plt.xlabel("Average Upvotes")
+    plt.title(title, fontsize=14)
+    plt.tight_layout()
+    plt.show()
+
+
