@@ -163,6 +163,55 @@ if toc_entries:
 # --- 6. Styles + click-to-expand-ancestors behavior ---
 style_tag = soup.new_tag("style")
 style_tag.string = """
+/* Clean documentation aesthetic */
+body {
+  max-width: 960px !important;
+  margin: 0 auto !important;
+  padding: 24px 32px !important;
+  background-color: #ffffff;
+}
+
+body, .jp-RenderedMarkdown, .jp-MarkdownCell {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif !important;
+  line-height: 1.6 !important;
+  color: #24292e !important;
+}
+
+/* Headings scale and hierarchy */
+h1 {
+  font-size: 2.5em !important;
+  font-weight: 700 !important;
+  margin-top: 1.5em !important;
+  margin-bottom: 0.5em !important;
+  color: #24292e !important;
+}
+
+h2 {
+  font-size: 2.0em !important;
+  font-weight: 700 !important;
+  margin-top: 2.0em !important;
+  margin-bottom: 0.5em !important;
+  border-bottom: 1px solid #eaecef !important;
+  padding-bottom: 0.3em !important;
+  color: #24292e !important;
+}
+
+h3 {
+  font-size: 1.5em !important;
+  font-weight: 600 !important;
+  margin-top: 1.8em !important;
+  margin-bottom: 0.5em !important;
+  color: #24292e !important;
+}
+
+h4 {
+  font-size: 1.2em !important;
+  font-weight: 600 !important;
+  margin-top: 1.5em !important;
+  margin-bottom: 0.5em !important;
+  color: #24292e !important;
+}
+
 details.code-collapse { width: 100%; }
 details.code-collapse > summary {
   cursor: pointer;
@@ -222,9 +271,12 @@ details.toc-nav a { text-decoration: none; color: #2c5aa0; font-size: 0.92em; }
 details.toc-nav a:hover { text-decoration: underline; }
 
 @media (prefers-color-scheme: dark) {
+  body { background-color: #1e1e1e !important; }
+  body, .jp-RenderedMarkdown, .jp-MarkdownCell, h1, h2, h3, h4 { color: #e4e4e4 !important; }
   details.section-collapse { border-left-color: #3a3a3a; }
-  details.toc-nav { background: #1e1e1e; border-color: #3a3a3a; }
+  details.toc-nav { background: #252526; border-color: #3a3a3a; }
   details.toc-nav a { color: #7aa7e0; }
+  h2 { border-bottom-color: #3a3a3a !important; }
 }
 """
 if soup.head:
