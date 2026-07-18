@@ -8,10 +8,12 @@ Output: data/processed/construct_correlation_matrix.csv
 import duckdb
 import pandas as pd
 import time
+from pathlib import Path
 
-STAGED_PATH = "/Users/nash/Projects/ConspiracyComments/data/processed/research_corpus_staged_scores_full21m.parquet"
-EMPATH_PATH = "/Users/nash/Projects/ConspiracyComments/data/processed/empath_scores_full.parquet"
-OUT_PATH = "/Users/nash/Projects/ConspiracyComments/data/processed/construct_correlation_matrix.csv"
+REPO_ROOT = Path(__file__).resolve().parents[1]
+STAGED_PATH = str(REPO_ROOT / "data/processed/research_corpus_staged_scores_full21m.parquet")
+EMPATH_PATH = str(REPO_ROOT / "data/processed/empath_scores_full.parquet")
+OUT_PATH = str(REPO_ROOT / "data/processed/construct_correlation_matrix.csv")
 
 
 def main():

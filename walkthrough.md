@@ -1,5 +1,13 @@
 # Walkthrough: Honoring Thesis Epistemic Credibility Re-framing & Validation
 
+> **SUPERSEDED (2026-07-17)**: this document predates fixes to the
+> `consensus_expert` entity list (was contaminated) and the control
+> subreddit (r/TopMindsOfReddit, used here, was later found invalid —
+> replaced with r/politics). See `ANTIGRAVITY_HANDOFF.md` for current
+> findings. Kept for historical reference only, do not cite numbers from
+> this document.
+
+
 This walkthrough summarizes the extensive empirical work, statistical discoveries, and strategic reframings accomplished during this session. All six primary backlogged tasks and the two newly introduced thesis refinements have been successfully executed and validated using the complete, intact datasets.
 
 ---

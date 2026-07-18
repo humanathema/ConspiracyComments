@@ -320,6 +320,50 @@ def plot_upvote_tier_distribution(df_tiers) -> None:
     plt.show()
 
 
+def plot_spam_bot_top_authors(df_top) -> None:
+    """
+    Horizontal bar chart of text-reuse ratio for the most duplicative authors,
+    colored by detected category (bot vs. repeat poster).
+
+    Args:
+        df_top: DataFrame with columns ['author', 'dup_ratio', 'is_likely_bot'].
+    """
+    colors = ['#c0392b' if is_bot else '#e67e22' for is_bot in df_top['is_likely_bot']]
+    plt.figure(figsize=(10, max(4, 0.35 * len(df_top))))
+    plt.barh(df_top['author'], df_top['dup_ratio'], color=colors)
+    plt.gca().invert_yaxis()
+    plt.xscale('log')
+    plt.xlabel("Comments / Distinct Texts (dup_ratio, log scale)")
+    plt.title("Most Duplicative Authors: Bots (red) vs. Repeat Posters (orange)", fontsize=14)
+    plt.tight_layout()
+    plt.show()
+
+
+def plot_near_duplicate_cluster_sizes(df_clusters) -> None:
+    """
+    Histogram of near-duplicate cluster sizes (log-log), split by whether
+    the cluster spans multiple authors.
+
+    Args:
+        df_clusters: one row per cluster, columns ['cluster_size', 'n_distinct_authors'].
+    """
+    single = df_clusters[df_clusters['n_distinct_authors'] == 1]['cluster_size']
+    cross = df_clusters[df_clusters['n_distinct_authors'] > 1]['cluster_size']
+
+    plt.figure(figsize=(10, 6))
+    bins = np.logspace(np.log10(2), np.log10(max(df_clusters['cluster_size'].max(), 3)), 25)
+    plt.hist([single, cross], bins=bins, stacked=True, color=['#e67e22', '#c0392b'],
+              label=['Single author', 'Cross-author'])
+    plt.xscale('log')
+    plt.yscale('log')
+    plt.xlabel("Cluster Size (near-duplicate comments)")
+    plt.ylabel("Number of Clusters")
+    plt.title("Near-Duplicate Cluster Size Distribution", fontsize=14)
+    plt.legend()
+    plt.tight_layout()
+    plt.show()
+
+
 def plot_zscore_power_users(df_power_users, dim_cols):
     fig, axes = plt.subplots(2, 5, figsize=(22, 12), sharey=True)
     axes = axes.flatten()

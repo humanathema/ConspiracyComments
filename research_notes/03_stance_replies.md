@@ -1,5 +1,13 @@
 # Research Notes: Interactional Stance Detection in Comment Replies
 
+> **SUPERSEDED (2026-07-17)**: this document predates fixes to the
+> `consensus_expert` entity list (was contaminated) and the control
+> subreddit (r/TopMindsOfReddit, used here, was later found invalid —
+> replaced with r/politics). See `ANTIGRAVITY_HANDOFF.md` for current
+> findings. Kept for historical reference only, do not cite numbers from
+> this document.
+
+
 This document presents the design, prototype, and results of **Task D**: implementing a deterministic, rule/lexicon-based agreement/disagreement classifier for child comments/replies to establish a secondary outcome metric.
 
 To study the community's behavioral reaction to different epistemic credentials, we extracted child replies ($N = 7,657$) written directly in response to comments from our clean, "genuine insider environment" pure population ($N = 21,091$ parent comments).

@@ -1,5 +1,13 @@
 # Research Notes: Omitted Variable Bias and Thread Size Artifacts in Epistemic Credibility
 
+> **SUPERSEDED (2026-07-17)**: this document predates fixes to the
+> `consensus_expert` entity list (was contaminated) and the control
+> subreddit (r/TopMindsOfReddit, used here, was later found invalid —
+> replaced with r/politics). See `ANTIGRAVITY_HANDOFF.md` for current
+> findings. Kept for historical reference only, do not cite numbers from
+> this document.
+
+
 These notes document a deep-dive investigation into two key anomalies flagged in the current `ANTIGRAVITY_HANDOFF.md`:
 1. **The Personal Experience (`pe_prob`) Negative Flip**: Why personal experience suddenly predicts significantly lower engagement in the cleanest insider environments.
 2. **The 100% Insider Presence Threshold Drop**: Why the positive relationship between maverick authority appeals and engagement drops and loses significance when tightening the insider presence threshold from `0.875` to `1.0`.

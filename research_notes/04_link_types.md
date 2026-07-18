@@ -1,5 +1,13 @@
 # Research Notes: Multidimensional Link-Type Regressions (Reversing Trust)
 
+> **SUPERSEDED (2026-07-17)**: this document predates fixes to the
+> `consensus_expert` entity list (was contaminated) and the control
+> subreddit (r/TopMindsOfReddit, used here, was later found invalid —
+> replaced with r/politics). See `ANTIGRAVITY_HANDOFF.md` for current
+> findings. Kept for historical reference only, do not cite numbers from
+> this document.
+
+
 This document presents the empirical results of **Methodology E**: expanding our understanding of Reddit link-sharing behaviors by categorizing URLs using the project's pre-built Cell 61 Epistemic Domain Taxonomy and running regressions across $r/\text{conspiracy}$ ($N = 21,091$) and $r/\text{AskReddit}$ ($N = 53,062$).
 
 Instead of a flat `has_link` penalty, we isolate 4 active domain types:

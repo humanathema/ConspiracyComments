@@ -1,5 +1,13 @@
 # Research Notes: Refined Epistemic Credibility & The 12-Year Control Baseline
 
+> **SUPERSEDED (2026-07-17)**: this document predates fixes to the
+> `consensus_expert` entity list (was contaminated) and the control
+> subreddit (r/TopMindsOfReddit, used here, was later found invalid —
+> replaced with r/politics). See `ANTIGRAVITY_HANDOFF.md` for current
+> findings. Kept for historical reference only, do not cite numbers from
+> this document.
+
+
 This document presents the results of a major academic refinement of our thesis credibility framework, directly addressing two profound critiques of our prior findings:
 1. **The Single-Day AskReddit Sampling Bias**: AskReddit was drawn from exactly one day (Jan 15, 2025), which introduced strong temporal biases (polluting vocabularies with transient topics like Batman or Tarantino).
 2. **The Homogeneity of Mainstream Experts**: The flat `mainstream_expert_authority` category conflated universally accepted canonical giants (Plato, Aristotle, Einstein) with contemporary institutional consensus figures (Fauci, Walensky, Gates, Dershowitz). 

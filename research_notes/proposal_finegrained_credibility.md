@@ -1,5 +1,13 @@
 # Research Proposal: Fine-Grained Epistemic Credibility & the Reversal of Trust
 
+> **SUPERSEDED (2026-07-17)**: this document predates fixes to the
+> `consensus_expert` entity list (was contaminated) and the control
+> subreddit (r/TopMindsOfReddit, used here, was later found invalid —
+> replaced with r/politics). See `ANTIGRAVITY_HANDOFF.md` for current
+> findings. Kept for historical reference only, do not cite numbers from
+> this document.
+
+
 This document outlines an expanded, five-part empirical research framework designed to address the next phase of the thesis backlog: investigating the specific rhetorical markers of epistemic credibility associated with **maverick authorities** vs. **mainstream consensus experts**, and mapping how online conspiracy communities react to them compared to a mainstream control group (r/AskReddit).
 
 We leverage existing codebase structures, particularly the **Epistemic Domain Taxonomy** pre-built in Cell 61 of the master notebook, the **BERTopic Topic Model** (`data/processed/monthTopics1.csv`), and the extensive entity classification list in `data/processed/entity_final_review.csv`.
