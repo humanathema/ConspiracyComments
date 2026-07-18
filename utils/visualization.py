@@ -599,6 +599,43 @@ def plot_hitl_label_distributions(dist_by_queue: dict) -> None:
     plt.show()
 
 
+def plot_post_domain_volume(df_domain_submissions) -> None:
+    """
+    Bar chart of submission volume for the top posting domains.
+
+    Args:
+        df_domain_submissions: columns ['domain', 'total_submissions', ...],
+            already sorted (any order -- this re-sorts by volume).
+    """
+    df = df_domain_submissions.nlargest(15, 'total_submissions').sort_values('total_submissions', ascending=True)
+    plt.figure(figsize=(9, 6.5))
+    plt.barh(df['domain'], df['total_submissions'], color=NAVY)
+    plt.xlabel("Total Submissions")
+    plt.title("Top Domains by Submission Volume (Post-Level)")
+    _despine()
+    plt.tight_layout()
+    plt.show()
+
+
+def plot_thread_domain_rhetoric(df_thread_domain_profile) -> None:
+    """
+    Horizontal bar of average rhetoric score for the top domains by
+    rhetoric intensity, at the thread (post + aggregated comments) level.
+
+    Args:
+        df_thread_domain_profile: columns ['domain', 'avg_rhetoric', ...],
+            already sorted by avg_rhetoric descending.
+    """
+    df = df_thread_domain_profile.head(15).sort_values('avg_rhetoric', ascending=True)
+    plt.figure(figsize=(9, 6.5))
+    plt.barh(df['domain'], df['avg_rhetoric'], color=RED)
+    plt.xlabel("Avg. Rhetoric Score (per thread)")
+    plt.title("Domains Whose Threads Skew Most Rhetorical")
+    _despine()
+    plt.tight_layout()
+    plt.show()
+
+
 def plot_zscore_power_users(df_power_users, dim_cols):
     fig, axes = plt.subplots(2, 5, figsize=(20, 10), sharey=True)
     axes = axes.flatten()

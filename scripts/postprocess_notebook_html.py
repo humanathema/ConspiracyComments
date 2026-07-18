@@ -137,8 +137,10 @@ def build_toc_list(entries):
         child_ul = soup.new_tag("ul")
         li.append(child_ul)
         stack.append((level, child_ul))
-    # drop empty trailing <ul> tags with no <li> children
-    for tag in soup.find_all("ul"):
+    # drop empty trailing <ul> tags with no <li> children -- scoped to
+    # this TOC only, NOT soup.find_all, which would touch unrelated
+    # empty <ul> elements anywhere else in the rendered notebook content
+    for tag in ul.find_all("ul"):
         if not tag.find("li"):
             tag.decompose()
     return ul
