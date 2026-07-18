@@ -485,6 +485,42 @@ def plot_epistemic_stance_heatmap(matrix) -> None:
     plt.show()
 
 
+def plot_hitl_queue_progress(df_progress) -> None:
+    """
+    Stacked horizontal bar: labeled vs. remaining rows per HITL queue.
+
+    Args:
+        df_progress: columns ['queue', 'labeled', 'remaining'].
+    """
+    df = df_progress.sort_values('labeled', ascending=True)
+    plt.figure(figsize=(10, 5))
+    plt.barh(df['queue'], df['labeled'], color='#27ae60', label='Labeled')
+    plt.barh(df['queue'], df['remaining'], left=df['labeled'], color='#ddd', label='Remaining')
+    plt.xlabel("Rows")
+    plt.title("HITL Queue Progress", fontsize=16)
+    plt.legend()
+    plt.tight_layout()
+    plt.show()
+
+
+def plot_hitl_label_distributions(dist_by_queue: dict) -> None:
+    """
+    Grouped bar chart comparing label distributions across completed
+    HITL queues that share the same label vocabulary.
+
+    Args:
+        dist_by_queue: dict {queue_name: pandas Series of label -> count}.
+    """
+    df = pd.DataFrame(dist_by_queue).fillna(0)
+    df.plot(kind='bar', figsize=(11, 6), color=['#2c3e50', '#e67e22', '#27ae60'])
+    plt.title("Label Distribution by Queue (Completed Queues)", fontsize=16)
+    plt.ylabel("Count")
+    plt.xticks(rotation=20)
+    plt.legend(title='Queue')
+    plt.tight_layout()
+    plt.show()
+
+
 def plot_zscore_power_users(df_power_users, dim_cols):
     fig, axes = plt.subplots(2, 5, figsize=(22, 12), sharey=True)
     axes = axes.flatten()
