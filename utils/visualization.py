@@ -364,6 +364,127 @@ def plot_near_duplicate_cluster_sizes(df_clusters) -> None:
     plt.show()
 
 
+def plot_yearly_lexical_trends(df_yearly) -> None:
+    """
+    Multi-line chart of the 5 core lexical dimension averages by year.
+
+    Args:
+        df_yearly: columns ['year', 'avg_hedge', 'avg_certainty',
+            'avg_evidence', 'avg_authority', 'avg_rhetorical'].
+    """
+    dims = ['avg_hedge', 'avg_certainty', 'avg_evidence', 'avg_authority', 'avg_rhetorical']
+    colors = ['#2c3e50', '#e67e22', '#27ae60', '#8e44ad', '#c0392b']
+
+    plt.figure(figsize=(13, 6))
+    for dim, color in zip(dims, colors):
+        plt.plot(df_yearly['year'], df_yearly[dim], marker='o', color=color,
+                  label=dim.replace('avg_', '').capitalize(), linewidth=2)
+    plt.title("Epistemic Dimension Averages by Year", fontsize=16)
+    plt.xlabel("Year")
+    plt.ylabel("Average Score per Comment")
+    plt.legend()
+    plt.tight_layout()
+    plt.show()
+
+
+def plot_domain_type_citations(type_summary) -> None:
+    """
+    Bar chart of total citation volume by epistemic domain type.
+
+    Args:
+        type_summary: columns ['epistemic_type', 'total_citations', ...].
+    """
+    df = type_summary.sort_values('total_citations', ascending=True)
+    plt.figure(figsize=(10, 7))
+    plt.barh(df['epistemic_type'], df['total_citations'], color='#e67e22')
+    plt.xscale('log')
+    plt.xlabel("Total Citations (log scale)")
+    plt.title("Citation Volume by Source Domain Type", fontsize=16)
+    plt.tight_layout()
+    plt.show()
+
+
+def plot_tier_signature_shifts(df_brigade_test) -> None:
+    """
+    Dual-panel bar chart: controversiality and expertise-vocabulary usage
+    across upvote tiers.
+
+    Args:
+        df_brigade_test: columns ['upvote_tier', 'avg_controversiality',
+            'expertise_talk_percentage'].
+    """
+    fig, axes = plt.subplots(1, 2, figsize=(14, 6))
+
+    axes[0].bar(df_brigade_test['upvote_tier'], df_brigade_test['avg_controversiality'], color='#2c3e50')
+    axes[0].set_title("Avg. Controversiality by Tier")
+    axes[0].tick_params(axis='x', rotation=20)
+
+    axes[1].bar(df_brigade_test['upvote_tier'], df_brigade_test['expertise_talk_percentage'], color='#e67e22')
+    axes[1].set_title("% Mentioning Expertise Vocabulary")
+    axes[1].tick_params(axis='x', rotation=20)
+
+    plt.suptitle("Structural Signature Shifts Across Upvote Tiers", fontsize=16)
+    plt.tight_layout()
+    plt.show()
+
+
+def plot_insider_segment_profile(df_insider_matrix) -> None:
+    """
+    Heatmap of epistemic dimension averages across insider segments.
+
+    Args:
+        df_insider_matrix: columns ['insider_segment', 'avg_evidence',
+            'avg_adversarial', 'avg_hedge', 'avg_certainty', 'avg_pattern',
+            'avg_meta'] (plus others, ignored).
+    """
+    dims = ['avg_evidence', 'avg_adversarial', 'avg_hedge', 'avg_certainty', 'avg_pattern', 'avg_meta']
+    heat_data = df_insider_matrix.set_index('insider_segment')[dims]
+
+    plt.figure(figsize=(11, 4))
+    sns.heatmap(heat_data, annot=True, fmt='.4f', cmap='YlOrRd', cbar_kws={'label': 'Avg. score'})
+    plt.title("Insider-Only Epistemic Profile by Segment", fontsize=14)
+    plt.ylabel("")
+    plt.xlabel("")
+    plt.tight_layout()
+    plt.show()
+
+
+def plot_source_category_totals(totals: dict) -> None:
+    """
+    Bar chart comparing total reference/citation volume across the
+    source-type tables built in Section 4.1 (Wikipedia, PubMed, mainstream
+    news, alt media, YouTube, WikiLeaks).
+
+    Args:
+        totals: dict {category_label: total_count}.
+    """
+    labels = list(totals.keys())
+    values = list(totals.values())
+    order = sorted(range(len(values)), key=lambda i: values[i])
+
+    plt.figure(figsize=(10, 6))
+    plt.barh([labels[i] for i in order], [values[i] for i in order], color='#2c3e50')
+    plt.xlabel("Total References (top-N shown per category)")
+    plt.title("Source Citation Volume by Category", fontsize=16)
+    plt.tight_layout()
+    plt.show()
+
+
+def plot_epistemic_stance_heatmap(matrix) -> None:
+    """
+    Heatmap of epistemic-move x human-stance annotation counts (HITL queue).
+
+    Args:
+        matrix: crosstab DataFrame with a 'Total' row/column to exclude.
+    """
+    heat = matrix.drop(index='Total', errors='ignore').drop(columns='Total', errors='ignore')
+    plt.figure(figsize=(10, 6))
+    sns.heatmap(heat, annot=True, fmt='d', cmap='YlGnBu')
+    plt.title("Epistemic Move × Human Stance (HITL Annotations)", fontsize=14)
+    plt.tight_layout()
+    plt.show()
+
+
 def plot_zscore_power_users(df_power_users, dim_cols):
     fig, axes = plt.subplots(2, 5, figsize=(22, 12), sharey=True)
     axes = axes.flatten()
