@@ -1,9 +1,51 @@
 # Task: Trump-era vs. classical-conspiracy topic split
 
-**Status: attempted 2026-07-20, result INVALID, needs redo. Do not use
-`data/processed/trump_vs_classical_regression_results.csv` or the
-walkthrough at `/Users/nash/.gemini/antigravity/brain/c67f482a-0056-4ddd-a994-286b7b505769/walkthrough.md`
-as-is — see below.**
+**Status: DONE (2026-07-20), redone with an actually-reviewed term list
+after the first attempt's review gate turned out to be a no-op (see
+below for the full history — kept for context, don't repeat this
+process, just use the current result).**
+
+`data/processed/candidate_topic_split_terms.csv` now has real `confirmed`
+values (`yes`/`no`), reviewed by Nash/Claude 2026-07-20. Excluded:
+`trump`, `biden`, `hunter biden`, `burisma`, `fake news` (70% of the
+original trump_era match set was these terms alone, nothing
+Trump-conspiracy-specific) and `aliens`, `alien`, `dallas`, `nasa`
+(immigration/city-name/routine-space-news collisions in the classical
+bucket). Kept but flagged as borderline, not cut: `satan`, `satanic`,
+`occult`, `assassination` — broader than ideal but more thematically
+tied to the actual conspiracy content; revisit if they turn out to
+matter. Current results in
+`data/processed/trump_vs_classical_regression_results.csv`
+(classical N=35,179, trump_era N=13,253 — down from 49,118/44,876
+pre-cleaning, exactly the coverage cost of removing real contamination).
+
+**What changed vs. the contaminated version**: the classical `ps_prob`
+procedural-skepticism penalty is robust and basically unchanged
+(survives Bonferroni both before and after cleaning). The classical
+`has_maverick` "premium" lost even naive significance after cleaning —
+that one looks like it was partly an artifact of the contamination, not
+cite it as a finding. `has_consensus_expert` newly reaches naive
+significance in the cleaned classical bucket (wasn't there before) but
+is now completely untestable in trump_era — that stratum's 70% coverage
+loss pushed its positive-case count below the sparsity threshold in
+every trump_era sub-stratum (pooled/pre-ban/post-ban), so the
+classical-vs-trump-era comparison specifically for consensus-expert
+citation can no longer be made with this lexicon. The trump_era "flat
+profile" claim for maverick/canonical-expert/procedural-skepticism still
+basically holds; a `has_link` penalty (Bonferroni-significant, pooled
+and pre-ban) is the most robust trump_era-specific finding now.
+
+**One loose end, not yet checked**: the printed significance table marks
+some Logit rows lowercase `yes` (naive-only) even where the p-value is
+numerically below the stated Bonferroni threshold (e.g. trump_era pooled
+`has_link` Logit, p=1.68e-03 vs. threshold 2.00e-03) — possible
+inconsistency in how `src/run_trump_vs_classical_regression.py` applies
+the correction to Logit vs. OLS rows. Worth checking before trusting the
+Logit significance markers specifically; the OLS ones look consistent.
+
+---
+
+## History of the first (invalid) attempt — context only, already fixed
 
 ## What went wrong the first time (fixed, but the run needs redoing)
 
