@@ -1,5 +1,12 @@
 # Walkthrough: Visual Polish Pass 2
 
+> **SUPERSEDED (2026-07-17)**: this document predates fixes to the
+> `consensus_expert` entity list (was contaminated) and the control
+> subreddit (r/TopMindsOfReddit, used here, was later found invalid —
+> replaced with r/politics). See `ANTIGRAVITY_HANDOFF.md` for current
+> findings. Kept for historical reference only, do not cite numbers from
+> this document.
+
 This walkthrough details the systematic, four-part structural and visual polish pass completed on the master analysis notebook ([ConspiracyMaster_Refactored.ipynb](file:///Users/nash/Projects/ConspiracyComments/ConspiracyMaster_Refactored.ipynb)) and the visualization utilities ([utils/visualization.py](file:///Users/nash/Projects/ConspiracyComments/utils/visualization.py)).
 
 All changes have been strictly validated for code syntax and notebook schema compliance (Jupyter Notebook `nbformat` v4 JSON validity), and have been committed separately to support modular revisions.
