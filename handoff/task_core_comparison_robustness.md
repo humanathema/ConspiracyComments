@@ -4,6 +4,12 @@
 judgment calls, both are straightforward reruns/extensions of existing
 scripts. Do both, report both, don't skip to interpretation.**
 
+**Do `task_expand_politics_control_sample.md` first if it hasn't run
+yet** — this task's numbers (N=30,881, the 2,387-author overlap count)
+are the pre-expansion figures. If the expansion has already landed by
+the time this is picked up, recompute the overlap count and N against
+the expanded sample rather than using the numbers below.
+
 ## Why
 
 The headline finding (`has_consensus_expert` rewarded in r/conspiracy,
