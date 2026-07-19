@@ -10,22 +10,31 @@ comments, ~21M after length filtering), queried in place with DuckDB.
 ## Current findings
 
 Core weighted regression on the pure r/conspiracy population
-(N=1,985,823 comments; see `src/rerun_refined_regressions_v2.py`):
+(N=1,968,864 comments; see `src/rerun_refined_regressions_v2.py`,
+re-verified 2026-07-20 against a corpus with a duplicate-ID bug now
+fixed at the source):
 
-| Predictor | Coefficient | p-value | Reading |
+| Predictor | r/conspiracy | r/politics control | Reading |
 |---|---|---|---|
-| `has_maverick` (cites a whistleblower/leaker/anti-establishment figure) | **+0.246** | <0.001 | Rewarded |
-| `has_consensus_expert` (cites a mainstream institutional/scientific authority) | **+0.533** | <0.001 | Rewarded |
-| `has_link` (external URL) | **−1.052** | <0.001 | Penalized |
+| `has_consensus_expert` (cites a mainstream institutional/scientific authority) | **+0.528***, N=1,968,864 | −0.158, n.s., N=30,881 | Rewarded — and only in r/conspiracy |
+| `has_maverick` (cites a whistleblower/leaker/anti-establishment figure) | **+0.248*** | **+0.544*** | Rewarded in both — stronger in r/politics, not conspiracy-specific |
+| `has_link` (external URL) | **−1.049*** | **−0.247*** | Penalized in both, ~4x harder in r/conspiracy |
+| `pe_prob` (personal-experience framing) | **+0.307*** | +0.069, n.s. | A conspiracy-specific credibility currency |
+| `ps_prob` (procedural skepticism) | **+0.207*** | **−0.404*** | Sign flip — rewarded here, punished in r/politics |
 
-Both entity effects also show up in a r/politics control sample — `has_maverick`
-is actually *stronger* there (+0.650) — so this isn't presented as a
-r/conspiracy-specific effect without qualification. A preliminary read of the
-in-progress `consensus_stance` human-rating queue (152/240 rated) suggests the
-`has_consensus_expert` reward may partly reflect *hostile/attacking* framing of
-consensus figures rather than approving citation (~3:1 hostile:endorsing so
-far) — not yet final. Full current-state detail, caveats, and the entity
-allowlists behind these numbers: **`ANTIGRAVITY_HANDOFF.md`**.
+\*\*\* p<0.001. The consensus-expert finding is the cleanest result, but
+isn't yet a fully closed case — see `ANTIGRAVITY_HANDOFF.md` for two open
+caveats (no formal interaction test yet between the two community
+models; 16% author overlap between the "control" sample and established
+r/conspiracy commenters, not yet accounted for).
+
+The `consensus_stance` human-rating queue is now complete (238/238
+rated): hostile framing outnumbers endorsement 4-to-1 overall, but stance
+does **not** predict traction (chi2=1.75, p=0.625) — mentioning a
+consensus expert functions as an engagement lightning rod regardless of
+whether the framing is hostile or approving, not because attacking wins
+more. Full current-state detail, caveats, and the entity allowlists
+behind these numbers: **`ANTIGRAVITY_HANDOFF.md`**.
 
 ## Comparison / control corpora
 

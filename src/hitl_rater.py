@@ -215,7 +215,6 @@ function showCurrent() {
   document.getElementById('done').style.display = 'none';
   document.getElementById('text').innerHTML = highlightSpans(row.full_text, row.entity_spans);
   document.getElementById('notes').value = row.notes || '';
-  document.getElementById('current_label').textContent = '';
   renderLabelButtons(row[labelCol]);
   renderNav();
 

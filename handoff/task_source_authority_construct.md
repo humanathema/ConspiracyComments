@@ -1,8 +1,11 @@
 # Task: Build the "authoritative mainstream source" construct
 
-**Status: not started. Mechanical enough for Antigravity to execute
-directly once briefed — this is building a new data construct, not
-making judgment calls about existing ones.**
+**Status: DONE (2026-07-19, `build_source_authority.py`).** Output:
+`data/processed/source_authority_scores.csv` (526 entities: news outlets
++ academic journals, MBFC reliability labels + Scimago Journal Rank
+quartiles). Not yet used in any regression — see the follow-on task,
+`handoff/task_source_authority_regression_wiring.md`, for wiring it into
+`has_link`.
 
 ## Why
 

@@ -93,6 +93,7 @@ def load_integrated_dataset(pattern_str):
         WHERE t.is_high_crosspost = 0
           AND COALESCE(b.brigade_upvote_flag, 0) = 0
           AND COALESCE(b.brigade_downvote_flag, 0) = 0
+        QUALIFY ROW_NUMBER() OVER (PARTITION BY s.id) = 1
     """
 
     df = con.execute(query, [pattern_str]).df()

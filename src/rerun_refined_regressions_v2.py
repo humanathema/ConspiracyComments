@@ -155,6 +155,7 @@ def main():
           AND p.insider_presence_ratio >= 0.75
           AND COALESCE(b.brigade_upvote_flag, 0) = 0
           AND COALESCE(b.brigade_downvote_flag, 0) = 0
+        QUALIFY ROW_NUMBER() OVER (PARTITION BY s.id) = 1
     """
     df_con = con.execute(query).df()
     print(f"Loaded {len(df_con):,} pure r/conspiracy comments.")

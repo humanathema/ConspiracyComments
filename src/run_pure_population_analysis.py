@@ -89,6 +89,7 @@ def load_dataset(pattern_str):
         LEFT JOIN '{BRIGADE_PATH}' b ON s.id = b.comment_id
         WHERE COALESCE(b.brigade_upvote_flag, 0) = 0
           AND COALESCE(b.brigade_downvote_flag, 0) = 0
+        QUALIFY ROW_NUMBER() OVER (PARTITION BY s.id) = 1
     """
     return con.execute(query, [pattern_str]).df()
 

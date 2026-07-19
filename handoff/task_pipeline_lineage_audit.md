@@ -1,7 +1,18 @@
 # Task: Full-lineage pipeline audit + duplicate-ID root cause
 
-**Status: staged, not started. Large — break into the 4 numbered pieces
-below, don't try to do it all in one pass.**
+**Status: DONE (2026-07-20).** Pieces 1-4 completed by Antigravity
+2026-07-18/19 (`pipeline_lineage_audit.md` written, spaCy FactAppeal
+predecessor documented, `DATA_MANIFEST.md` regenerated). The duplicate-ID
+bug itself (Piece 1) was fully resolved 2026-07-20: both
+`data/processed/empath_scores_full.parquet` and
+`data/processed/research_corpus_staged_scores_full21m.parquet` were
+rebuilt at the source (21,408,577 -> 21,349,908 rows each, now exactly
+matching unique `id` counts) rather than left on the query-time
+`QUALIFY` workaround described below. Pre-rebuild originals are kept as
+`.bak` files in `data/processed/`. See the "Why this task exists" /
+Piece 1 sections below for full historical context on how the bug was
+introduced and traced; the "not yet applied" framing of the interim fix
+no longer applies now that the real rebuild has landed.
 
 ## Why this task exists
 
@@ -62,13 +73,16 @@ rebuilding a 21M-row file, expensive) document the exact mechanism
 clearly enough that the cheap interim fix (dedup at query time, see
 below) can be trusted as sufficient without a full rebuild.
 
-**Interim fix, not yet applied, cheap, do this regardless of what Piece 1
-finds**: add `QUALIFY ROW_NUMBER() OVER (PARTITION BY id) = 1` (or
-equivalent) to the `s`/`e` join in `src/rerun_refined_regressions_v2.py`
-and `src/run_pure_population_analysis.py` before trusting any future
-rerun's exact N. At 0.85% duplication this is very unlikely to overturn
-any existing finding's significance, but it's a real independence-
-assumption violation.
+**Interim fix (superseded 2026-07-20 by the real corpus rebuild above,
+kept here for history)**: `QUALIFY ROW_NUMBER() OVER (PARTITION BY id) = 1`
+(or equivalent) was added to the `s`/`e` join in
+`src/rerun_refined_regressions_v2.py`, `src/run_pure_population_analysis.py`,
+and `src/run_pure_50k_topic_analysis.py` as a stopgap before the source
+files themselves were deduped. These guards are now redundant against
+the rebuilt parquets but harmless, and were left in place as
+defense-in-depth. `src/run_integrated_regressions.py` did not have this
+guard and was rerun 2026-07-20 against the now-clean corpus instead
+(guard added there too for consistency).
 
 ## Piece 2: audit the spaCy FactAppeal predecessor
 
