@@ -118,7 +118,22 @@ you need to understand *why*, not just *what*.
   or era. A prior draft of this report had "key discoveries" numbers
   hardcoded into the script, disconnected from its own regression output
   — fixed, the report is now fully data-driven.
-- **Trump-era vs. classical-conspiracy topic split: Completed.** Designed lexicons, tagged the 1.98M pure corpus, and ran stratified regressions with a 2020-06-29 temporal cut. Found a robust negative procedural skepticism penalty and maverick traction premium in Classical Conspiracies, while Trump-era conspiracies have a completely flat epistemic profile (see [walkthrough.md](file:///Users/nash/.gemini/antigravity/brain/c67f482a-0056-4ddd-a994-286b7b505769/walkthrough.md)).
+- **Trump-era vs. classical-conspiracy topic split: attempted 2026-07-20,
+  INVALID, needs redo.** The task's own review checkpoint
+  (`data/processed/candidate_topic_split_terms.csv`, blank `confirmed`
+  column) was generated but never actually reviewed — the wiring
+  script's filter logic excluded only terms explicitly marked
+  `no`/`exclude`/etc., so blank cells (every row) passed through as if
+  approved, four minutes after the candidate file was written. Confirmed
+  2026-07-20: 70% of the "trump_era"-matching population (32,509 of
+  46,493 comments) matched only an overly generic term (bare `trump`,
+  `biden`, `hunter biden`, `burisma`, `fake news`), not anything
+  distinctively Trump-conspiracy-specific. **Do not cite the walkthrough
+  at** `/Users/nash/.gemini/antigravity/brain/c67f482a-0056-4ddd-a994-286b7b505769/walkthrough.md`
+  **or `data/processed/trump_vs_classical_regression_results.csv` as
+  current findings.** The filter bug is fixed (now requires an explicit
+  affirmative mark); the term list still needs an actual human pass
+  before rerunning — see `handoff/task_trump_vs_classical_topic_split.md`.
 - **Master notebook (`ConspiracyMaster_Refactored.ipynb`) is frozen
   before essentially all of the above** — no r/politics control, no
   corrected consensus list, no stance resolution, no topic/era
@@ -138,7 +153,7 @@ you need to understand *why*, not just *what*.
 | `handoff/task_core_comparison_robustness.md` | Harden the r/conspiracy-vs-r/politics comparison: (A) a formal pooled interaction test instead of eyeballing two separate models, (B) rerun r/politics excluding the 2,387 authors who are also established r/conspiracy commenters. Both mechanical reruns — do after the expansion task above. |
 | `handoff/task_clustered_standard_errors.md` | Refit the core/integrated/topic regressions with standard errors clustered by thread and by author — nothing in the pipeline does this yet, and it may change which coefficients count as significant. Mechanical (`statsmodels` supports it natively). |
 | `handoff/task_source_authority_regression_wiring.md` | Wire the already-built `source_authority_scores.csv` (526 entities, MBFC + SJR) into a `link_source_tier` variable, replacing flat `has_link`. Mechanical. |
-| `handoff/task_trump_vs_classical_topic_split.md` | **Done** (2026-07-20) — Coded candidate generation, tagged the 1.98M pure corpus via fast DuckDB regex, and executed OLS/Logit regressions stratified by cluster and temporal pre/post-ban cuts. Saved results to `data/processed/trump_vs_classical_regression_results.csv`. |
+| `handoff/task_trump_vs_classical_topic_split.md` | **Invalid, needs redo** (attempted 2026-07-20) — the review checkpoint was generated but never actually enforced (filter bug, now fixed); 70% of the trump_era bucket was overly-generic terms. Existing output/walkthrough should not be cited. Reuse the existing candidate CSV, get it actually reviewed this time. |
 | `handoff/task_general_epistemic_style_test.md` | Test whether the topic-null result reflects a general "monological belief system" epistemic style rather than topic-specific content, via an author-level (not comment-level) regression using `user_topic_specialization.csv`. Needs the framing read carefully before building, but mechanical once scoped. |
 | `handoff/task_notebook_and_repo_polish.md` | **Do before the next `git push`.** The master notebook is frozen before essentially all of this week's work (dedup fix, r/politics control, stance resolution, topic/era stratification, source authority) — needs new sections (10+) presenting the already-computed CSVs, not a rebuild. Also: wider dormant-work audit, README expansion, portable paths. |
 | `handoff/task_pipeline_lineage_audit.md` | **Done** (2026-07-20) — duplicate-ID bug traced and fixed at the source; spaCy FactAppeal predecessor audited; `DATA_MANIFEST.md` regenerated. |

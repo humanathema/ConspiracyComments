@@ -1,7 +1,47 @@
 # Task: Trump-era vs. classical-conspiracy topic split
 
-**Status: not started. Mostly mechanical, one small judgment checkpoint
-(term-list review — see below, keep it short).**
+**Status: attempted 2026-07-20, result INVALID, needs redo. Do not use
+`data/processed/trump_vs_classical_regression_results.csv` or the
+walkthrough at `/Users/nash/.gemini/antigravity/brain/c67f482a-0056-4ddd-a994-286b7b505769/walkthrough.md`
+as-is — see below.**
+
+## What went wrong the first time (fixed, but the run needs redoing)
+
+The review checkpoint below was built and even produced the right
+artifact (`data/processed/candidate_topic_split_terms.csv`, blank
+`confirmed` column) — but `src/run_trump_vs_classical_regression.py`'s
+filter logic *excluded* only terms explicitly marked
+`no`/`exclude`/`reject`/etc., so a blank `confirmed` cell (every row,
+since nobody had reviewed it) passed through as if approved. No review
+ever happened between the candidate file being written (07:57) and the
+regression finishing (08:01), four minutes later. Confirmed 2026-07-20:
+of 46,493 comments matching any Trump-era term, 70% (32,509) matched
+*only* an overly generic term (bare `trump`, `biden`, `hunter biden`,
+`burisma`, `fake news`) with no distinctively Trump-conspiracy term
+present at all — the "trump_era" bucket in the existing output is
+mostly generic political commentary, not MAGA/QAnon-adjacent
+conspiracist content specifically. The filter bug itself is fixed (now
+requires an explicit affirmative mark, not just "not explicitly
+rejected") — but the candidate list still needs an actual human pass
+before rerunning, and the existing regression output/walkthrough should
+not be cited or reused.
+
+## Original task (still applies — the process below was correct, only
+the execution skipped the review it called for)
+
+**Reuse the existing candidate file, don't regenerate it** —
+`data/processed/candidate_topic_split_terms.csv` already has the right
+structure (58 terms, `term`/`proposed_bucket`/`source_topic_id`/`confirmed`
+columns). It just needs an actual human pass on the `confirmed` column
+before rerunning `src/run_trump_vs_classical_regression.py` (filter bug
+now fixed — only rows explicitly marked `yes`/`confirmed`/`true`/`1` will
+be included, so this pass is not optional/skippable this time). Flag for
+whoever reviews it: `trump`, `biden`, `hunter biden`, `burisma`, and
+`fake news` are almost certainly too generic to keep as bare terms —
+they're the ones responsible for the 70% contamination found 2026-07-20.
+Whether to drop them outright, require co-occurrence with a
+conspiracy-specific term, or find a narrower phrasing is a real judgment
+call for Nash/Claude, not Antigravity, per the main guardrails.
 
 ## Why
 
