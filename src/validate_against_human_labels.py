@@ -23,6 +23,11 @@ def main():
     df = df[df["human_label"].notna()]
     df["is_positive_gold"] = df["human_label"].astype(str).str.lower().isin(["positive", "lean_positive"])
 
+    # Load lookup
+    from combined_maverick_detector import load_maverick_disambiguation_lookup, VALID_MAVERICK_CANDIDATES, CANDIDATE_TO_BARES
+    lookup = load_maverick_disambiguation_lookup()
+    print(f"Loaded {len(lookup)} resolved bare-form entries from disambiguation lookup.")
+
     print("Loading spaCy for sentence splitting...")
     nlp = spacy.load("en_core_web_sm", disable=["ner", "parser", "lemmatizer"])
     if "sentencizer" not in nlp.pipe_names:
@@ -42,7 +47,13 @@ def main():
         comment_matches = []
         sentences = [sent.text.strip() for sent in doc.sents if len(sent.text.strip()) > 5]
 
+        cid = str(row["id"])
+        resolved_cand = lookup.get(cid)
+        is_resolved_mav = resolved_cand in VALID_MAVERICK_CANDIDATES
+
         for sent_text in sentences:
+            # First, check regular regex matches
+            sentence_matches = []
             for m in entity_rx.finditer(sent_text):
                 entity_matched = m.group(0)
                 other_entities = [e for e in entities if e.lower() != entity_matched.lower()]
@@ -52,7 +63,30 @@ def main():
                     sent_text, entity_matched, m.start(), m.end(),
                     other_known_entities=nearby_others
                 )
-                comment_matches.append(result)
+                sentence_matches.append(result)
+
+            # Second, check resolved bare-form matches if this comment is in the lookup
+            if is_resolved_mav:
+                bares = CANDIDATE_TO_BARES[resolved_cand]
+                for b in bares:
+                    for m in re.finditer(r"\b" + re.escape(b) + r"\b", sent_text, re.IGNORECASE):
+                        # Avoid duplicating if the regex already matched at this start position
+                        if any(res.entity_start <= m.start() < res.entity_end for res in sentence_matches):
+                            continue
+                        
+                        entity_matched = m.group(0)
+                        other_entities = [e for e in entities if e.lower() != entity_matched.lower()]
+                        nearby_others = [e for e in other_entities if e.lower() in sent_text.lower()][:10]
+                        
+                        result = score_entity_attribution(
+                            sent_text, entity_matched, m.start(), m.end(),
+                            other_known_entities=nearby_others
+                        )
+                        # Override matched entity name to the canonical resolved maverick candidate
+                        result.entity = resolved_cand
+                        sentence_matches.append(result)
+
+            comment_matches.extend(sentence_matches)
 
         # Aggregate confidence for the comment: highest confidence wins
         if not comment_matches:
@@ -111,3 +145,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+

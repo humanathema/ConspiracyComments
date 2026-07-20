@@ -20,25 +20,78 @@ FACTAPPEAL_DIR = "data/processed/factappeal"
 ENTITY_PATH = "data/processed/entity_final_review.csv"
 
 from verified_maverick_additions import VERIFIED_MAVERICK_ADDITIONS
+from maverick_authority_verified import VERIFIED_MAVERICK_AUTHORITY
+
+VALID_MAVERICK_CANDIDATES = {
+    "Chelsea Manning", "Bradley Manning",
+    "Alex Jones", "Steven E. Jones",
+    "Mike Adams", "Stanley Adams", "Jad Adams",
+    "Jim Watkins", "Ron Watkins", "Sherron Watkins",
+    "Ben Garrison", "Jim Garrison",
+    "Milton William Cooper", "Cynthia Cooper",
+    "Jenny McCarthy",
+    "Whitney Webb", "Gary Webb",
+    "Robert W. Malone"
+}
+
+CANDIDATE_TO_BARES = {
+    "Chelsea Manning": ["manning"],
+    "Bradley Manning": ["manning"],
+    "Alex Jones": ["jones"],
+    "Steven E. Jones": ["jones"],
+    "Mike Adams": ["adams"],
+    "Stanley Adams": ["adams"],
+    "Jad Adams": ["adams"],
+    "Jim Watkins": ["watkins"],
+    "Ron Watkins": ["watkins"],
+    "Sherron Watkins": ["watkins"],
+    "Ben Garrison": ["garrison"],
+    "Jim Garrison": ["garrison"],
+    "Milton William Cooper": ["cooper"],
+    "Cynthia Cooper": ["cooper"],
+    "Jenny McCarthy": ["mccarthy"],
+    "Whitney Webb": ["webb"],
+    "Gary Webb": ["webb"],
+    "Robert W. Malone": ["malone"]
+}
+
+def load_maverick_disambiguation_lookup():
+    path = "data/processed/maverick_entity_disambiguation_classified.csv"
+    lookup = {}
+    if os.path.exists(path):
+        df = pd.read_csv(path)
+        for _, r in df.iterrows():
+            cid = str(r["id"])
+            resolved = r["classified_as"]
+            if pd.notna(resolved) and str(resolved).strip() != "":
+                lookup[cid] = str(resolved).strip()
+    return lookup
 
 # FIXED 2026-07-15: this used to be a hardcoded 24-name placeholder list
 # (Assange, Snowden, Manning... plus raw agency acronyms CIA/FBI/NSA/DEA/DIA/
 # CSPAN) written before proper entity curation existed, and never updated
-# once it did. Now pulled from the real, curated maverick_authority bucket
-# (418 entities as of this fix) -- see entity_final_review.csv / §12.
+# once it did. At the time, pulled from the raw `final_bucket_guess ==
+# 'maverick_authority'` bucket, believing it to be "curated" -- it wasn't.
+#
+# FIXED AGAIN 2026-07-20: that bucket (418 entities) was never actually
+# hand-reviewed and turned out to mix real people/organizations with
+# generic conspiracy-topic vocabulary ("New World Order", "Deep State",
+# "Conspiracy Theory", etc, ~25% of corpus matches were topic-noise, no
+# entity present at all -- see handoff/task_maverick_authority_list_cleanup.md).
+# This directly affected THIS scorer's validation: scoring "is this comment
+# attributing a claim TO <entity>" against a match on "UFO" or "conspiracy
+# theory" is nonsensical, since those aren't attributable sources -- likely
+# a real contributor to the near-zero kappa this scorer's validation showed.
+# Now pulled from Nash's hand-reviewed VERIFIED_MAVERICK_AUTHORITY (446
+# entities) instead.
 # NOTE: this fixes the entity list, NOT the attribution-vs-co-occurrence
 # logic gap documented in ANTIGRAVITY_HANDOFF.md §8b -- the classifier
 # below still only checks that an entity and *some* FactAppeal-detected
 # appeal co-occur in the same sentence, not that the appeal is actually
 # attributed to that entity. That's a separate, bigger fix, not done here.
 def load_curated_maverick_entities():
-    df_entity = pd.read_csv(ENTITY_PATH)
-    ents = df_entity[df_entity["final_bucket_guess"] == "maverick_authority"]["entity"].dropna().astype(str).unique().tolist()
+    ents = list(VERIFIED_MAVERICK_AUTHORITY)
     ents = [e for e in ents if len(e) >= 3]
-    # See verified_maverick_additions.py: WikiLeaks/Assange/Manning/Snowden/
-    # Ellsberg/Kiriakou never got promoted to final_bucket_guess despite a
-    # correct weak-hint -- same blind spot found and fixed for
-    # consensus_expert. Added directly rather than fixing the pipeline.
     ents += VERIFIED_MAVERICK_ADDITIONS
     return list(dict.fromkeys(ents))  # dedupe, preserve order
 
@@ -59,6 +112,9 @@ def main():
     df = df[df["human_label"].notna()]
     df["is_positive_gold"] = df["human_label"].astype(str).str.lower().isin(["positive", "lean_positive"])
     
+    lookup = load_maverick_disambiguation_lookup()
+    print(f"Loaded {len(lookup)} resolved bare-form entries from disambiguation lookup.")
+
     print("Loading pre-trained FactAppeal model...")
     model_path = os.path.join(FACTAPPEAL_DIR, "factappeal_classifier.pkl")
     vec_path = os.path.join(FACTAPPEAL_DIR, "factappeal_vectorizer.pkl")
@@ -89,8 +145,19 @@ def main():
         sentences = [sent.text.strip() for sent in doc.sents if len(sent.text.strip()) > 5]
         
         if sentences:
-            # 1. Check entity match in each sentence
-            entity_matches = [bool(entity_rx.search(s)) for s in sentences]
+            # 1. Check entity match in each sentence (including lookup-override for bare forms)
+            entity_matches = []
+            cid = str(row["id"])
+            resolved_cand = lookup.get(cid)
+            is_resolved_mav = resolved_cand in VALID_MAVERICK_CANDIDATES
+            
+            for s in sentences:
+                matched = bool(entity_rx.search(s))
+                if not matched and is_resolved_mav:
+                    bares = CANDIDATE_TO_BARES[resolved_cand]
+                    if any(re.search(r'\b' + re.escape(b) + r'\b', s, re.IGNORECASE) for b in bares):
+                        matched = True
+                entity_matches.append(matched)
             
             # 2. Vectorize and predict FactAppeal for sentences with entity matches
             # This is a major optimization: only run the classifier on sentences that mention our entities!
@@ -145,6 +212,18 @@ def main():
             if match:
                 ent_text = match.group(0)
                 sent_text = sent_text.replace(ent_text, f"**{ent_text.upper()}**")
+            else:
+                # check if it matched via bare-form lookup
+                cid = str(r["id"])
+                resolved_cand = lookup.get(cid)
+                if resolved_cand in VALID_MAVERICK_CANDIDATES:
+                    bares = CANDIDATE_TO_BARES[resolved_cand]
+                    for b in bares:
+                        bare_match = re.search(r'\b' + re.escape(b) + r'\b', sent_text, re.IGNORECASE)
+                        if bare_match:
+                            ent_text = bare_match.group(0)
+                            sent_text = sent_text.replace(ent_text, f"**{ent_text.upper()} (RESOLVED: {resolved_cand})**")
+                            break
             print(f"  Sentence: \"{sent_text}\"")
     else:
         print("No triggers found.")
@@ -152,3 +231,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+

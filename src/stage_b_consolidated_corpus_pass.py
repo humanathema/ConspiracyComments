@@ -32,6 +32,7 @@ import json
 import re
 import time
 from collections import defaultdict
+import argparse
 
 import pandas as pd
 import pyarrow.parquet as pq
@@ -105,12 +106,82 @@ AMBIGUOUS_CLUSTERS = {
     },
 }
 
+MAVERICK_AMBIGUOUS_CLUSTERS = {
+    "manning": {
+        "bare": ["manning"],
+        "candidates": {
+            "Chelsea Manning": ["chelsea manning"],
+            "Bradley Manning": ["bradley manning"],
+        },
+    },
+    "jones": {
+        "bare": ["jones"],
+        "candidates": {
+            "Alex Jones": ["alex jones"],
+            "Steven E. Jones": ["steven e. jones", "steven jones", "steve jones"],
+        },
+    },
+    "adams": {
+        "bare": ["adams"],
+        "candidates": {
+            "Mike Adams": ["mike adams"],
+            "Jerome Adams": ["jerome adams", "dr. adams", "dr adams"],
+            "Stanley Adams": ["stanley adams"],
+            "Jad Adams": ["jad adams"],
+        },
+    },
+    "watkins": {
+        "bare": ["watkins"],
+        "candidates": {
+            "Jim Watkins": ["jim watkins"],
+            "Ron Watkins": ["ron watkins"],
+            "Sherron Watkins": ["sherron watkins"],
+        },
+    },
+    "garrison": {
+        "bare": ["garrison"],
+        "candidates": {
+            "Ben Garrison": ["ben garrison"],
+            "Jim Garrison": ["jim garrison"],
+        },
+    },
+    "cooper": {
+        "bare": ["cooper"],
+        "candidates": {
+            "Milton William Cooper": ["milton william cooper", "william cooper", "bill cooper"],
+            "Cynthia Cooper": ["cynthia cooper"],
+        },
+    },
+    "mccarthy": {
+        "bare": ["mccarthy"],
+        "candidates": {
+            "Jenny McCarthy": ["jenny mccarthy"],
+            "Joseph McCarthy": ["joseph mccarthy", "joe mccarthy"],
+        },
+    },
+    "webb": {
+        "bare": ["webb"],
+        "candidates": {
+            "Whitney Webb": ["whitney webb"],
+            "Gary Webb": ["gary webb"],
+        },
+    },
+    "malone": {
+        "bare": ["malone"],
+        "candidates": {
+            "Robert W. Malone": ["robert w. malone", "robert malone", "dr malone", "dr. malone"],
+            "Post Malone": ["post malone"],
+        },
+    },
+}
+
 CREDENTIAL_PATTERN = re.compile(
     r"\b(former|ex-|retired)\s+(CIA|FBI|NSA|DIA|DEA|MI5|MI6|KGB)\s+"
     r"(officer|agent|analyst|operative|employee|contractor|trainee)\b",
     re.IGNORECASE,
 )
 NEARBY_NAME_PATTERN = re.compile(r"\b([A-Z][a-z]+(?:\s+[A-Z][a-z]+){0,2})\b")
+
 
 
 def extract_word_bag(text, match_start, match_end, exclude_words):
@@ -132,12 +203,40 @@ def find_credential_pattern_names(text):
 
 
 def main():
+    parser = argparse.ArgumentParser(description="Stage B consolidated corpus pass")
+    parser.add_argument("--maverick", action="store_true", help="Run maverick disambiguation mode")
+    parser.add_argument("--mainstream", action="store_true", help="Run mainstream expert mode")
+    args = parser.parse_args()
+
+    if args.maverick:
+        cluster_dict = MAVERICK_AMBIGUOUS_CLUSTERS
+        wordbags_out = "data/processed/stage_b_maverick_word_bags.json"
+        credential_out = "data/processed/stage_b_maverick_credential_hits.csv"
+        mode_name = "Maverick Expert"
+    else:
+        cluster_dict = AMBIGUOUS_CLUSTERS
+        wordbags_out = WORDBAGS_OUT
+        credential_out = CREDENTIAL_OUT
+        mode_name = "Mainstream Expert"
+
+    print(f"Running in {mode_name} mode...")
+
+    # Load validation queue comment IDs to bypass max-sample capping for bare instances
+    priority_ids = set()
+    try:
+        val_df = pd.read_csv("data/hitl/queue_maverick_authority.csv")
+        if "id" in val_df.columns:
+            priority_ids = set(val_df["id"].dropna().astype(str))
+            print(f"Loaded {len(priority_ids)} priority comment IDs from validation queue")
+    except Exception as e:
+        print(f"Warning: could not load validation queue: {e}")
+
     # Build a simple lowercase substring search structure: for each cluster,
     # bare form(s) and every candidate alias, so a single lowercase scan of
     # each comment's text can tag which (if any) it matched.
     bare_to_cluster = {}
     alias_to_candidate = {}  # alias (lowercase) -> (cluster_key, candidate_name)
-    for cluster_key, spec in AMBIGUOUS_CLUSTERS.items():
+    for cluster_key, spec in cluster_dict.items():
         for b in spec["bare"]:
             bare_to_cluster[b] = cluster_key
         for cand_name, aliases in spec["candidates"].items():
@@ -145,8 +244,8 @@ def main():
                 alias_to_candidate[a] = (cluster_key, cand_name)
 
     # word bags: cluster -> {"__bare__": [...], candidate_name: [...]}
-    word_bags = {c: {"__bare__": []} for c in AMBIGUOUS_CLUSTERS}
-    for c, spec in AMBIGUOUS_CLUSTERS.items():
+    word_bags = {c: {"__bare__": []} for c in cluster_dict}
+    for c, spec in cluster_dict.items():
         for cand in spec["candidates"]:
             word_bags[c][cand] = []
     sample_counts = defaultdict(int)
@@ -201,11 +300,11 @@ def main():
                 if idx == -1:
                     continue
                 cluster_key = bare_to_cluster[bare]
-                any_full_in_text = any(a in text_l for a in AMBIGUOUS_CLUSTERS[cluster_key]["candidates"])
+                any_full_in_text = any(a in text_l for a in cluster_dict[cluster_key]["candidates"])
                 if any_full_in_text:
                     continue
                 sample_key = (cluster_key, "__bare__")
-                if sample_counts[sample_key] >= MAX_SAMPLES_PER_CANDIDATE:
+                if sample_counts[sample_key] >= MAX_SAMPLES_PER_CANDIDATE and str(row["id"]) not in priority_ids:
                     continue
                 bag = extract_word_bag(text_l, idx + 1, idx + 1 + len(bare), {bare})
                 if bag:
@@ -216,19 +315,20 @@ def main():
               f"{len(credential_hits):,} credential-pattern hits so far "
               f"({(time.time()-start)/60:.1f} min elapsed)", flush=True)
 
-    with open(WORDBAGS_OUT, "w") as f:
+    with open(wordbags_out, "w") as f:
         json.dump(word_bags, f)
-    print(f"\nSaved word bags to {WORDBAGS_OUT}")
-    for c in AMBIGUOUS_CLUSTERS:
+    print(f"\nSaved word bags to {wordbags_out}")
+    for c in cluster_dict:
         counts = {k: len(v) for k, v in word_bags[c].items()}
         print(f"  {c}: {counts}")
 
     cred_df = pd.DataFrame(credential_hits)
-    cred_df.to_csv(CREDENTIAL_OUT, index=False)
-    print(f"\nSaved {len(cred_df)} credential-pattern hits to {CREDENTIAL_OUT}")
+    cred_df.to_csv(credential_out, index=False)
+    print(f"\nSaved {len(cred_df)} credential-pattern hits to {credential_out}")
     if len(cred_df):
         print(cred_df["name"].value_counts().head(20).to_string())
 
 
 if __name__ == "__main__":
     main()
+

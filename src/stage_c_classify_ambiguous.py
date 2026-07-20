@@ -34,6 +34,7 @@ Output: data/processed/entity_disambiguation_classified.csv
 """
 import json
 from collections import Counter
+import argparse
 
 import pandas as pd
 
@@ -116,7 +117,25 @@ def classify_instance(bag, signature_sets):
 
 
 def main():
-    with open(WORDBAGS_PATH) as f:
+    parser = argparse.ArgumentParser(description="Stage C ambiguous classifier")
+    parser.add_argument("--maverick", action="store_true", help="Run maverick disambiguation mode")
+    parser.add_argument("--mainstream", action="store_true", help="Run mainstream expert mode")
+    args = parser.parse_args()
+
+    if args.maverick:
+        wordbags_path = "data/processed/stage_b_maverick_word_bags.json"
+        classified_out = "data/processed/maverick_entity_disambiguation_classified.csv"
+        signature_out = "data/processed/stage_c_maverick_signature_words.json"
+        mode_name = "Maverick Expert"
+    else:
+        wordbags_path = WORDBAGS_PATH
+        classified_out = CLASSIFIED_OUT
+        signature_out = SIGNATURE_OUT
+        mode_name = "Mainstream Expert"
+
+    print(f"Running classification in {mode_name} mode...")
+
+    with open(wordbags_path) as f:
         word_bags = json.load(f)
 
     # fix the bill/clinton cross-cluster collision: borrow Bill Clinton's
@@ -162,14 +181,15 @@ def main():
         print(f"  bare instances: {len(bare_instances)}, resolved: {n_resolved} "
               f"({n_resolved/max(len(bare_instances),1)*100:.1f}%)")
 
-    with open(SIGNATURE_OUT, "w") as f:
+    with open(signature_out, "w") as f:
         json.dump(all_signature_words, f, indent=2)
-    print(f"\nSaved signature words to {SIGNATURE_OUT}")
+    print(f"\nSaved signature words to {signature_out}")
 
     out_df = pd.DataFrame(all_classifications)
-    out_df.to_csv(CLASSIFIED_OUT, index=False)
-    print(f"Saved {len(out_df)} per-instance classifications to {CLASSIFIED_OUT}")
+    out_df.to_csv(classified_out, index=False)
+    print(f"Saved {len(out_df)} per-instance classifications to {classified_out}")
 
 
 if __name__ == "__main__":
     main()
+
