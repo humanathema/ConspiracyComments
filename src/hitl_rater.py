@@ -195,12 +195,23 @@ function escapeHtml(s) {
   return d.innerHTML;
 }
 
+let queueRequestId = 0;
+
 async function loadQueue(resetToFirstUnlabeled) {
   renderTabs();
   document.getElementById('context').style.display = 'none';
   document.getElementById('context').innerHTML = '';
-  const r = await fetch('/api/queue?queue=' + current);
+  // Guard against out-of-order responses: if tabs are switched quickly, a
+  // slower earlier request can resolve AFTER a faster later one and
+  // silently overwrite it -- the tab button shows the queue you clicked,
+  // but the content is whichever response happened to arrive last, not
+  // whichever was requested last. Only apply a response if it's still the
+  // most recently issued request by the time it comes back.
+  const requestQueue = current;
+  const thisRequestId = ++queueRequestId;
+  const r = await fetch('/api/queue?queue=' + requestQueue);
   const data = await r.json();
+  if (thisRequestId !== queueRequestId) return; // a newer request superseded this one
   rows = data.rows;
   labelCol = data.label_col;
   if (rows.length === 0) {
@@ -314,7 +325,13 @@ class Handler(BaseHTTPRequestHandler):
         pass
 
     def _json(self, obj, code=200):
-        body = json.dumps(obj).encode()
+        # allow_nan=False: fail loudly with a server-side traceback if a
+        # non-standard-JSON float (NaN/Infinity) ever leaks into a response,
+        # instead of silently shipping invalid JSON that the browser's
+        # strict JSON.parse() then rejects with no visible error on this
+        # side at all (exactly what happened with the maverick_stance bug
+        # this was added alongside).
+        body = json.dumps(obj, allow_nan=False).encode()
         self.send_response(code)
         self.send_header("Content-Type", "application/json")
         self.send_header("Content-Length", str(len(body)))
@@ -341,7 +358,19 @@ class Handler(BaseHTTPRequestHandler):
                 return
             df = load_df(path)
             col = "human_stance" if "human_stance" in df.columns else "human_label"
-            df = df.where(pd.notna(df), None)
+            # BUG FIXED 2026-07-20: `df.where(pd.notna(df), None)` doesn't
+            # actually put None into a float64 column -- pandas silently
+            # coerces it right back to np.nan (a well-known gotcha; float
+            # columns can't natively hold Python None). A freshly-generated,
+            # zero-rated queue (e.g. maverick_stance before any rating) has
+            # its human_stance/notes columns read in as all-NaN float64, so
+            # this never took effect for it. The leftover float NaN then hit
+            # json.dumps, which serializes it as the bareword `NaN` -- valid
+            # for Python's json module but not standard JSON, so the
+            # browser's strict JSON.parse() threw and silently aborted the
+            # whole queue load (every row, not just some). Casting to
+            # object dtype first makes the None substitution actually stick.
+            df = df.astype(object).where(pd.notna(df), None)
             self._json({"rows": df.to_dict(orient="records"), "label_col": col})
 
         elif parsed.path == "/api/context":
