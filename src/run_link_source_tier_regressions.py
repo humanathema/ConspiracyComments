@@ -22,15 +22,12 @@ import statsmodels.formula.api as smf
 
 sys.path.insert(0, os.path.dirname(__file__))
 from refine_thesis_models import (
-    CANONICAL_EXPERTS, FICTIONAL_OR_LEAKED,
     pass_personal_experience_filter, pass_procedural_skepticism_filter,
     build_regex,
 )
-from consensus_experts_verified import VERIFIED_CONSENSUS_EXPERTS
-from verified_maverick_additions import VERIFIED_MAVERICK_ADDITIONS
+from rerun_refined_regressions_v2 import load_entities_split_corrected
 
 MODELS_PATH = 'data/processed/staged_pipeline_models.joblib'
-ENTITY_PATH = 'data/processed/entity_final_review.csv'
 POLITICS_PATH = 'data/processed/comparison_politics_scored.parquet'
 STAGED_PATH = 'data/processed/research_corpus_staged_scores_full21m.parquet'
 EMPATH_PATH = 'data/processed/empath_scores_full.parquet'
@@ -95,21 +92,6 @@ TAXONOMY = {
         'federalreserve.gov', 'sec.gov', 'ftc.gov', 'un.org', 'nato.int'
     ]
 }
-
-def load_entities_split_corrected():
-    df_entity = pd.read_csv(ENTITY_PATH)
-    mavericks = df_entity[df_entity["final_bucket_guess"] == "maverick_authority"]["entity"].dropna().astype(str).unique().tolist()
-    mavericks = [m for m in mavericks if len(m) >= 3]
-    mavericks = list(dict.fromkeys(mavericks + VERIFIED_MAVERICK_ADDITIONS))
-
-    experts = df_entity[df_entity["final_bucket_guess"] == "mainstream_expert_authority"]["entity"].dropna().astype(str).unique().tolist()
-    experts = [e for e in experts if len(e) >= 3]
-    canon = [e for e in experts
-             if not any(f.lower() in e.lower() for f in FICTIONAL_OR_LEAKED)
-             and any(c.lower() in e.lower() for c in CANONICAL_EXPERTS)]
-
-    consensus = list(VERIFIED_CONSENSUS_EXPERTS)
-    return mavericks, canon, consensus
 
 def extract_domains(text):
     if not isinstance(text, str):

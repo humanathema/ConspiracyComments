@@ -101,35 +101,65 @@ def fetch_page(after_ts, before_ts):
                 payload = resp.json()
                 data = payload.get("data")
                 if data is None:
-                    print(f"    API error payload: {payload.get('error')}")
-                    return []
+                    print(f"    API returned 200 but data is None (error: {payload.get('error')}). Retrying after backoff (attempt {attempt+1}/{MAX_RETRIES})...")
+                    time.sleep(10 + attempt * 10)
+                    continue
                 return data
             else:
-                print(f"    HTTP {resp.status_code}, retrying (attempt {attempt+1}/{MAX_RETRIES})...")
-                time.sleep(5 + attempt * 5)
+                print(f"    HTTP {resp.status_code}, retrying after backoff (attempt {attempt+1}/{MAX_RETRIES})...")
+                time.sleep(10 + attempt * 10)
         except requests.exceptions.RequestException as e:
-            print(f"    Request failed: {e}, retrying (attempt {attempt+1}/{MAX_RETRIES})...")
-            time.sleep(5 + attempt * 5)
+            print(f"    Request failed: {e}, retrying after backoff (attempt {attempt+1}/{MAX_RETRIES})...")
+            time.sleep(10 + attempt * 10)
     print(f"    Giving up on this page after {MAX_RETRIES} attempts.")
-    return []
+    return None
 
 
 def pull_month(month_str):
     out_path = os.path.join(OUT_DIR, f"{month_str}.jsonl")
-    if os.path.exists(out_path) and os.path.getsize(out_path) > 0:
-        with open(out_path) as f:
-            n = sum(1 for _ in f)
-        print(f"[{month_str}] already done ({n} rows) -- skipping")
-        return
-
-    month_start, month_end = month_bounds_utc(month_str)
-    cursor_before = month_end
     collected = []
     seen_ids = set()
 
-    print(f"[{month_str}] pulling (target {TARGET_PER_MONTH})...")
+    if os.path.exists(out_path) and os.path.getsize(out_path) > 0:
+        with open(out_path) as f:
+            for line in f:
+                if not line.strip():
+                    continue
+                try:
+                    row = json.loads(line)
+                    collected.append(row)
+                    seen_ids.add(row.get("id"))
+                except Exception:
+                    pass
+        if len(collected) >= TARGET_PER_MONTH:
+            print(f"[{month_str}] already done ({len(collected)} rows) -- skipping")
+            return
+        else:
+            print(f"[{month_str}] exists but incomplete ({len(collected)} < {TARGET_PER_MONTH} rows)")
+
+    month_start, month_end = month_bounds_utc(month_str)
+    cursor_before = month_end
+
+    if collected:
+        # Resume progress: find the minimum created_utc to use as cursor_before
+        min_ts = min(row.get("created_utc") for row in collected if row.get("created_utc") is not None)
+        cursor_before = min_ts - 1
+        print(f"[{month_str}] resuming from existing {len(collected)} rows (oldest timestamp {cursor_before})")
+    else:
+        print(f"[{month_str}] pulling from scratch (target {TARGET_PER_MONTH})...")
+
     while len(collected) < TARGET_PER_MONTH:
         page = fetch_page(month_start, cursor_before)
+        if page is None:
+            # We got a persistent error. Save whatever we collected so far, and crash/fail!
+            if collected:
+                os.makedirs(OUT_DIR, exist_ok=True)
+                with open(out_path, "w") as f:
+                    for row in collected:
+                        f.write(json.dumps(row) + "\n")
+                print(f"[{month_str}] saved partial progress of {len(collected)} comments before exiting.")
+            raise RuntimeError(f"[{month_str}] persistent API failure occurred while pulling page. Stopping.")
+
         if not page:
             print(f"[{month_str}] exhausted at {len(collected)} rows")
             break

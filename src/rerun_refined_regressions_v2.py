@@ -57,6 +57,7 @@ from refine_thesis_models import (
 )
 from consensus_experts_verified import VERIFIED_CONSENSUS_EXPERTS
 from verified_maverick_additions import VERIFIED_MAVERICK_ADDITIONS
+from maverick_authority_verified import VERIFIED_MAVERICK_AUTHORITY
 
 MODELS_PATH = 'data/processed/staged_pipeline_models.joblib'
 ENTITY_PATH = 'data/processed/entity_final_review.csv'
@@ -94,17 +95,19 @@ def load_entities_split_corrected():
     automated bucket assignment at all."""
     df_entity = pd.read_csv(ENTITY_PATH)
 
-    mavericks = df_entity[df_entity["final_bucket_guess"] == "maverick_authority"]["entity"].dropna().astype(str).unique().tolist()
-    mavericks = [m for m in mavericks if len(m) >= 3]
-    # Same never-promoted-despite-correct-weak-hint blind spot as
-    # consensus_expert, found 2026-07-15 on the maverick side: WikiLeaks
-    # (doc_count 9,502 alone) and the Assange/Manning/Snowden/Ellsberg/
-    # Kiriakou whistleblower cluster were never in `mavericks` until now.
-    # See verified_maverick_additions.py -- this is a bounded, high-
-    # confidence patch, NOT a full fix of the ~350-entity pool with this
-    # same pattern (that pool is noisy, needs individual review, staged
-    # in ANTIGRAVITY_HANDOFF.md, not attempted here).
-    mavericks = list(dict.fromkeys(mavericks + VERIFIED_MAVERICK_ADDITIONS))
+    # FIXED 2026-07-20: mavericks now comes from the explicit, hand-
+    # reviewed VERIFIED_MAVERICK_AUTHORITY allowlist (446 entities, Nash's
+    # review of maverick_candidate_entities_scored.csv), replacing the raw
+    # `final_bucket_guess == 'maverick_authority'` bucket (418 entities)
+    # this used to pull from directly. That bucket was never audited --
+    # ~25% of its actual corpus matches were topic-noise ("New World
+    # Order", "Deep State", "Conspiracy Theory") rather than any person or
+    # organization. See handoff/task_maverick_authority_list_cleanup.md
+    # for the full history. VERIFIED_MAVERICK_ADDITIONS (WikiLeaks/Assange/
+    # Manning/Snowden/Ellsberg/Kiriakou) is now a subset of the reviewed
+    # list but merged in regardless for safety in case of future edits to
+    # either list.
+    mavericks = list(dict.fromkeys(list(VERIFIED_MAVERICK_AUTHORITY) + VERIFIED_MAVERICK_ADDITIONS))
 
     # canon still comes from the mainstream_expert_authority-bucketed pool
     # (CANONICAL_EXPERTS matching works fine here, those figures ARE
@@ -115,10 +118,25 @@ def load_entities_split_corrected():
              if not any(f.lower() in e.lower() for f in FICTIONAL_OR_LEAKED)
              and any(c.lower() in e.lower() for c in CANONICAL_EXPERTS)]
 
-    # consensus: the verified allowlist directly, independent of bucket status
     consensus = list(VERIFIED_CONSENSUS_EXPERTS)
 
     return mavericks, canon, consensus
+
+
+def compute_has_maverick(df, rx_mav, lookup):
+    from combined_maverick_detector import VALID_MAVERICK_CANDIDATES
+    has_mav = []
+    for _, row in df.iterrows():
+        cid = str(row["id"])
+        text = str(row["text"])
+        is_mav = bool(rx_mav.search(text))
+        if not is_mav:
+            resolved = lookup.get(cid)
+            if resolved in VALID_MAVERICK_CANDIDATES:
+                is_mav = True
+        has_mav.append(1 if is_mav else 0)
+    return has_mav
+
 
 
 def main():
@@ -141,6 +159,10 @@ def main():
     rx_can = build_regex(canon)
     rx_con = build_regex(consensus)
 
+    from combined_maverick_detector import load_maverick_disambiguation_lookup
+    lookup = load_maverick_disambiguation_lookup()
+    print(f"Loaded {len(lookup)} resolved bare-form entries from disambiguation lookup.")
+
     con = duckdb.connect()
     print("\nLoading r/conspiracy pure comments...")
     query = f"""
@@ -161,7 +183,7 @@ def main():
     print(f"Loaded {len(df_con):,} pure r/conspiracy comments.")
 
     print("Flagging entity mentions in r/conspiracy...")
-    df_con['has_maverick'] = df_con['text'].apply(lambda x: 1 if bool(rx_mav.search(str(x))) else 0)
+    df_con['has_maverick'] = compute_has_maverick(df_con, rx_mav, lookup)
     df_con['has_canonical_expert'] = df_con['text'].apply(lambda x: 1 if bool(rx_can.search(str(x))) else 0)
     df_con['has_consensus_expert'] = df_con['text'].apply(lambda x: 1 if bool(rx_con.search(str(x))) else 0)
     df_con['log_char_length'] = np.log(df_con['char_length'] + 1)
@@ -207,7 +229,7 @@ def main():
 
     print("Flagging entity mentions in r/politics...")
     df_pol['post_id'] = df_pol['link_id'].apply(lambda x: x[3:] if pd.notna(x) and len(str(x)) > 3 else str(x))
-    df_pol['has_maverick'] = df_pol['text'].apply(lambda x: 1 if bool(rx_mav.search(str(x))) else 0)
+    df_pol['has_maverick'] = compute_has_maverick(df_pol, rx_mav, lookup)
     df_pol['has_canonical_expert'] = df_pol['text'].apply(lambda x: 1 if bool(rx_can.search(str(x))) else 0)
     df_pol['has_consensus_expert'] = df_pol['text'].apply(lambda x: 1 if bool(rx_con.search(str(x))) else 0)
     df_pol['log_char_length'] = np.log(df_pol['char_length'] + 1)

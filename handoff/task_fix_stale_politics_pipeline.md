@@ -1,12 +1,23 @@
 # Task: Fix the r/politics data pipeline — three scripts silently ran on stale data
 
-**Status: not started. This blocks trusting the r/politics side of
-`refined_regression_results_v2.csv`, `link_source_tier_regression_results.csv`,
-`subreddit_interaction_results.csv`, `politics_overlap_excluded_comparison.csv`,
-and `refined_regression_results_v2_clustered.csv` (r/politics rows only —
-the r/conspiracy rows in all of these are unaffected and trustworthy, see
-below). Mechanical, but requires actually finishing the crawl this time,
-not just editing a constant.**
+**Status: nearly done (2026-07-20, uncommitted).** The crawl is complete
+— all 20 months in `data/raw/r_politics_by_month/` are fully populated
+(~7,000-7,076 rows each, 140,824 total, matching the expansion target),
+including the 6 months that previously got zero/short results.
+`comparison_politics_scored.parquet` / `..._staged_scored.parquet` were
+rebuilt from it (17MB/31MB, rebuilt 14:34/14:57, no longer byte-identical
+to the `_pre_expansion` backups). `src/rerun_refined_regressions_v2.py`
+(output 14:58) and `src/run_link_source_tier_regressions.py` (output
+15:45) have both been rerun against the fixed data — those two output
+files are current. **One step genuinely still open**: the author-overlap
+bug in `run_core_comparison_robustness.py` is fixed in code (uses the
+full footprints-file author set, i.e. the correct 2,387 definition, not
+the wrong 249 one), but the script itself hasn't been rerun since —
+`subreddit_interaction_results.csv` and
+`politics_overlap_excluded_comparison.csv` are both still timestamped
+08:12, *before* the rescore finished. Running
+`src/run_core_comparison_robustness.py` (both sub-tasks) is the only
+remaining step from this task. None of this is committed yet.
 
 ## What happened (confirmed 2026-07-20, checked file-by-file)
 

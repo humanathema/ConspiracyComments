@@ -163,8 +163,8 @@ def run_subtask_b(df_pol, rx_mav, rx_can, rx_con):
     print(f"Loading author footprints from {FOOTPRINTS_PATH}...")
     df_foot = pd.read_csv(FOOTPRINTS_PATH)
 
-    # Overlap definition: authors in r/politics control sample with >= 5 comments in r/conspiracy
-    con_authors = set(df_foot[(df_foot['subreddit'] == 'conspiracy') & (df_foot['comment_count'] >= 5)]['author'].dropna().unique())
+    # Overlap definition: all unique authors in footprints (representing >=5 r/conspiracy comments ever)
+    con_authors = set(df_foot['author'].dropna().unique())
     pol_authors = set(df_pol['author'].dropna().unique())
     overlap_authors = pol_authors.intersection(con_authors)
     print(f"Identified {len(overlap_authors):,} overlap authors (with >=5 comments in r/conspiracy) "
