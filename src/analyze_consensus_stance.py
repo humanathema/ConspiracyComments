@@ -1,18 +1,51 @@
 #!/usr/bin/env python3
-"""Analyzes completed consensus stance labeling results.
+"""Analyzes completed stance-labeling HITL queue results.
 
-Joins queue_consensus_stance.csv back to consensus_stance_queue_strata_map.csv
-by id, prints a contingency table of human_stance x stratum with row percentages.
+Joins a blinded stance queue back to its unblinded strata map by id, prints
+a contingency table of human_stance x stratum with row percentages, and runs
+the chi-square test of whether stance distribution differs by traction
+stratum.
+
+Generalized 2026-07-20 (was hardcoded to queue_consensus_stance.csv) so the
+same analysis works for any of the stance queues (consensus, maverick, and
+the future r/politics ones) without duplicating this script -- see
+handoff/task_stance_queues_expansion.md.
+
+Usage:
+    python3.12 src/analyze_consensus_stance.py
+        # defaults to the consensus-stance queue, unchanged behavior
+    python3.12 src/analyze_consensus_stance.py --queue maverick
+        # data/hitl/queue_maverick_stance.csv + maverick_stance_queue_strata_map.csv
+    python3.12 src/analyze_consensus_stance.py \\
+        --queue-path data/hitl/queue_whatever.csv --map-path data/processed/whatever_strata_map.csv
+        # fully explicit paths, for anything not following the queue_<name>_stance.csv convention
 """
+import argparse
 import os
 import sys
 import pandas as pd
 from scipy import stats
 
-QUEUE_PATH = 'data/hitl/queue_consensus_stance.csv'
-MAP_PATH = 'data/processed/consensus_stance_queue_strata_map.csv'
+QUEUE_PATH_TEMPLATE = 'data/hitl/queue_{name}_stance.csv'
+MAP_PATH_TEMPLATE = 'data/processed/{name}_stance_queue_strata_map.csv'
+
+
+def parse_args():
+    p = argparse.ArgumentParser(description=__doc__)
+    p.add_argument('--queue', default='consensus',
+                    help="Short name (e.g. 'consensus', 'maverick') -- resolves to the "
+                         "standard queue_<name>_stance.csv / <name>_stance_queue_strata_map.csv paths. "
+                         "Ignored if --queue-path/--map-path are given.")
+    p.add_argument('--queue-path', default=None, help="Explicit override for the queue CSV path.")
+    p.add_argument('--map-path', default=None, help="Explicit override for the strata-map CSV path.")
+    return p.parse_args()
+
 
 def main():
+    args = parse_args()
+    QUEUE_PATH = args.queue_path or QUEUE_PATH_TEMPLATE.format(name=args.queue)
+    MAP_PATH = args.map_path or MAP_PATH_TEMPLATE.format(name=args.queue)
+
     if not os.path.exists(QUEUE_PATH):
         print(f"Error: {QUEUE_PATH} not found.")
         sys.exit(1)
