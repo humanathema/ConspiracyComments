@@ -42,15 +42,26 @@ from urllib.parse import urlparse, parse_qs
 
 PORT = 8420
 
+# Anchored to the repo root via this file's own location, not the
+# process's CWD -- this file has been launched both as
+# `python3.12 src/hitl_rater.py` (from the repo root, per README.md) and
+# as `cd src && python hitl_rater.py` (Nash's actual habit), and a
+# relative path only works for one of those. Resolving from __file__
+# makes it work the same way regardless of where it's launched from.
+REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+def _abs(rel_path):
+    return os.path.join(REPO_ROOT, rel_path)
+
 QUEUES = {
-    "personal_experience": "data/hitl/queue_personal_experience.csv",
-    "procedural_skepticism": "data/hitl/queue_procedural_skepticism.csv",
-    "maverick_authority": "data/hitl/queue_maverick_authority.csv",
-    "consensus_stance": "data/hitl/queue_consensus_stance.csv",
-    "maverick_stance": "data/hitl/queue_maverick_stance.csv",
+    "personal_experience": _abs("data/hitl/queue_personal_experience.csv"),
+    "procedural_skepticism": _abs("data/hitl/queue_procedural_skepticism.csv"),
+    "maverick_authority": _abs("data/hitl/queue_maverick_authority.csv"),
+    "consensus_stance": _abs("data/hitl/queue_consensus_stance.csv"),
+    "maverick_stance": _abs("data/hitl/queue_maverick_stance.csv"),
 }
 
-EMPATH_PATH = "data/processed/empath_scores_full.parquet"
+EMPATH_PATH = _abs("data/processed/empath_scores_full.parquet")
 
 PAGE = """<!doctype html>
 <html><head><meta charset="utf-8"><title>HITL Rater</title>
