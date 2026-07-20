@@ -71,7 +71,7 @@ POLITICS_SCORED_PATH = 'data/processed/comparison_politics_staged_scored.parquet
 REFINED_REG_RESULTS_PATH = 'data/processed/refined_regression_results_v2.csv'
 REFINED_KEYNESS_PATH = 'data/processed/refined_semantic_keyness_results_v2.csv'
 
-MAX_SAMPLE = 50000  # matches original TopMinds sample cap; politics sample is
+MAX_SAMPLE = 150000  # matches original TopMinds sample cap; politics sample is
                      # smaller than that so in practice this just means "use it all"
 
 
@@ -144,7 +144,7 @@ def main():
     con = duckdb.connect()
     print("\nLoading r/conspiracy pure comments...")
     query = f"""
-        SELECT s.id, e.text, e.upvotes, e.char_length, s.pe_prob, s.ps_prob, e.has_link
+        SELECT s.id, e.text, e.upvotes, e.char_length, s.pe_prob, s.ps_prob, e.has_link, e.author, SUBSTR(e.link_id, 4) as post_id
         FROM '{STAGED_PATH}' s
         JOIN '{EMPATH_PATH}' e ON s.id = e.id
         JOIN '{THREAD_PATH}' t ON SUBSTR(e.link_id, 4) = t.post_id
@@ -206,6 +206,7 @@ def main():
         print(f"Saved scored r/politics sample to {POLITICS_SCORED_PATH}")
 
     print("Flagging entity mentions in r/politics...")
+    df_pol['post_id'] = df_pol['link_id'].apply(lambda x: x[3:] if pd.notna(x) and len(str(x)) > 3 else str(x))
     df_pol['has_maverick'] = df_pol['text'].apply(lambda x: 1 if bool(rx_mav.search(str(x))) else 0)
     df_pol['has_canonical_expert'] = df_pol['text'].apply(lambda x: 1 if bool(rx_can.search(str(x))) else 0)
     df_pol['has_consensus_expert'] = df_pol['text'].apply(lambda x: 1 if bool(rx_con.search(str(x))) else 0)
@@ -215,6 +216,7 @@ def main():
 
     print("\n--- Running Regressions ---")
     results = []
+    clustered_results = []
     specs = [
         ("r/conspiracy", df_con),
         ("r/politics", df_pol),
@@ -230,23 +232,14 @@ def main():
 
         use_formula = formula
         dropped_consensus = False
-        # With the corrected (non-contaminated) consensus list, mentions of a
-        # genuine consensus expert are rare enough in some populations (esp.
-        # the elasticity/insider-filtered r/conspiracy "pure population") to
-        # cause quasi/complete separation -- e.g. observed: only 18/21,091
-        # pure r/conspiracy comments mention one, and ALL 18 have
-        # high_traction=0. That's a real, informative fact (report the raw
-        # contingency table, not a coefficient), but it breaks the logit fit
-        # for every OTHER coefficient too if left in the formula. Detect via
-        # a rule of thumb (fewer than 20 positive cases, or one cell empty)
-        # and refit without it rather than silently losing the whole model.
         if n_consensus < 20 or (n_consensus > 0 and (ct.values == 0).any()):
             use_formula = formula.replace(" + has_consensus_expert", "")
             dropped_consensus = True
             print(f"[{name}] has_consensus_expert too sparse for a stable coefficient "
                   f"(N={n_consensus}) -- refitting without it. See raw contingency table above.")
 
-        print(f"\nRunning Logit Model for {name}...")
+        # 1. Standard run (Naive) to preserve original outputs
+        print(f"\nRunning Naive Logit Model for {name}...")
         try:
             m = smf.logit(use_formula, data=df_sub).fit(disp=0, maxiter=100)
             print(m.summary().tables[1])
@@ -265,10 +258,46 @@ def main():
                     "note": f"excluded from model, too sparse (N_positive={n_consensus}); see contingency table in log",
                 })
         except Exception as e:
-            print(f"Model failed for {name}: {e}")
+            print(f"Naive Model failed for {name}: {e}")
+
+        # 2. Clustered Runs for comparison
+        cov_types = [
+            ("naive", None),
+            ("thread", "post_id"),
+            ("author", "author")
+        ]
+        for cov_name, group_col in cov_types:
+            print(f"\nRunning Logit Model for {name} with covariance clustered by {cov_name}...")
+            try:
+                if cov_name == "naive":
+                    m_clust = smf.logit(use_formula, data=df_sub).fit(disp=0, maxiter=100)
+                else:
+                    df_fit = df_sub.dropna(subset=[group_col])
+                    m_clust = smf.logit(use_formula, data=df_fit).fit(cov_type='cluster', cov_kwds={'groups': df_fit[group_col].astype(str)}, disp=0, maxiter=100)
+                
+                for c in ["pe_prob", "ps_prob", "has_link", "has_maverick", "has_canonical_expert", "has_consensus_expert", "log_char_length"]:
+                    if c in m_clust.params:
+                        clustered_results.append({
+                            "subreddit": name, "variable": c, "cov_type": cov_name,
+                            "coef": m_clust.params[c], "se": m_clust.bse[c],
+                            "pvalue": m_clust.pvalues[c], "n_obs": int(m_clust.nobs),
+                        })
+                if dropped_consensus:
+                    clustered_results.append({
+                        "subreddit": name, "variable": "has_consensus_expert", "cov_type": cov_name,
+                        "coef": np.nan, "se": np.nan, "pvalue": np.nan,
+                        "n_obs": int(m_clust.nobs),
+                        "note": f"excluded from model, too sparse (N_positive={n_consensus})",
+                    })
+            except Exception as e:
+                print(f"Clustered Model ({cov_name}) failed for {name}: {e}")
 
     pd.DataFrame(results).to_csv(REFINED_REG_RESULTS_PATH, index=False)
-    print(f"\nSaved regression results to {REFINED_REG_RESULTS_PATH}")
+    print(f"\nSaved naive regression results to {REFINED_REG_RESULTS_PATH}")
+
+    REFINED_REG_RESULTS_CLUSTERED_PATH = 'data/processed/refined_regression_results_v2_clustered.csv'
+    pd.DataFrame(clustered_results).to_csv(REFINED_REG_RESULTS_CLUSTERED_PATH, index=False)
+    print(f"Saved comparative clustered regression results to {REFINED_REG_RESULTS_CLUSTERED_PATH}")
 
     print("\n--- Running Refined Semantic Keyness ---")
     print("Extracting contexts for r/conspiracy...")

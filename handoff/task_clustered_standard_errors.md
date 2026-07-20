@@ -1,8 +1,15 @@
 # Task: Add clustered standard errors to the core regressions
 
-**Status: not started. Mechanical — `statsmodels` supports this natively
-(`fit(cov_type='cluster', cov_kwds={'groups': ...})`), no judgment calls,
-no new data needed.**
+**Status: partially done (2026-07-20).** `rerun_refined_regressions_v2.py`
+now fits naive/thread/author-clustered variants and saves
+`data/processed/refined_regression_results_v2_clustered.csv`. The
+r/conspiracy-side rows are trustworthy and contain a real finding worth
+citing: `ps_prob` drops from p<0.001 (naive) to p=0.053 (author-clustered).
+The r/politics-side rows are stale (same root cause as
+`handoff/task_fix_stale_politics_pipeline.md` — fix that first, then
+this only needs a rerun, not new code). `run_integrated_regressions.py`
+and `run_pure_50k_topic_analysis.py` (items 2-3 in the original scope
+below) were not attempted.
 
 ## Why
 

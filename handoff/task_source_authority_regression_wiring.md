@@ -1,9 +1,22 @@
 # Task: Wire the source-authority construct into a regression
 
-**Status: not started. Mechanical — the construct is already built,
-this is joining it to the existing regression pipeline and rerunning.
-No judgment calls (the reliability/quality labels were already assigned
-by external, established sources — MBFC and Scimago — not by us).**
+**Status: mostly done (2026-07-20), r/politics side needs a rerun.**
+`src/run_link_source_tier_regressions.py` exists and works correctly —
+verified the classification logic against the real `source_authority_scores.csv`
+vocabulary. The r/conspiracy-side result
+(`data/processed/link_source_tier_regression_results.csv`) is trustworthy
+and genuinely interesting: the flat `has_link` penalty (-1.05) is mostly
+an `aggregator_or_platform` artifact (-1.73, Reddit/YouTube/Wikipedia/
+Imgur links specifically), while citing a `mainstream_reliable` source
+carries a small but real *positive* coefficient (+0.055, p=0.002) — the
+community doesn't just reject all outside links, it rewards genuinely
+authoritative ones. The r/politics-side numbers are stale (see
+`handoff/task_fix_stale_politics_pipeline.md` — fix that first, then
+just rerun this script's r/politics section). One coverage caveat not
+yet quantified: `extract_domains()` only matches URLs with an explicit
+`https?://` prefix, so a comment with `has_link==1` but a bare/no-protocol
+URL falls through to `link_source_tier='no_link'`, which is
+self-contradictory — worth checking how common that is.
 
 ## Why
 

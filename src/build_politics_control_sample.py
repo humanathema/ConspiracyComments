@@ -58,7 +58,7 @@ MONTHS = [
 ]
 
 SUBREDDIT = "politics"
-TARGET_PER_MONTH = 1500
+TARGET_PER_MONTH = 7000
 PAGE_LIMIT = 100  # Arctic Shift max allowed
 FIELDS = "id,author,score,parent_id,link_id,created_utc,body"
 # NOTE: "controversiality" is NOT a valid Arctic Shift field (confirmed via a

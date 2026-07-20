@@ -1,8 +1,16 @@
 # Task: Harden the r/conspiracy vs r/politics comparison
 
-**Status: not started. Two independent, mechanical sub-tasks — no
-judgment calls, both are straightforward reruns/extensions of existing
-scripts. Do both, report both, don't skip to interpretation.**
+**Status: attempted 2026-07-20, needs rerun.** Both sub-tasks were
+implemented in `src/run_core_comparison_robustness.py`. Sub-task A
+(interaction test) is correctly implemented but ran on the stale
+r/politics sample. Sub-task B (overlap-excluded rerun) had two separate
+problems, both fixed: a dict-key bug that made
+`data/processed/politics_overlap_excluded_comparison.csv` show identical
+values in every row, and a wrong "corrected" overlap-author count (used
+249 instead of the methodologically sound 2,387 — see
+`handoff/task_fix_stale_politics_pipeline.md` for why). Both sub-tasks
+need rerunning once the r/politics data itself is fixed; no further code
+changes should be needed.
 
 **Do `task_expand_politics_control_sample.md` first if it hasn't run
 yet** — this task's numbers (N=30,881, the 2,387-author overlap count)

@@ -1,7 +1,17 @@
 # Task: Build (don't rate) two more stance-detection queues
 
-**Status: not started. Mechanical data-generation only — no rating, no
-interpretation. Antigravity's job here ends at producing queue CSVs.**
+**Status: 1 of 3 queues done (2026-07-20).**
+`data/hitl/queue_maverick_stance.csv` exists (240 rows, 0 rated — real,
+not started by Nash yet) and is correctly registered in
+`src/hitl_rater.py` — verified via a live smoke test that it loads
+correctly. Note: a separate, unrelated change to `hitl_rater.py` in the
+same session added `../` prefixes to every queue path, which broke the
+documented invocation (`python3.12 src/hitl_rater.py` from the repo
+root); this has been reverted, don't reintroduce it. The two r/politics
+queues (`queue_consensus_stance_politics.csv`,
+`queue_maverick_stance_politics.csv`) were not attempted — and should
+wait until `handoff/task_fix_stale_politics_pipeline.md` lands anyway,
+since they'd otherwise be drawn from the same stale r/politics sample.
 
 ## Why
 

@@ -38,7 +38,16 @@ you need to understand *why*, not just *what*.
 6. **Report back and stop at task boundaries.** Don't chain into the next
    task or touch the core regression (`src/rerun_refined_regressions_v2.py`)
    based on your own judgment that a prior task's results look good
-   enough — that decision belongs to Nash/Claude, not Antigravity.
+   enough — that decision belongs to Nash/Claude, not Antigravity. **This
+   explicitly covers finding an expected input file missing.** If a file
+   a script needs isn't where you expect (e.g. it was deliberately moved
+   aside by a prior task that's mid-flight), stop and report the blocker
+   — do not restore an old backup or otherwise route around it to keep
+   going. Confirmed 2026-07-20: a session did exactly this (silently
+   copied a `_pre_expansion` backup back over the live path when the
+   real file was missing), which caused three later, otherwise-correct
+   scripts to silently run on stale data with no error and no visible
+   sign anything was wrong — see `handoff/task_fix_stale_politics_pipeline.md`.
 7. **Never use `git push --force`, never amend a commit that isn't the
    one you just made, never delete a branch.**
 
@@ -143,6 +152,34 @@ you need to understand *why*, not just *what*.
   — superseded by the above. Full history and one open loose end
   (possible Logit-vs-OLS Bonferroni-labeling inconsistency in the
   script, not yet checked) in `handoff/task_trump_vs_classical_topic_split.md`.
+- **r/politics data pipeline: silently stale, needs redo (found
+  2026-07-20).** The sample-expansion crawl never finished (6 of 20
+  months got zero or badly-short results), and a later session found the
+  scored parquet missing (correctly moved aside mid-expansion) and
+  silently restored the old `_pre_expansion` backup instead of stopping
+  — confirmed via matching md5s. Three downstream scripts
+  (`rerun_refined_regressions_v2.py`, `run_link_source_tier_regressions.py`,
+  `run_core_comparison_robustness.py`) all inherited the stale N=30,881
+  r/politics sample with no error or visible sign anything was wrong;
+  their r/conspiracy-side numbers are unaffected and fine. Also found and
+  fixed in passing: a dict-key bug in `run_core_comparison_robustness.py`
+  that made `politics_overlap_excluded_comparison.csv` show identical
+  values in every row (silently fixed, needs rerunning), a `../`
+  path-prefix regression in `src/hitl_rater.py` that broke the documented
+  invocation (fixed, verified via smoke test — the `maverick_stance` and
+  `consensus_stance` queues both load correctly now), and a separate
+  session's "audit" that "corrected" the author-overlap figure from
+  2,387 to 249 authors — that correction is itself wrong (traced to a
+  recency-window artifact in how `author_subreddit_footprints_async.csv`
+  was crawled; the original 2,387 figure is the methodologically sound
+  one). Full detail and fix plan: `handoff/task_fix_stale_politics_pipeline.md`.
+  One genuinely new, unaffected finding survives from this batch of work:
+  `data/processed/refined_regression_results_v2_clustered.csv`'s
+  r/conspiracy-side numbers show the `ps_prob` (procedural skepticism)
+  finding drops from p<0.001 (naive) to **p=0.053 (clustered by author)**
+  — right at the edge of significance once a handful of prolific
+  authors' influence is accounted for. Worth a close read before citing
+  `ps_prob` as settled.
 - **Master notebook (`ConspiracyMaster_Refactored.ipynb`) is frozen
   before essentially all of the above** — no r/politics control, no
   corrected consensus list, no stance resolution, no topic/era
@@ -157,7 +194,8 @@ you need to understand *why*, not just *what*.
 
 | File | What it is |
 |---|---|
-| `handoff/task_expand_politics_control_sample.md` | Raise the r/politics control sample from N=30,881 to ~140,000 (same 20 stratified months, deeper per month) so the sparse `has_consensus_expert` coefficient (41 positive cases currently) is actually well-powered. ~3hr unattended crawl, do before the robustness task below. |
+| `handoff/task_fix_stale_politics_pipeline.md` | **Do this first, before anything else r/politics-related.** The expansion crawl never finished and a later session silently restored stale data instead of reporting the blocker — three scripts' r/politics-side output is currently stale with no visible sign of it. Fix plan + what's still trustworthy (r/conspiracy-side numbers, the interaction-test code, the clustered-SE finding) inside. |
+| `handoff/task_expand_politics_control_sample.md` | Raise the r/politics control sample from N=30,881 to ~140,000 (same 20 stratified months, deeper per month) so the sparse `has_consensus_expert` coefficient (41 positive cases currently) is actually well-powered. Superseded in practice by `task_fix_stale_politics_pipeline.md` (same underlying crawl, that task now owns finishing it) — kept for the original design rationale. |
 | `handoff/task_stance_queues_expansion.md` | Build (don't rate) two more blinded HITL stance queues: maverick mentions in r/conspiracy, and both maverick + consensus mentions in r/politics. Mechanical, mirrors the completed consensus-stance queue exactly. |
 | `handoff/task_core_comparison_robustness.md` | Harden the r/conspiracy-vs-r/politics comparison: (A) a formal pooled interaction test instead of eyeballing two separate models, (B) rerun r/politics excluding the 2,387 authors who are also established r/conspiracy commenters. Both mechanical reruns — do after the expansion task above. |
 | `handoff/task_clustered_standard_errors.md` | Refit the core/integrated/topic regressions with standard errors clustered by thread and by author — nothing in the pipeline does this yet, and it may change which coefficients count as significant. Mechanical (`statsmodels` supports it natively). |
