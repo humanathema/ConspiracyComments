@@ -1,17 +1,40 @@
 # Task: Build (don't rate) two more stance-detection queues
 
-**Status: 1 of 3 queues done (2026-07-20).**
-`data/hitl/queue_maverick_stance.csv` exists (240 rows, 0 rated — real,
-not started by Nash yet) and is correctly registered in
-`src/hitl_rater.py` — verified via a live smoke test that it loads
-correctly. Note: a separate, unrelated change to `hitl_rater.py` in the
-same session added `../` prefixes to every queue path, which broke the
-documented invocation (`python3.12 src/hitl_rater.py` from the repo
-root); this has been reverted, don't reintroduce it. The two r/politics
-queues (`queue_consensus_stance_politics.csv`,
-`queue_maverick_stance_politics.csv`) were not attempted — and should
-wait until `handoff/task_fix_stale_politics_pipeline.md` lands anyway,
-since they'd otherwise be drawn from the same stale r/politics sample.
+**Status: DONE — all 3 queues built AND rated by Nash (confirmed 2026-07-20).**
+`data/hitl/queue_maverick_stance.csv` (240/240 rated),
+`data/hitl/queue_consensus_stance_politics.csv` (124/124 rated), and
+`data/hitl/queue_maverick_stance_politics.csv` (240/240 rated) are all
+complete. Build scripts for the two r/politics queues exist at
+`src/build_consensus_stance_queue_politics.py` and
+`src/build_maverick_stance_queue_politics.py` (uncommitted as of
+2026-07-20 — mirror `src/build_consensus_stance_queue.py` as intended).
+All three are registered in `src/hitl_rater.py`. Note: a separate,
+unrelated change to `hitl_rater.py` earlier in the session added `../`
+prefixes to every queue path, which broke the documented invocation
+(`python3.12 src/hitl_rater.py` from the repo root); this has been
+reverted, don't reintroduce it. The r/politics queues were built against
+the now-fixed, expanded r/politics sample (see
+`handoff/task_fix_stale_politics_pipeline.md` — crawl completed same
+day), not the stale N=30,881 one.
+
+**Found during rating, not yet fixed — flagged by Nash 2026-07-20:**
+at least two bare-form entries in the entity lists are producing noise
+in the rated queues: `"Brand"` (bare surname alias for Russell Brand,
+`src/maverick_authority_verified.py:537`) appears to be matching as
+common-noun/other noise ("brand new", "name brand", etc. — full noise),
+and `"Hawking"` (bare surname alias for Stephen Hawking,
+`src/consensus_experts_verified.py:134`) is partially colliding with the
+verb "hawking" (e.g. "hawking a book/product" — partial noise). Nash is
+examining the extent of this and may fix the alias lists and rerun the
+affected queues. Until resolved, treat `has_maverick`/
+`has_consensus_expert` positive-case counts drawn from these bare forms
+as having some unknown amount of false-positive contamination — this is
+the same bare-form-collision risk `handoff/task_maverick_entity_disambiguation.md`
+already flagged in general, now with two concrete confirmed instances.
+Anyone touching either alias list should check for other common-noun/
+common-verb collisions among the other bare surnames in both
+`UNAMBIGUOUS_MAVERICK_ALIASES` and the consensus-expert bare-form list
+before trusting counts built from them.
 
 ## Why
 

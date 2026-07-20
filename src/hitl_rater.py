@@ -59,6 +59,8 @@ QUEUES = {
     "maverick_authority": _abs("data/hitl/queue_maverick_authority.csv"),
     "consensus_stance": _abs("data/hitl/queue_consensus_stance.csv"),
     "maverick_stance": _abs("data/hitl/queue_maverick_stance.csv"),
+    "consensus_stance_politics": _abs("data/hitl/queue_consensus_stance_politics.csv"),
+    "maverick_stance_politics": _abs("data/hitl/queue_maverick_stance_politics.csv"),
 }
 
 EMPATH_PATH = _abs("data/processed/empath_scores_full.parquet")
@@ -151,10 +153,11 @@ function renderLabelButtons(selected) {
   const l = document.getElementById('labels');
   l.innerHTML = '';
   let opts = [];
-  if (current === 'consensus_stance' || current === 'maverick_stance') {
+  if (current === 'consensus_stance' || current === 'maverick_stance' || current === 'consensus_stance_politics' || current === 'maverick_stance_politics') {
     opts = [
       ['endorsement', 'kp', '1'], ['hostile', 'kn', '2'],
-      ['neutral', '', '3'], ['ambiguous', '', '4']
+      ['neutral', '', '3'], ['ambiguous', '', '4'],
+      ['wrong_match', 'kn', '5']
     ];
   } else {
     opts = [
@@ -301,8 +304,8 @@ document.addEventListener('keydown', (e) => {
   if (e.metaKey || e.ctrlKey || e.altKey) return;
 
   let map = {};
-  if (current === 'consensus_stance' || current === 'maverick_stance') {
-    map = {'1': 'endorsement', '2': 'hostile', '3': 'neutral', '4': 'ambiguous'};
+  if (current === 'consensus_stance' || current === 'maverick_stance' || current === 'consensus_stance_politics' || current === 'maverick_stance_politics') {
+    map = {'1': 'endorsement', '2': 'hostile', '3': 'neutral', '4': 'ambiguous', '5': 'wrong_match'};
   } else {
     map = {'1': 'positive', '2': 'lean_positive', '3': 'negative', '4': 'unsure'};
   }

@@ -83,6 +83,16 @@ def main():
     # Filter to rated items
     rated = merged[merged['human_stance'].notna() & (merged['human_stance'].str.strip() != "")].copy()
 
+    # wrong_match rows are cases where the entity regex misidentified the
+    # match (e.g. bare "Brand"/"Hawking" matching the common word, not the
+    # person) -- these aren't a real stance instance at all and would
+    # otherwise inflate/distort the stance x traction contingency table
+    # with rows that have nothing to do with the construct being tested.
+    n_wrong = (rated['human_stance'] == 'wrong_match').sum()
+    if n_wrong:
+        print(f"Excluding {n_wrong} row(s) rated 'wrong_match' (entity misidentified, not a real stance instance).")
+        rated = rated[rated['human_stance'] != 'wrong_match'].copy()
+
     # Raw counts contingency table
     print("\n=== Contingency Table: Stance x Stratum (Raw Counts) ===")
     ct_counts = pd.crosstab(rated['human_stance'], rated['stratum'], margins=True)
