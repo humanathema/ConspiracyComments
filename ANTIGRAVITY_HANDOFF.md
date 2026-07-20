@@ -9,6 +9,35 @@ including corrections-to-corrections) lives in `handoff/ARCHIVE_full_session_his
 and in `git log`. You don't need it to execute a task — only read it if
 you need to understand *why*, not just *what*.
 
+**Update 2026-07-20, later same day: both of the sessions mentioned below
+are now substantially done, uncommitted.** The r/politics crawl finished
+(140,824 rows, all 20 months), rescoring and both `rerun_refined_regressions_v2.py`
+and `run_link_source_tier_regressions.py` reran against it — only
+`run_core_comparison_robustness.py` still needs a rerun (code's fixed,
+output's stale). The maverick Stage B/C extension was built and run
+(9 new clusters, classified output exists, wired into
+`combined_maverick_detector.py`). All 3 new HITL stance queues
+(`queue_maverick_stance.csv`, `queue_consensus_stance_politics.csv`,
+`queue_maverick_stance_politics.csv`) are built AND rated by Nash. See
+`handoff/task_fix_stale_politics_pipeline.md`,
+`handoff/task_maverick_entity_disambiguation.md`, and
+`handoff/task_stance_queues_expansion.md` for current detail — their
+status headers were stale until this update, don't trust status text
+elsewhere (e.g. exported summaries) that predates it. **Two bare-form
+entity aliases (`"Brand"`, `"Hawking"`) were found producing noise
+during queue rating** — Nash is examining/fixing, may rerun affected
+queues; see `task_stance_queues_expansion.md` for detail. None of the
+above is committed yet.
+
+Original note, kept for context: two sessions were in flight (2026-07-20,
+~2:30pm), both touching `rerun_refined_regressions_v2.py`,
+`run_link_source_tier_regressions.py`, `run_core_comparison_robustness.py`,
+and `combined_maverick_detector.py` — the concurrent-write risk that
+motivated checking `ps aux` before launching either task no longer
+applies now that both have landed, but if you're the one running
+`run_core_comparison_robustness.py` to close out the remaining step,
+still check nothing else is writing to its outputs first.
+
 ## Guardrails — apply to every task, no exceptions
 
 1. **No paid LLM/API calls without explicit sign-off.** A $100 unplanned
@@ -76,21 +105,37 @@ you need to understand *why*, not just *what*.
   `run_pure_population_analysis.py` (added 2026-07-18) and are now
   redundant-but-harmless against the clean files; `run_integrated_regressions.py`
   never had the guard and has been rerun against the clean corpus.
-- **`has_maverick` construct validity: broken, not yet fixed (found
-  2026-07-20).** The `maverick_authority` entity list
-  (`entity_final_review.csv`, 418 entities, feeding every
-  `has_maverick` regex in the project via `load_entities_split_corrected()`)
-  never got the `consensus_expert`-style hand-verified cleanup —
-  it mixes real people with generic conspiracy-topic vocabulary
-  ("New World Order", "Deep State", "Flat Earth", "Blue Beam",
-  "Conspiracy Theory"/"Theorist", "Bilderberg", organizations). Quantified:
-  of 36,116 `has_maverick`-matching comments in the pure population,
-  **9,080 (25.1%) match only a topic term, no person name at all**. This
-  affects every `has_maverick` coefficient below and throughout the
-  project — treat all of them as provisional until
-  `handoff/task_maverick_authority_list_cleanup.md` lands. Candidate
-  review file already generated:
-  `data/processed/candidate_maverick_authority_review.csv`.
+- **`has_maverick` construct validity: contamination FIXED (2026-07-20),
+  recall problem found and NOT yet fixed (same day).** The old
+  `maverick_authority` raw bucket (418 entities, ~25.1% of corpus matches
+  were topic-noise like "New World Order"/"Deep State"/"Conspiracy
+  Theory", no person or organization) has been replaced by
+  `src/maverick_authority_verified.py` — Nash hand-reviewed the full
+  446-entity `maverick_candidate_entities_scored.csv` directly (scoring
+  criterion: organizations count too, e.g. AE911Truth; platform-driven
+  commentators count too, e.g. Alex Jones/Rogan/Tucker Carlson,
+  deliberately not disentangling opinion/research for now), wired into
+  `load_entities_split_corrected()` (canonical definition + 5 importing
+  scripts + a duplicate copy that got consolidated) and into
+  `combined_maverick_detector.py` (the attribution-scorer's own,
+  independently-contaminated entity source). Effect confirmed: the
+  qualifying `has_maverick==1` population dropped from 36,116 to 21,041
+  comments when the maverick-stance HITL queue was regenerated with the
+  clean list.
+  **But this surfaced a bigger, opposite-direction problem**: the
+  verified list is almost all full names ("Edward Snowden"), and ~99%
+  of multi-word entries (442/443) have no bare-surname/nickname/partial
+  form ("Snowden") — confirmed to be undercounting real citations
+  severely (86 of 90 human-labeled positive attribution examples in the
+  validation queue had *zero* entity match at all). Fixing this isn't a
+  simple list edit — it needs the same per-instance disambiguation
+  machinery already built for the mainstream-expert side (Stage B/C,
+  see `handoff/task_maverick_entity_disambiguation.md`) extended to the
+  maverick domain, since some bare forms are genuinely ambiguous (a
+  shared first name across two different real people, e.g. the existing
+  `hunter` cluster) and can't just be added to the regex unconditionally.
+  Every `has_maverick` coefficient below should be read as "contamination
+  fixed, still an undercount" until that lands.
 - **Current core regression numbers** (`src/rerun_refined_regressions_v2.py`,
   re-verified 2026-07-20 against the fully deduped corpus, pure
   r/conspiracy population N=1,968,864 — down from the old, duplicate-
@@ -210,10 +255,11 @@ you need to understand *why*, not just *what*.
 
 | File | What it is |
 |---|---|
-| `handoff/task_maverick_authority_list_cleanup.md` | **Highest priority — construct validity on a headline variable.** The `has_maverick` entity list mixes real people with conspiracy-topic vocabulary; 25.1% of matches are topic-only, no person mentioned. Affects every `has_maverick` coefficient project-wide. Candidate review file already generated, needs the actual review (judgment call, guardrail 3). |
-| `handoff/task_fix_stale_politics_pipeline.md` | **Do this first, before anything else r/politics-related.** The expansion crawl never finished and a later session silently restored stale data instead of reporting the blocker — three scripts' r/politics-side output is currently stale with no visible sign of it. Fix plan + what's still trustworthy (r/conspiracy-side numbers, the interaction-test code, the clustered-SE finding) inside. |
-| `handoff/task_expand_politics_control_sample.md` | Raise the r/politics control sample from N=30,881 to ~140,000 (same 20 stratified months, deeper per month) so the sparse `has_consensus_expert` coefficient (41 positive cases currently) is actually well-powered. Superseded in practice by `task_fix_stale_politics_pipeline.md` (same underlying crawl, that task now owns finishing it) — kept for the original design rationale. |
-| `handoff/task_stance_queues_expansion.md` | Build (don't rate) two more blinded HITL stance queues: maverick mentions in r/conspiracy, and both maverick + consensus mentions in r/politics. Mechanical, mirrors the completed consensus-stance queue exactly. |
+| `handoff/task_maverick_entity_disambiguation.md` | **Nearly done, uncommitted (2026-07-20).** Stage B/C generalized with `--maverick` mode, 9 new ambiguous clusters defined, pipeline run, wired into `combined_maverick_detector.py`. Remaining: confirm the before/after regression + scorer-recall report was produced, and check the newly-found `"Brand"`/`"Hawking"` bare-form noise doesn't affect the same alias mechanism. |
+| `handoff/task_maverick_authority_list_cleanup.md` | **Done** (2026-07-20) — see current-state section above. |
+| `handoff/task_fix_stale_politics_pipeline.md` | **Nearly done, uncommitted (2026-07-20).** Crawl finished (140,824 rows, all 20 months), rescored, core + link-source-tier regressions rerun. Only `run_core_comparison_robustness.py` still needs rerunning (bug already fixed in code, output just stale). |
+| `handoff/task_expand_politics_control_sample.md` | Raise the r/politics control sample from N=30,881 to ~140,000 (same 20 stratified months, deeper per month) so the sparse `has_consensus_expert` coefficient (41 positive cases currently) is actually well-powered. Superseded by `task_fix_stale_politics_pipeline.md`, which has now finished this crawl — kept for the original design rationale. |
+| `handoff/task_stance_queues_expansion.md` | **Done** (2026-07-20) — all 3 queues (maverick/r-conspiracy, consensus/r-politics, maverick/r-politics) built and rated by Nash. Two bare-form entity noise issues found during rating (`"Brand"`, `"Hawking"`), under investigation, may prompt a requeue. |
 | `handoff/task_core_comparison_robustness.md` | Harden the r/conspiracy-vs-r/politics comparison: (A) a formal pooled interaction test instead of eyeballing two separate models, (B) rerun r/politics excluding the 2,387 authors who are also established r/conspiracy commenters. Both mechanical reruns — do after the expansion task above. |
 | `handoff/task_clustered_standard_errors.md` | Refit the core/integrated/topic regressions with standard errors clustered by thread and by author — nothing in the pipeline does this yet, and it may change which coefficients count as significant. Mechanical (`statsmodels` supports it natively). |
 | `handoff/task_source_authority_regression_wiring.md` | Wire the already-built `source_authority_scores.csv` (526 entities, MBFC + SJR) into a `link_source_tier` variable, replacing flat `has_link`. Mechanical. |
