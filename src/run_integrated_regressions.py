@@ -16,6 +16,11 @@ import statsmodels.api as sm
 import statsmodels.formula.api as smf
 
 STAGED_PATH = "data/processed/research_corpus_staged_scores_full21m.parquet"
+# hedged_suspicion (hs_prob) was validated (kappa=0.872) but never scaled to the
+# full corpus alongside pe_prob/ps_prob -- see src/score_hedged_suspicion_full.py.
+# Kept as a separate parquet + LEFT JOIN rather than merged into STAGED_PATH so
+# the already-computed pe/ps output stays untouched.
+HEDGED_SUSPICION_PATH = "data/processed/hedged_suspicion_scores_full21m.parquet"
 EMPATH_PATH = "data/processed/empath_scores_full.parquet"
 INSIDER_PATH = "data/processed/author_insider_metrics.csv"
 THREAD_PATH = "data/processed/thread_quality_metrics.csv"
@@ -77,6 +82,7 @@ def load_integrated_dataset(pattern_str):
             s.id,
             s.pe_prob,
             s.ps_prob,
+            h.hs_prob,
             e.upvotes,
             e.controversiality,
             CAST(e.has_link AS INTEGER) as has_link,
@@ -84,9 +90,12 @@ def load_integrated_dataset(pattern_str):
             a.insider_score,
             t.elasticity_ratio,
             t.is_crossposted,
-            t.is_high_crosspost
+            t.is_high_crosspost,
+            e.author,
+            SUBSTR(e.link_id, 4) as post_id
         FROM '{STAGED_PATH}' s
         JOIN '{EMPATH_PATH}' e ON s.id = e.id
+        LEFT JOIN '{HEDGED_SUSPICION_PATH}' h ON s.id = h.id
         JOIN '{THREAD_PATH}' t ON SUBSTR(e.link_id, 4) = t.post_id
         LEFT JOIN '{INSIDER_PATH}' a ON e.author = a.author
         LEFT JOIN '{BRIGADE_PATH}' b ON s.id = b.comment_id
@@ -102,15 +111,25 @@ def load_integrated_dataset(pattern_str):
     return df
 
 
-def run_single_regression(df, formula, model_type):
+def run_single_regression(df, formula, model_type, cov_type='nonrobust', group_col=None):
     """Fits a single regression model and returns stats."""
     n_obs = len(df)
     if n_obs < 30: # Need sufficient observations to run
         return None
         
     try:
+        if cov_type == 'cluster' and group_col:
+            df_fit = df.dropna(subset=[group_col])
+            groups = df_fit[group_col].astype(str)
+        else:
+            df_fit = df
+            groups = None
+
         if model_type == "OLS":
-            model = smf.ols(formula, data=df).fit()
+            if cov_type == 'cluster' and groups is not None:
+                model = smf.ols(formula, data=df_fit).fit(cov_type='cluster', cov_kwds={'groups': groups})
+            else:
+                model = smf.ols(formula, data=df_fit).fit()
             params = model.params
             bse = model.bse
             pvalues = model.pvalues
@@ -120,7 +139,10 @@ def run_single_regression(df, formula, model_type):
             return params, bse, pvalues, tvalues, r2, f_p
         elif model_type == "Logit":
             # Set disp=0 to suppress convergence messages
-            model = smf.logit(formula, data=df).fit(disp=0, maxiter=100)
+            if cov_type == 'cluster' and groups is not None:
+                model = smf.logit(formula, data=df_fit).fit(cov_type='cluster', cov_kwds={'groups': groups}, disp=0, maxiter=100)
+            else:
+                model = smf.logit(formula, data=df_fit).fit(disp=0, maxiter=100)
             params = model.params
             bse = model.bse
             pvalues = model.pvalues
@@ -159,11 +181,11 @@ def main():
     # Define design factors
     elasticity_strata = ['Unfiltered', 'Low', 'Medium', 'High']
     insider_thresholds = [None, -0.5, 0.0, 0.5, 1.0, 1.5]
-    constructs = ['pe_prob', 'ps_prob', 'has_link', 'has_maverick']
-    
-    formula_ols = "log_upvotes ~ pe_prob + ps_prob + has_link + has_maverick"
-    formula_contro = "controversiality ~ pe_prob + ps_prob + has_link + has_maverick"
-    formula_traction = "high_traction ~ pe_prob + ps_prob + has_link + has_maverick"
+    constructs = ['pe_prob', 'ps_prob', 'hs_prob', 'has_link', 'has_maverick']
+
+    formula_ols = "log_upvotes ~ pe_prob + ps_prob + hs_prob + has_link + has_maverick"
+    formula_contro = "controversiality ~ pe_prob + ps_prob + hs_prob + has_link + has_maverick"
+    formula_traction = "high_traction ~ pe_prob + ps_prob + hs_prob + has_link + has_maverick"
     
     models_config = [
         ("OLS_log_upvotes", formula_ols, "OLS"),
@@ -172,6 +194,7 @@ def main():
     ]
     
     results_records = []
+    clustered_results_records = []
     
     print("\nRunning regressions across parameter grids...")
     start_fits = time.time()
@@ -196,10 +219,10 @@ def main():
             n_obs = len(df_subset)
             
             for model_name, formula, m_type in models_config:
-                fit_count += 1
-                fit_res = run_single_regression(df_subset, formula, m_type)
+                # 1. Fit Naive model (original behavior to preserve EXACT schema/results of the naive runs)
+                fit_res_naive = run_single_regression(df_subset, formula, m_type)
                 
-                record = {
+                record_naive = {
                     "elasticity_strata": strata,
                     "insider_threshold": threshold_label,
                     "model_name": model_name,
@@ -207,35 +230,74 @@ def main():
                     "r2_or_pseudo_r2": np.nan,
                     "model_sig_pvalue": np.nan
                 }
-                
-                # Initialize constructs with NaN
                 for c in constructs:
-                    record[f"{c}_coef"] = np.nan
-                    record[f"{c}_se"] = np.nan
-                    record[f"{c}_pvalue"] = np.nan
-                    record[f"{c}_tstat"] = np.nan
+                    record_naive[f"{c}_coef"] = np.nan
+                    record_naive[f"{c}_se"] = np.nan
+                    record_naive[f"{c}_pvalue"] = np.nan
+                    record_naive[f"{c}_tstat"] = np.nan
                     
-                if fit_res is not None:
-                    params, bse, pvalues, tvalues, r2, f_p = fit_res
-                    record["r2_or_pseudo_r2"] = r2
-                    record["model_sig_pvalue"] = f_p
-                    
+                if fit_res_naive is not None:
+                    params, bse, pvalues, tvalues, r2, f_p = fit_res_naive
+                    record_naive["r2_or_pseudo_r2"] = r2
+                    record_naive["model_sig_pvalue"] = f_p
                     for c in constructs:
                         if c in params:
-                            record[f"{c}_coef"] = params[c]
-                            record[f"{c}_se"] = bse[c]
-                            record[f"{c}_pvalue"] = pvalues[c]
-                            record[f"{c}_tstat"] = tvalues[c]
+                            record_naive[f"{c}_coef"] = params[c]
+                            record_naive[f"{c}_se"] = bse[c]
+                            record_naive[f"{c}_pvalue"] = pvalues[c]
+                            record_naive[f"{c}_tstat"] = tvalues[c]
                             
-                results_records.append(record)
+                results_records.append(record_naive)
+
+                # 2. Fit comparative models (Naive, Thread-clustered, and Author-clustered) for side-by-side clustered output
+                cov_types = [
+                    ("naive", 'nonrobust', None),
+                    ("thread", 'cluster', 'post_id'),
+                    ("author", 'cluster', 'author')
+                ]
+                for cov_name, cov_type, group_col in cov_types:
+                    fit_count += 1
+                    fit_res = run_single_regression(df_subset, formula, m_type, cov_type=cov_type, group_col=group_col)
+                    
+                    record_clust = {
+                        "elasticity_strata": strata,
+                        "insider_threshold": threshold_label,
+                        "model_name": model_name,
+                        "cov_type": cov_name,
+                        "n_obs": n_obs,
+                        "r2_or_pseudo_r2": np.nan,
+                        "model_sig_pvalue": np.nan
+                    }
+                    for c in constructs:
+                        record_clust[f"{c}_coef"] = np.nan
+                        record_clust[f"{c}_se"] = np.nan
+                        record_clust[f"{c}_pvalue"] = np.nan
+                        record_clust[f"{c}_tstat"] = np.nan
+                        
+                    if fit_res is not None:
+                        params, bse, pvalues, tvalues, r2, f_p = fit_res
+                        record_clust["r2_or_pseudo_r2"] = r2
+                        record_clust["model_sig_pvalue"] = f_p
+                        for c in constructs:
+                            if c in params:
+                                record_clust[f"{c}_coef"] = params[c]
+                                record_clust[f"{c}_se"] = bse[c]
+                                record_clust[f"{c}_pvalue"] = pvalues[c]
+                                record_clust[f"{c}_tstat"] = tvalues[c]
+                                
+                    clustered_results_records.append(record_clust)
                 
     elapsed_fits = time.time() - start_fits
     print(f"Finished {fit_count} regression fits in {elapsed_fits:.2f} seconds.")
     
-    # 5. Save results to CSV
+    # 5. Save results to CSVs
     df_results = pd.DataFrame(results_records)
     df_results.to_csv(OUT_PATH, index=False)
     print(f"Saved complete synthesis regression results table to {OUT_PATH}")
+
+    OUT_CLUSTERED_PATH = "data/processed/synthesis_regression_results_filtered_clustered.csv"
+    pd.DataFrame(clustered_results_records).to_csv(OUT_CLUSTERED_PATH, index=False)
+    print(f"Saved comparative clustered regression results table to {OUT_CLUSTERED_PATH}")
     
     # 6. Output Gorgeous Summary Trajectories
     pd.set_option('display.float_format', lambda x: '%.4f' % x)
@@ -328,8 +390,9 @@ def run_interaction_regressions(df):
     # Medium as reference so both Low and High show as explicit contrasts
     df['elasticity_bin'] = pd.Categorical(df['elasticity_bin'], categories=['Medium', 'Low', 'High'])
 
-    formula = ("log_upvotes ~ (pe_prob + ps_prob + has_link + has_maverick) * C(elasticity_bin)")
+    formula = ("log_upvotes ~ (pe_prob + ps_prob + hs_prob + has_link + has_maverick) * C(elasticity_bin)")
 
+    # 1. Original Naive Interaction Run
     interaction_records = []
     try:
         model = smf.ols(formula, data=df).fit()
@@ -345,17 +408,62 @@ def run_interaction_regressions(df):
                 "r2": model.rsquared,
             })
     except Exception as e:
-        print(f"Interaction model failed: {e}")
+        print(f"Naive Interaction model failed: {e}")
 
     if interaction_records:
         pd.DataFrame(interaction_records).to_csv(INTERACTION_OUT_PATH, index=False)
-        print(f"\nSaved interaction-term results to {INTERACTION_OUT_PATH}")
+        print(f"\nSaved naive interaction-term results to {INTERACTION_OUT_PATH}")
 
         print("\n--- Interaction terms specifically (the actual 'does it differ by stratum' test) ---")
         for r in interaction_records:
             if ":" in r["term"]:
                 sig = "*" if r["pvalue"] < 0.05 else " "
                 print(f"  {r['term']:55s} coef={r['coef']:+.4f}{sig} p={r['pvalue']:.2e}")
+
+    # 2. Clustered Interaction Runs
+    clustered_interaction_records = []
+    cov_types = [
+        ("naive", 'nonrobust', None),
+        ("thread", 'cluster', 'post_id'),
+        ("author", 'cluster', 'author')
+    ]
+    for cov_name, cov_type, group_col in cov_types:
+        print(f"\nRunning Interaction OLS with covariance clustered by {cov_name}...")
+        try:
+            if cov_type == 'cluster' and group_col:
+                df_fit = df.dropna(subset=[group_col])
+                groups = df_fit[group_col].astype(str)
+                model_clust = smf.ols(formula, data=df_fit).fit(cov_type='cluster', cov_kwds={'groups': groups})
+            else:
+                df_fit = df
+                model_clust = smf.ols(formula, data=df_fit).fit()
+                
+            for term, coef in model_clust.params.items():
+                clustered_interaction_records.append({
+                    "term": term,
+                    "cov_type": cov_name,
+                    "coef": coef,
+                    "se": model_clust.bse[term],
+                    "pvalue": model_clust.pvalues[term],
+                    "tstat": model_clust.tvalues[term],
+                    "n_obs": int(model_clust.nobs),
+                    "r2": model_clust.rsquared,
+                })
+        except Exception as e:
+            print(f"Clustered Interaction model ({cov_name}) failed: {e}")
+
+    if clustered_interaction_records:
+        INTERACTION_OUT_CLUSTERED_PATH = "data/processed/synthesis_interaction_results_clustered.csv"
+        pd.DataFrame(clustered_interaction_records).to_csv(INTERACTION_OUT_CLUSTERED_PATH, index=False)
+        print(f"Saved comparative clustered interaction-term results to {INTERACTION_OUT_CLUSTERED_PATH}")
+
+        print("\n--- Interaction terms specifically (clustered comparisons) ---")
+        for cov_name in ["naive", "thread", "author"]:
+            print(f"\nCovariance type: {cov_name}")
+            for r in clustered_interaction_records:
+                if r["cov_type"] == cov_name and ":" in r["term"]:
+                    sig = "*" if r["pvalue"] < 0.05 else " "
+                    print(f"  {r['term']:55s} coef={r['coef']:+.4f}{sig} p={r['pvalue']:.2e}")
 
 
 if __name__ == "__main__":

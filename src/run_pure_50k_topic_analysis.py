@@ -100,7 +100,7 @@ def load_and_sample_dataset():
     con.register('sample_ids_tmp', df_sample_ids)
     
     full_query = f"""
-        SELECT s.id, e.author, e.created_utc, e.upvotes, e.char_length, s.pe_prob, s.ps_prob, e.has_link, e.text
+        SELECT s.id, e.author, e.created_utc, e.upvotes, e.char_length, s.pe_prob, s.ps_prob, e.has_link, e.text, SUBSTR(e.link_id, 4) as post_id
         FROM sample_ids_tmp t_ids
         JOIN '{STAGED_PATH}' s ON t_ids.id = s.id
         JOIN '{EMPATH_PATH}' e ON s.id = e.id
@@ -170,7 +170,7 @@ def run_topic_inference(df):
     return df
 
 
-def run_robust_regression(formula, df_sub, name_label):
+def run_robust_regression(formula, df_sub, name_label, cov_type='nonrobust', group_col=None):
     """Helper to fit OLS and Logit models while checking for sparsity issues."""
     res_dict_list = []
     
@@ -183,14 +183,26 @@ def run_robust_regression(formula, df_sub, name_label):
         use_formula = formula.replace(" + has_consensus_expert", "")
         dropped_consensus = True
         
+    if cov_type == 'cluster' and group_col:
+        df_fit = df_sub.dropna(subset=[group_col])
+        groups = df_fit[group_col].astype(str)
+    else:
+        df_fit = df_sub
+        groups = None
+
     # 1. Logit Model (High Traction)
     try:
-        m_logit = smf.logit(use_formula, data=df_sub).fit(disp=0, maxiter=100)
+        if cov_type == 'cluster' and groups is not None:
+            m_logit = smf.logit(use_formula, data=df_fit).fit(cov_type='cluster', cov_kwds={'groups': groups}, disp=0, maxiter=100)
+        else:
+            m_logit = smf.logit(use_formula, data=df_fit).fit(disp=0, maxiter=100)
+            
         for var in ["pe_prob", "ps_prob", "has_link", "has_maverick", "has_canonical_expert", "has_consensus_expert", "log_char_length"]:
             if var in m_logit.params:
                 res_dict_list.append({
                     "stratum": name_label,
                     "model_type": "Logit (High Traction)",
+                    "cov_type": cov_type if cov_type != 'nonrobust' else 'naive',
                     "variable": var,
                     "coef": m_logit.params[var],
                     "se": m_logit.bse[var],
@@ -201,23 +213,29 @@ def run_robust_regression(formula, df_sub, name_label):
             res_dict_list.append({
                 "stratum": name_label,
                 "model_type": "Logit (High Traction)",
+                "cov_type": cov_type if cov_type != 'nonrobust' else 'naive',
                 "variable": "has_consensus_expert",
                 "coef": np.nan, "se": np.nan, "pvalue": np.nan,
-                "n_obs": len(df_sub),
+                "n_obs": len(df_fit),
                 "note": "Dropped due to sparsity (<15 cases)"
             })
     except Exception as e:
-        print(f"  Logit failed for {name_label}: {e}")
+        print(f"  Logit ({cov_type}) failed for {name_label}: {e}")
         
     # 2. OLS Model (Log Upvotes)
     try:
         ols_formula = use_formula.replace("high_traction", "log_upvotes")
-        m_ols = smf.ols(ols_formula, data=df_sub).fit()
+        if cov_type == 'cluster' and groups is not None:
+            m_ols = smf.ols(ols_formula, data=df_fit).fit(cov_type='cluster', cov_kwds={'groups': groups})
+        else:
+            m_ols = smf.ols(ols_formula, data=df_fit).fit()
+            
         for var in ["pe_prob", "ps_prob", "has_link", "has_maverick", "has_canonical_expert", "has_consensus_expert", "log_char_length"]:
             if var in m_ols.params:
                 res_dict_list.append({
                     "stratum": name_label,
                     "model_type": "OLS (Log Upvotes)",
+                    "cov_type": cov_type if cov_type != 'nonrobust' else 'naive',
                     "variable": var,
                     "coef": m_ols.params[var],
                     "se": m_ols.bse[var],
@@ -228,13 +246,14 @@ def run_robust_regression(formula, df_sub, name_label):
             res_dict_list.append({
                 "stratum": name_label,
                 "model_type": "OLS (Log Upvotes)",
+                "cov_type": cov_type if cov_type != 'nonrobust' else 'naive',
                 "variable": "has_consensus_expert",
                 "coef": np.nan, "se": np.nan, "pvalue": np.nan,
-                "n_obs": len(df_sub),
+                "n_obs": len(df_fit),
                 "note": "Dropped due to sparsity (<15 cases)"
             })
     except Exception as e:
-        print(f"  OLS failed for {name_label}: {e}")
+        print(f"  OLS ({cov_type}) failed for {name_label}: {e}")
         
     return res_dict_list
 
@@ -244,7 +263,16 @@ def run_stratified_regressions(df):
     print("\n--- Phase 3: Fitting Stratified Regressions on Labeled 50k Core ---")
     
     formula = "high_traction ~ pe_prob + ps_prob + has_link + has_maverick + has_canonical_expert + has_consensus_expert + log_char_length"
-    all_results = []
+    
+    # We will accumulate original naive results and comparative clustered results separately
+    naive_results = []
+    clustered_results = []
+    
+    cov_types = [
+        ("naive", 'nonrobust', None),
+        ("thread", 'cluster', 'post_id'),
+        ("author", 'cluster', 'author')
+    ]
     
     # A. Stratify by Super-Topic
     print("Fitting models by Super-Topic...")
@@ -252,8 +280,14 @@ def run_stratified_regressions(df):
         df_sub = df[df['super_topic'] == st_name]
         print(f"  Super-Topic: {st_name:<45} | N = {len(df_sub):,}")
         if len(df_sub) >= 200:
-            res = run_robust_regression(formula, df_sub, f"Super-Topic: {st_name}")
-            all_results.extend(res)
+            # Naive (original behavior)
+            res_naive = run_robust_regression(formula, df_sub, f"Super-Topic: {st_name}")
+            naive_results.extend(res_naive)
+            
+            # Clustered sweep
+            for cov_name, cov_type, group_col in cov_types:
+                res_clust = run_robust_regression(formula, df_sub, f"Super-Topic: {st_name}", cov_type=cov_type, group_col=group_col)
+                clustered_results.extend(res_clust)
             
     # B. Stratify by Chronological Era
     print("\nFitting models by Temporal Era...")
@@ -266,13 +300,26 @@ def run_stratified_regressions(df):
         df_sub = df[mask]
         print(f"  Era: {era_name:<45} | N = {len(df_sub):,}")
         if len(df_sub) >= 200:
-            res = run_robust_regression(formula, df_sub, f"Era: {era_name}")
-            all_results.extend(res)
+            # Naive (original behavior)
+            res_naive = run_robust_regression(formula, df_sub, f"Era: {era_name}")
+            naive_results.extend(res_naive)
             
-    df_results = pd.DataFrame(all_results)
-    df_results.to_csv(OUT_REGRESSIONS_PATH, index=False)
+            # Clustered sweep
+            for cov_name, cov_type, group_col in cov_types:
+                res_clust = run_robust_regression(formula, df_sub, f"Era: {era_name}", cov_type=cov_type, group_col=group_col)
+                clustered_results.extend(res_clust)
+            
+    # Save original naive-only results
+    df_results_naive = pd.DataFrame(naive_results)
+    df_results_naive.to_csv(OUT_REGRESSIONS_PATH, index=False)
     print(f"Saved stratified coefficients to {OUT_REGRESSIONS_PATH}")
-    return df_results
+
+    # Save comparative clustered results
+    OUT_REGRESSIONS_CLUSTERED_PATH = "data/processed/topic_time_regression_results_pure_50k_clustered.csv"
+    pd.DataFrame(clustered_results).to_csv(OUT_REGRESSIONS_CLUSTERED_PATH, index=False)
+    print(f"Saved comparative clustered stratified coefficients to {OUT_REGRESSIONS_CLUSTERED_PATH}")
+
+    return df_results_naive
 
 
 def write_synthesis_report(df_results, df):
