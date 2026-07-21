@@ -131,7 +131,12 @@ VERIFIED_CONSENSUS_EXPERTS = [
 
     # Globally-recognized mainstream science establishment figures
     "Neil Degrasse Tyson",
-    "Stephen Hawking", "Steven Hawking", "Hawking",
+    # "Hawking" bare alias removed 2026-07-20 (r/politics stance-queue
+    # audit): caught the common verb "hawking" (selling) as often as the
+    # physicist. Full name still matches directly; bare "Hawking"
+    # instances now go through per-instance disambiguation instead -- see
+    # src/consensus_disambiguation_lookup.py.
+    "Stephen Hawking", "Steven Hawking",
     "Carl Sagan", "Carl Sagan's", "Sagan",  # science-communicator predecessor to Tyson, same role in public discourse
     "James Hansen",  # NASA climate scientist, mainstream climate-science establishment
     "Kevin Trenberth",  # NCAR climate scientist, mainstream climate-science establishment

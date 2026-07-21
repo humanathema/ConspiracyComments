@@ -31,7 +31,14 @@ VALID_MAVERICK_CANDIDATES = {
     "Milton William Cooper", "Cynthia Cooper",
     "Jenny McCarthy",
     "Whitney Webb", "Gary Webb",
-    "Robert W. Malone"
+    "Robert W. Malone",
+    # Added 2026-07-20: "Ventura"/"Hancock"/"Kory" moved here from the
+    # blind UNAMBIGUOUS_MAVERICK_ALIASES list -- see
+    # maverick_authority_verified.py's note on why. "Ventura (place name,
+    # not a person)"/"Matt Hancock"/"Kory (other person, surname
+    # collision)" are the other candidates in their stage_b clusters and
+    # are deliberately NOT in this set, so they resolve to has_maverick=0.
+    "Jesse Ventura", "Graham Hancock", "Pierre Kory",
 }
 
 CANDIDATE_TO_BARES = {
@@ -52,7 +59,10 @@ CANDIDATE_TO_BARES = {
     "Jenny McCarthy": ["mccarthy"],
     "Whitney Webb": ["webb"],
     "Gary Webb": ["webb"],
-    "Robert W. Malone": ["malone"]
+    "Robert W. Malone": ["malone"],
+    "Jesse Ventura": ["ventura"],
+    "Graham Hancock": ["hancock"],
+    "Pierre Kory": ["kory"],
 }
 
 def load_maverick_disambiguation_lookup():

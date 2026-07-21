@@ -532,13 +532,26 @@ VERIFIED_MAVERICK_AUTHORITY = [
     "James Ellison",
 ]
 
+# Audited 2026-07-20 (r/politics stance-queue review): "Brand" removed
+# entirely -- 57/57 hand-checked corpus instances were the common noun/
+# verb "brand", zero were Russell Brand (his full name "Russell Brand" is
+# still matched elsewhere in this list). "Ventura"/"Hancock"/"Kory" removed
+# from this *blind* list and moved to per-instance disambiguation instead
+# (stage_b_consolidated_corpus_pass.py's MAVERICK_AMBIGUOUS_CLUSTERS +
+# stage_c_classify_ambiguous.py, same mechanism already used for
+# manning/jones/adams/etc.) -- they weren't pure noise like "Brand", but
+# picked up "Ventura County" (place name) and a different real person
+# ("Matt Hancock"/"Kory Langhofer") often enough to need resolving per
+# instance rather than blindly counting every match. See
+# combined_maverick_detector.py's VALID_MAVERICK_CANDIDATES for where the
+# resolved matches get counted back in.
 UNAMBIGUOUS_MAVERICK_ALIASES = [
     "Snowden", "Assange", "Icke", "Greenwald", "Hersh", "Ellsberg", "Lazar",
-    "Taibbi", "Taibi", "Wakefield", "Mullis", "Mikovits", "Yeadon", "Brand",
-    "Ventura", "Ganser", "Tarpley", "Ruppert", "Pieczenik", "Chossudovsky",
-    "Meyssan", "Kory", "Kirsch", "Seneff", "Buttar", "Tenpenny", "Breggin",
+    "Taibbi", "Taibi", "Wakefield", "Mullis", "Mikovits", "Yeadon",
+    "Ganser", "Tarpley", "Ruppert", "Pieczenik", "Chossudovsky",
+    "Meyssan", "Kirsch", "Seneff", "Buttar", "Tenpenny", "Breggin",
     "McCullough", "Ladapo", "Sitchin", "Velikovsky", "Bauval", "Daniken",
-    "von Daniken", "Tsoukalos", "Halbig", "Hancock"
+    "von Daniken", "Tsoukalos", "Halbig"
 ]
 
 VERIFIED_MAVERICK_AUTHORITY.extend(UNAMBIGUOUS_MAVERICK_ALIASES)

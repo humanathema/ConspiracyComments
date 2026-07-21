@@ -61,6 +61,10 @@ QUEUES = {
     "maverick_stance": _abs("data/hitl/queue_maverick_stance.csv"),
     "consensus_stance_politics": _abs("data/hitl/queue_consensus_stance_politics.csv"),
     "maverick_stance_politics": _abs("data/hitl/queue_maverick_stance_politics.csv"),
+    "maverick_stance_round2": _abs("data/hitl/queue_maverick_stance_round2.csv"),
+    "maverick_stance_round3": _abs("data/hitl/queue_maverick_stance_round3.csv"),
+    "maverick_stance_round4": _abs("data/hitl/queue_maverick_stance_round4.csv"),
+    "maverick_stance_round5": _abs("data/hitl/queue_maverick_stance_round5.csv"),
 }
 
 EMPATH_PATH = _abs("data/processed/empath_scores_full.parquet")
@@ -97,6 +101,7 @@ PAGE = """<!doctype html>
 <div class="nav" id="nav"></div>
 <button id="context_btn" style="display:none">Load surrounding context (parent + sibling replies)</button>
 <div id="context"></div>
+<div id="target_entity" style="display:none; margin-bottom:8px; font-weight:bold; color:#9c6;"></div>
 <div id="text"></div>
 <div class="labels" id="labels"></div>
 <textarea id="notes" placeholder="notes (optional)" rows="2"></textarea>
@@ -153,7 +158,7 @@ function renderLabelButtons(selected) {
   const l = document.getElementById('labels');
   l.innerHTML = '';
   let opts = [];
-  if (current === 'consensus_stance' || current === 'maverick_stance' || current === 'consensus_stance_politics' || current === 'maverick_stance_politics') {
+  if (current === 'consensus_stance' || current === 'maverick_stance' || current === 'consensus_stance_politics' || current === 'maverick_stance_politics' || current === 'maverick_stance_round2' || current === 'maverick_stance_round3' || current === 'maverick_stance_round4' || current === 'maverick_stance_round5') {
     opts = [
       ['endorsement', 'kp', '1'], ['hostile', 'kn', '2'],
       ['neutral', '', '3'], ['ambiguous', '', '4'],
@@ -240,6 +245,13 @@ function showCurrent() {
   document.getElementById('labels').style.display = 'block';
   document.getElementById('done').style.display = 'none';
   document.getElementById('text').innerHTML = highlightSpans(row.full_text, row.entity_spans);
+  const targetEl = document.getElementById('target_entity');
+  if (row.target_entity) {
+    targetEl.textContent = 'This comment mentions multiple entities -- rate stance toward: ' + row.target_entity;
+    targetEl.style.display = 'block';
+  } else {
+    targetEl.style.display = 'none';
+  }
   document.getElementById('notes').value = row.notes || '';
   renderLabelButtons(row[labelCol]);
   renderNav();
@@ -304,7 +316,7 @@ document.addEventListener('keydown', (e) => {
   if (e.metaKey || e.ctrlKey || e.altKey) return;
 
   let map = {};
-  if (current === 'consensus_stance' || current === 'maverick_stance' || current === 'consensus_stance_politics' || current === 'maverick_stance_politics') {
+  if (current === 'consensus_stance' || current === 'maverick_stance' || current === 'consensus_stance_politics' || current === 'maverick_stance_politics' || current === 'maverick_stance_round2' || current === 'maverick_stance_round3' || current === 'maverick_stance_round4' || current === 'maverick_stance_round5') {
     map = {'1': 'endorsement', '2': 'hostile', '3': 'neutral', '4': 'ambiguous', '5': 'wrong_match'};
   } else {
     map = {'1': 'positive', '2': 'lean_positive', '3': 'negative', '4': 'unsure'};

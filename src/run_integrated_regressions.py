@@ -1,19 +1,52 @@
 """run_integrated_regressions.py
 
 Run OLS and Logit regressions to synthesize our constructs across the distribution
-of thread elasticity (upvotes-per-comment ratio) and varying thresholds of author 
+of thread elasticity (upvotes-per-comment ratio) and varying thresholds of author
 insider status.
 
 Saves coefficient grids to data/processed/synthesis_regression_results.csv.
+
+CORRECTED 2026-07-20 (Nash's audit -- this script had gone stale in a way
+that predates and is separate from the r/politics staleness found earlier
+the same day): `has_maverick` here was still pulling straight from the
+raw, unaudited `final_bucket_guess == 'maverick_authority'` bucket in
+entity_final_review.csv -- the exact 418-entity bucket documented in
+handoff/task_maverick_authority_list_cleanup.md as ~25% topic-noise
+("New World Order", "Deep State", no actual entity present), superseded
+months ago by VERIFIED_MAVERICK_AUTHORITY elsewhere in the codebase. This
+script never got the update. Also missing entirely: has_consensus_expert
+and has_canonical_expert, which the "refined v2" regression lineage
+(rerun_refined_regressions_v2.py) treats as core constructs alongside
+has_maverick. Fixed: entities now come from
+rerun_refined_regressions_v2.load_entities_split_corrected() (same
+verified allowlists + Stage B/C disambiguation lookups used everywhere
+else), and has_consensus_expert/has_canonical_expert are added to every
+formula this script fits. Old output
+(synthesis_regression_results_filtered.csv) is left on disk untouched
+for comparison, per this project's usual practice -- this run writes to
+new, distinctly-named output files instead of overwriting it.
 """
 import os
 import re
+import sys
 import time
 import numpy as np
 import pandas as pd
 import duckdb
+import joblib
 import statsmodels.api as sm
 import statsmodels.formula.api as smf
+
+sys.path.insert(0, os.path.dirname(__file__))
+from rerun_refined_regressions_v2 import load_entities_split_corrected
+from refine_thesis_models import build_regex
+from combined_maverick_detector import load_maverick_disambiguation_lookup, VALID_MAVERICK_CANDIDATES, CANDIDATE_TO_BARES as MAVERICK_CANDIDATE_TO_BARES
+from consensus_disambiguation_lookup import load_consensus_disambiguation_lookup, VALID_CONSENSUS_CANDIDATES, CANDIDATE_TO_BARES as CONSENSUS_CANDIDATE_TO_BARES
+from stance_window_utils import extract_entity_window, compute_spans_for_row
+from run_link_source_tier_regressions import determine_link_source_tier, build_source_authority_lookup
+
+STANCE_MODEL_PATH = 'data/processed/stance_classifier.joblib'
+STANCE_SUBMODEL_OUT_PATH = 'data/processed/synthesis_stance_submodels.csv'
 
 STAGED_PATH = "data/processed/research_corpus_staged_scores_full21m.parquet"
 # hedged_suspicion (hs_prob) was validated (kappa=0.872) but never scaled to the
@@ -30,43 +63,34 @@ BRIGADE_PATH = "data/processed/comment_brigade_flags.csv"
 # (synthesis_regression_results.csv) intact for comparison -- this run adds
 # the crosspost/brigading exclusion on top, written separately so both are
 # auditable side by side rather than one silently overwriting the other.
-OUT_PATH = "data/processed/synthesis_regression_results_filtered.csv"
-INTERACTION_OUT_PATH = "data/processed/synthesis_interaction_results.csv"
+# CORRECTED 2026-07-20: new filenames, old stale-entity outputs left in place.
+OUT_PATH = "data/processed/synthesis_regression_results_corrected.csv"
+INTERACTION_OUT_PATH = "data/processed/synthesis_interaction_results_corrected.csv"
+
+MIN_SPARSE_N = 20  # below this many positive cases, drop the term from the formula for that fit
 
 
-def build_expert_regex():
-    print("Loading maverick_authority entities from review CSV...")
-    if not os.path.exists(ENTITY_PATH):
-        raise FileNotFoundError(f"Entities review file not found at {ENTITY_PATH}")
+def build_expert_regexes():
+    """Replaces the old build_expert_regex() -- see module docstring for
+    why. Returns compiled regexes for all three verified constructs plus
+    the disambiguation lookups needed to resolve bare-form ambiguous
+    mentions the same way rerun_refined_regressions_v2.py does."""
+    print("Loading verified entity lists (mavericks/canon/consensus)...")
+    mavericks, canon, consensus = load_entities_split_corrected()
+    print(f"  {len(mavericks)} mavericks, {len(canon)} canonical experts, {len(consensus)} consensus experts")
 
-    df_entity = pd.read_csv(ENTITY_PATH)
-    # BUG FIX (2026-07-14): the original filter used has_expert_credential OR
-    # has_institutional_insider alone, WITHOUT requiring final_bucket_guess ==
-    # 'maverick_authority'. Those two flags are deliberately cross-cutting --
-    # they're also set on mainstream_expert_authority entities (Einstein,
-    # Plato) and mainstream_figure_not_source entities (Hillary Clinton,
-    # Nixon, Kissinger -- tagged institutional_insider for being government
-    # officials, not for being cited as alternative/fringe authorities). So
-    # "has_maverick" was actually measuring "mentions ANY credentialed-or-
-    # institutional entity, maverick or mainstream", not appeals to
-    # maverick/alternative authority specifically -- which plausibly explains
-    # the confusing, direction-flipping pattern across strata: the variable
-    # wasn't holding the construct being tested constant.
-    expert_ents = df_entity[
-        df_entity["final_bucket_guess"] == "maverick_authority"
-    ]["entity"].dropna().astype(str).unique()
+    rx_mav = build_regex(mavericks)
+    rx_can = build_regex(canon)
+    rx_con = build_regex(consensus)
 
-    print(f"Loaded {len(expert_ents):,} distinct maverick_authority entities "
-          f"(strictly final_bucket_guess == 'maverick_authority', fixed from "
-          f"the earlier cross-cutting-flag version).")
-    
-    # Sort by length descending to match multi-word phrases first
-    expert_ents_sorted = sorted(expert_ents, key=len, reverse=True)
-    pattern_str = r"\b(" + "|".join(re.escape(e) for e in expert_ents_sorted) + r")\b"
-    return pattern_str
+    maverick_lookup = load_maverick_disambiguation_lookup()
+    consensus_lookup = load_consensus_disambiguation_lookup()
+    print(f"  {len(maverick_lookup)} maverick + {len(consensus_lookup)} consensus disambiguation-lookup entries loaded")
+
+    return rx_mav, rx_can, rx_con, maverick_lookup, consensus_lookup
 
 
-def load_integrated_dataset(pattern_str):
+def load_integrated_dataset(rx_mav, rx_can, rx_con, maverick_lookup, consensus_lookup):
     print("Connecting to DuckDB and executing the full integrated dataset query...")
     start_time = time.time()
 
@@ -77,6 +101,24 @@ def load_integrated_dataset(pattern_str):
     # FIX (2026-07-14): now joins the brigade-flags table and actually
     # excludes is_high_crosspost / brigade-flagged rows, instead of pulling
     # is_crossposted into the query and never filtering on it.
+    # NOTE (found during this fix): DuckDB's regexp_matches() doesn't honor
+    # Python's re.IGNORECASE -- it isn't part of the pattern string, it's
+    # separate state on a compiled Python object that doesn't survive being
+    # passed as a query parameter. The OLD version of this query passed the
+    # pattern directly with no "(?i)" prefix, meaning it was silently
+    # case-sensitive-only this whole time (undercounting any lowercase
+    # mention). Fixed here by prefixing each pattern explicitly, matching
+    # the documented fix in rerun_refined_regressions_v2.py's
+    # _duckdb_regex_mask().
+    # NOTE (fixed after an OOM kill, exit 137): the first version of this
+    # query pulled raw `e.text` for all ~16.7M rows just to run link-tier
+    # classification on the ~1% that have a link. That's what killed it --
+    # 16.7M full comment strings materialized in the pandas frame at once,
+    # on top of the concurrently-running process competing for RAM. Fixed
+    # by NOT selecting text here at all; text is fetched separately, only
+    # for the specific small subsets that actually need it (linked
+    # comments for tier classification, maverick/consensus mentions for
+    # stance sub-models), via a second, targeted query below.
     query = f"""
         SELECT
             s.id,
@@ -86,7 +128,9 @@ def load_integrated_dataset(pattern_str):
             e.upvotes,
             e.controversiality,
             CAST(e.has_link AS INTEGER) as has_link,
-            CAST(regexp_matches(e.text, $1) AS INTEGER) as has_maverick,
+            CAST(regexp_matches(e.text, $1) AS INTEGER) as has_maverick_regex,
+            CAST(regexp_matches(e.text, $2) AS INTEGER) as has_canonical_expert,
+            CAST(regexp_matches(e.text, $3) AS INTEGER) as has_consensus_expert_regex,
             a.insider_score,
             t.elasticity_ratio,
             t.is_crossposted,
@@ -105,10 +149,70 @@ def load_integrated_dataset(pattern_str):
         QUALIFY ROW_NUMBER() OVER (PARTITION BY s.id) = 1
     """
 
-    df = con.execute(query, [pattern_str]).df()
+    df = con.execute(query, ["(?i)" + rx_mav.pattern, "(?i)" + rx_can.pattern, "(?i)" + rx_con.pattern]).df()
     elapsed = time.time() - start_time
     print(f"Dataset successfully ingested in {elapsed:.2f} seconds. Row count: {len(df):,}")
-    return df
+
+    # Apply the disambiguation-lookup OR-fallback the same way
+    # compute_has_maverick/compute_has_consensus_expert do elsewhere --
+    # done here via a cheap id->name map lookup rather than re-loading
+    # full text, since the regex match already happened in SQL above.
+    print("Applying disambiguation-lookup fallback for maverick/consensus...")
+    resolved_mav = df["id"].astype(str).map(maverick_lookup)
+    df["has_maverick"] = (df["has_maverick_regex"].astype(bool) | resolved_mav.isin(VALID_MAVERICK_CANDIDATES)).astype(int)
+    resolved_con = df["id"].astype(str).map(consensus_lookup)
+    df["has_consensus_expert"] = (df["has_consensus_expert_regex"].astype(bool) | resolved_con.isin(VALID_CONSENSUS_CANDIDATES)).astype(int)
+    df = df.drop(columns=["has_maverick_regex", "has_consensus_expert_regex"])
+
+    # MEMORY FIX (after an OOM kill, exit 137, on an 8GB machine -- the
+    # first fix removed the full-corpus text column, but a SECOND text_df
+    # covering both linked comments AND maverick/consensus mentions
+    # (2.8M rows combined) was still fetched in one shot and then held in
+    # memory for the ENTIRE rest of the run, including through the huge
+    # 16.7M-row interaction-model OLS fit further down, right up until
+    # stance sub-models finally needed it again at the very end. That's
+    # what actually killed it -- confirmed by checking which output files
+    # made it to disk (everything through the interaction model saved
+    # fine; only synthesis_stance_submodels.csv, the very last stage, was
+    # missing). Fixed by fetching link text and mention text SEPARATELY:
+    # link text is used immediately then dropped, so only the much
+    # smaller mention-text subset (tens of thousands of rows, not
+    # millions) is carried forward through the rest of the script.
+    print("Building source-authority lookup and classifying link tiers...")
+    build_source_authority_lookup()
+    link_ids_df = df.loc[df['has_link'] == 1, ['id']].copy()
+    print(f"Fetching text for {len(link_ids_df):,} linked comments (used immediately, then freed)...")
+    con.register("link_ids_view", link_ids_df)
+    text_for_links = con.execute(f"""
+        SELECT e.id, e.text
+        FROM '{EMPATH_PATH}' e
+        JOIN link_ids_view n ON e.id = n.id
+    """).df()
+    print(f"  Classifying {len(text_for_links):,} linked comments...")
+    text_for_links['link_source_tier'] = text_for_links['text'].apply(
+        lambda t: determine_link_source_tier(t, 1))
+    tier_map = dict(zip(text_for_links['id'], text_for_links['link_source_tier']))
+    df['link_source_tier'] = df['id'].map(tier_map).fillna('no_link')
+    del text_for_links, link_ids_df
+
+    mention_ids_df = df.loc[(df['has_maverick'] == 1) | (df['has_consensus_expert'] == 1), ['id']].copy()
+    print(f"Fetching text for {len(mention_ids_df):,} maverick/consensus mentions "
+          f"(kept for the stance sub-models later)...")
+    con.register("mention_ids_view", mention_ids_df)
+    text_df = con.execute(f"""
+        SELECT e.id, e.text
+        FROM '{EMPATH_PATH}' e
+        JOIN mention_ids_view n ON e.id = n.id
+    """).df()
+    print(f"  Fetched {len(text_df):,} mention text rows.")
+
+    for tier in ['mainstream_reliable', 'mixed_or_low_reliability', 'aggregator_or_platform', 'unmatched_link']:
+        df[f'link_{tier}'] = (df['link_source_tier'] == tier).astype(int)
+    print("  Link tier counts:")
+    print(df['link_source_tier'].value_counts())
+    df = df.drop(columns=['link_source_tier'])
+
+    return df, text_df
 
 
 def run_single_regression(df, formula, model_type, cov_type='nonrobust', group_col=None):
@@ -159,11 +263,11 @@ def run_single_regression(df, formula, model_type, cov_type='nonrobust', group_c
 def main():
     print("=== STARTING THE GRAND SYNTHESIS INTEGRATED REGRESSIONS ===")
     
-    # 1. Build regex
-    pattern_str = build_expert_regex()
-    
+    # 1. Build regexes + disambiguation lookups
+    rx_mav, rx_can, rx_con, maverick_lookup, consensus_lookup = build_expert_regexes()
+
     # 2. Ingest data
-    df = load_integrated_dataset(pattern_str)
+    df, text_df = load_integrated_dataset(rx_mav, rx_can, rx_con, maverick_lookup, consensus_lookup)
     
     # 3. Compute scaled metrics
     print("Preprocessing variables...")
@@ -181,12 +285,21 @@ def main():
     # Define design factors
     elasticity_strata = ['Unfiltered', 'Low', 'Medium', 'High']
     insider_thresholds = [None, -0.5, 0.0, 0.5, 1.0, 1.5]
-    constructs = ['pe_prob', 'ps_prob', 'hs_prob', 'has_link', 'has_maverick']
+    # has_link replaced with the 5-tier source-quality taxonomy (no_link is
+    # the implicit reference category, dropped from the formula).
+    link_terms = "link_mainstream_reliable + link_mixed_or_low_reliability + link_aggregator_or_platform + link_unmatched_link"
+    constructs = ['pe_prob', 'ps_prob', 'hs_prob',
+                  'link_mainstream_reliable', 'link_mixed_or_low_reliability',
+                  'link_aggregator_or_platform', 'link_unmatched_link',
+                  'has_maverick', 'has_canonical_expert', 'has_consensus_expert']
 
-    formula_ols = "log_upvotes ~ pe_prob + ps_prob + hs_prob + has_link + has_maverick"
-    formula_contro = "controversiality ~ pe_prob + ps_prob + hs_prob + has_link + has_maverick"
-    formula_traction = "high_traction ~ pe_prob + ps_prob + hs_prob + has_link + has_maverick"
-    
+    formula_ols = (f"log_upvotes ~ pe_prob + ps_prob + hs_prob + {link_terms} + has_maverick "
+                   "+ has_canonical_expert + has_consensus_expert")
+    formula_contro = (f"controversiality ~ pe_prob + ps_prob + hs_prob + {link_terms} + has_maverick "
+                      "+ has_canonical_expert + has_consensus_expert")
+    formula_traction = (f"high_traction ~ pe_prob + ps_prob + hs_prob + {link_terms} + has_maverick "
+                        "+ has_canonical_expert + has_consensus_expert")
+
     models_config = [
         ("OLS_log_upvotes", formula_ols, "OLS"),
         ("Logit_controversiality", formula_contro, "Logit"),
@@ -219,6 +332,15 @@ def main():
             n_obs = len(df_subset)
             
             for model_name, formula, m_type in models_config:
+                # has_consensus_expert is rare (~0.1% of comments) -- many
+                # strata/threshold cells will have too few positive cases
+                # for a stable coefficient. Drop it from the formula for
+                # this cell only rather than let it fit garbage or blow up
+                # the model, same MIN_SPARSE_N guard rerun_refined_regressions_v2.py
+                # uses for the same reason.
+                n_consensus_cell = int(df_subset['has_consensus_expert'].sum()) if len(df_subset) else 0
+                formula = formula.replace(" + has_consensus_expert", "") if n_consensus_cell < MIN_SPARSE_N else formula
+
                 # 1. Fit Naive model (original behavior to preserve EXACT schema/results of the naive runs)
                 fit_res_naive = run_single_regression(df_subset, formula, m_type)
                 
@@ -373,6 +495,17 @@ def main():
     # differ across elasticity strata".
     run_interaction_regressions(df)
 
+    # 8. Mention-only stance sub-models (added 2026-07-20, "final" version
+    # per Nash). NOT folded into the main formulas above -- has_maverick/
+    # has_consensus_expert are binary and deterministically imply
+    # stance_prob==0 wherever they're 0, so putting a continuous stance
+    # variable in the SAME formula as the binary presence indicator
+    # produces severe collinearity (r=0.97 in an earlier attempt this
+    # session, coefficients as large as +12.6 log-odds -- a numerical
+    # artifact, not a real effect). Run as separate mention-only-subset
+    # models instead, same design as rerun_regressions_with_stance.py.
+    run_stance_submodels(df, text_df, rx_mav, rx_con, maverick_lookup, consensus_lookup)
+
     print("\nGrand Synthesis Complete!")
 
 
@@ -390,7 +523,9 @@ def run_interaction_regressions(df):
     # Medium as reference so both Low and High show as explicit contrasts
     df['elasticity_bin'] = pd.Categorical(df['elasticity_bin'], categories=['Medium', 'Low', 'High'])
 
-    formula = ("log_upvotes ~ (pe_prob + ps_prob + hs_prob + has_link + has_maverick) * C(elasticity_bin)")
+    link_terms = "link_mainstream_reliable + link_mixed_or_low_reliability + link_aggregator_or_platform + link_unmatched_link"
+    formula = (f"log_upvotes ~ (pe_prob + ps_prob + hs_prob + {link_terms} + has_maverick "
+               "+ has_canonical_expert + has_consensus_expert) * C(elasticity_bin)")
 
     # 1. Original Naive Interaction Run
     interaction_records = []
@@ -464,6 +599,83 @@ def run_interaction_regressions(df):
                 if r["cov_type"] == cov_name and ":" in r["term"]:
                     sig = "*" if r["pvalue"] < 0.05 else " "
                     print(f"  {r['term']:55s} coef={r['coef']:+.4f}{sig} p={r['pvalue']:.2e}")
+
+
+def run_stance_submodels(df, text_df, rx_mav, rx_con, maverick_lookup, consensus_lookup):
+    print("\n" + "="*95)
+    print("   MENTION-ONLY STANCE SUB-MODELS (does hostile vs. endorsement stance predict")
+    print("   engagement WITHIN mentions -- separate from the main pooled has_X models above)")
+    print("="*95)
+
+    if not os.path.exists(STANCE_MODEL_PATH):
+        print(f"MISSING: {STANCE_MODEL_PATH}. Run src/train_stance_classifier.py first -- skipping stance sub-models.")
+        return
+    stance_model = joblib.load(STANCE_MODEL_PATH)
+    vec, clf = stance_model['vec'], stance_model['clf']
+    print(f"Loaded stance classifier (cv_kappa={stance_model['cv_kappa']:.3f}, "
+          f"cv_auc={stance_model['cv_auc']:.3f}) -- treat weaker domains as provisional (see train_stance_classifier.py CV report).")
+
+    link_terms = "link_mainstream_reliable + link_mixed_or_low_reliability + link_aggregator_or_platform + link_unmatched_link"
+    outcome_formulas = [
+        ("OLS_log_upvotes", f"log_upvotes ~ stance_prob + pe_prob + ps_prob + hs_prob + {link_terms}", "OLS"),
+        ("Logit_controversiality", f"controversiality ~ stance_prob + pe_prob + ps_prob + hs_prob + {link_terms}", "Logit"),
+        ("Logit_high_traction", f"high_traction ~ stance_prob + pe_prob + ps_prob + hs_prob + {link_terms}", "Logit"),
+    ]
+
+    text_lookup = dict(zip(text_df['id'], text_df['text']))
+
+    records = []
+    for construct, has_col, rx, lookup, candidate_to_bares in [
+        ("maverick", "has_maverick", rx_mav, maverick_lookup, MAVERICK_CANDIDATE_TO_BARES),
+        ("consensus", "has_consensus_expert", rx_con, consensus_lookup, CONSENSUS_CANDIDATE_TO_BARES),
+    ]:
+        mask = df[has_col] == 1
+        print(f"\nScoring stance for {construct} mentions (N={mask.sum():,})...")
+        df_mentions = df.loc[mask].copy()
+        df_mentions['text'] = df_mentions['id'].map(text_lookup)
+        if len(df_mentions) > 0:
+            windows = [
+                extract_entity_window(text, compute_spans_for_row(text, cid, rx, lookup, candidate_to_bares))
+                for cid, text in zip(df_mentions['id'].astype(str), df_mentions['text'].fillna(''))
+            ]
+            X = vec.transform(windows)
+            df_mentions['stance_prob'] = clf.predict_proba(X)[:, 1]
+        else:
+            df_mentions['stance_prob'] = pd.Series(dtype=float)
+
+        for strata in ['Unfiltered', 'Low', 'Medium', 'High']:
+            if strata == 'Unfiltered':
+                df_sub = df_mentions
+            else:
+                df_sub = df_mentions[df_mentions['elasticity_bin'] == strata]
+            n = len(df_sub)
+            print(f"  [{construct}/{strata}] N={n}")
+
+            for model_name, formula, m_type in outcome_formulas:
+                record = {
+                    "construct": construct, "elasticity_strata": strata,
+                    "model_name": model_name, "n_obs": n,
+                    "stance_prob_coef": np.nan, "stance_prob_se": np.nan,
+                    "stance_prob_pvalue": np.nan, "stance_prob_tstat": np.nan,
+                }
+                if n < MIN_SPARSE_N:
+                    record["note"] = f"too sparse (N={n})"
+                    records.append(record)
+                    continue
+                fit_res = run_single_regression(df_sub, formula, m_type)
+                if fit_res is not None:
+                    params, bse, pvalues, tvalues, r2, f_p = fit_res
+                    if "stance_prob" in params:
+                        record["stance_prob_coef"] = params["stance_prob"]
+                        record["stance_prob_se"] = bse["stance_prob"]
+                        record["stance_prob_pvalue"] = pvalues["stance_prob"]
+                        record["stance_prob_tstat"] = tvalues["stance_prob"]
+                else:
+                    record["note"] = "model failed to fit"
+                records.append(record)
+
+    pd.DataFrame(records).to_csv(STANCE_SUBMODEL_OUT_PATH, index=False)
+    print(f"\nSaved stance sub-model results to {STANCE_SUBMODEL_OUT_PATH}")
 
 
 if __name__ == "__main__":

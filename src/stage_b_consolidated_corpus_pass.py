@@ -104,6 +104,27 @@ AMBIGUOUS_CLUSTERS = {
             "Tucker Carlson": ["tucker carlson"],
         },
     },
+    "hawking": {
+        # Added 2026-07-20: "Hawking" was a blind bare-form alias for
+        # Stephen Hawking (VERIFIED_CONSENSUS_EXPERTS) with no
+        # disambiguation -- caught matching the common verb "hawking"
+        # (selling), confirmed by hand-reviewing HITL stance queue rows.
+        # Negative-class labels seeded from literal verb-usage phrases
+        # (same free-labeling trick as the other clusters, just with a
+        # generic-usage class instead of a second named person).
+        "bare": ["hawking"],
+        "candidates": {
+            "Stephen Hawking": ["stephen hawking", "steven hawking"],
+            "hawking (verb, not a person)": [
+                "hawking his", "hawking her", "hawking their", "hawking your",
+                "hawking wares", "hawking goods", "hawking merch",
+                "hawking products", "hawking cigarettes", "hawking snake oil",
+                "hawking books", "hawking bibles", "hawking shoes",
+                "war hawking", "keep hawking", "still hawking",
+                "was hawking", "is hawking", "hawking training",
+            ],
+        },
+    },
 }
 
 MAVERICK_AMBIGUOUS_CLUSTERS = {
@@ -171,6 +192,42 @@ MAVERICK_AMBIGUOUS_CLUSTERS = {
         "candidates": {
             "Robert W. Malone": ["robert w. malone", "robert malone", "dr malone", "dr. malone"],
             "Post Malone": ["post malone"],
+        },
+    },
+    "ventura": {
+        # Added 2026-07-20: "Ventura" was a blind bare-form alias for Jesse
+        # Ventura with no disambiguation -- picks up "Ventura County"/
+        # "Ventura, California" (place name), confirmed by hand-reviewing
+        # corpus samples during the audit that also found the "Brand" and
+        # "Hawking" contamination.
+        "bare": ["ventura"],
+        "candidates": {
+            "Jesse Ventura": ["jesse ventura"],
+            "Ventura (place name, not a person)": [
+                "ventura county", "ventura, california", "ventura, ca",
+                "ventura freeway", "port of ventura", "ventura boulevard",
+            ],
+        },
+    },
+    "hancock": {
+        # Added 2026-07-20: same audit -- bare "Hancock" mostly resolves to
+        # Graham Hancock (the actual maverick) but occasionally picks up
+        # Matt Hancock (UK politician, different real person entirely).
+        "bare": ["hancock"],
+        "candidates": {
+            "Graham Hancock": ["graham hancock"],
+            "Matt Hancock": ["matt hancock"],
+        },
+    },
+    "kory": {
+        # Added 2026-07-20: same audit -- bare "Kory" mostly resolves to
+        # Pierre Kory but at least one instance was "Kory Langhofer"
+        # (Trump campaign lawyer, different real person). Low volume (52
+        # corpus matches) but cheap to add now the framework is here.
+        "bare": ["kory"],
+        "candidates": {
+            "Pierre Kory": ["pierre kory", "dr. kory", "dr kory"],
+            "Kory (other person, surname collision)": ["kory langhofer"],
         },
     },
 }
