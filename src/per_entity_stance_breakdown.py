@@ -24,12 +24,27 @@ classifier (same one used everywhere else this session), and produce one
 row per (comment, entity) -- so a comment mentioning two different
 mavericks contributes to both entities' distributions separately.
 
-Stage 1: descriptive only (mention count + stance_prob distribution per
+Stage 1: descriptive only (mention count + stance distribution per
 entity) -- no regression fitting here. That's deliberate: most of the
 ~570 possible entities have too few mentions for a stable coefficient,
 and jumping straight to per-entity regressions on thin data would just
 manufacture noise. Full traction regressions for the highest-volume
 entities are a planned follow-on, not this script.
+
+REDESIGNED 2026-07-21: switched from the binary (hostile-vs-endorsement,
+forced-choice) classifier to the 3-class one (hostile / endorsement /
+other -- see train_stance_classifier.py). Forcing every mention onto a
+single hostile<->endorsement axis meant list/link-dump comments, sarcastic
+meme-callback mockery, and genuinely neutral/descriptive mentions all had
+nowhere to go but a coin-flip point on that axis -- a 99-row Jones quality
+check (2026-07-21) found this made the model's "confidently endorsing"
+predictions wrong more often than right (38.9% held-out accuracy). Also
+stopped hard-excluding list/link-dump mentions (2+ URLs in the entity's
+own window) from scoring entirely -- per Nash's correction, a link-dump
+CAN carry real stance ("proof he lied: [link][link]" is hostile despite
+being link-heavy), so exclusion was throwing away real signal, not just
+noise. They're scored normally now and flagged via `is_list_dump` so the
+distribution can be inspected with vs. without them.
 
 Output: data/processed/per_entity_stance_breakdown.csv
 """
@@ -48,9 +63,9 @@ from refine_thesis_models import build_regex
 from rerun_refined_regressions_v2 import load_entities_split_corrected, STAGED_PATH, EMPATH_PATH, THREAD_PATH, BRIGADE_PATH, PRESENCE_PATH
 from combined_maverick_detector import load_maverick_disambiguation_lookup, VALID_MAVERICK_CANDIDATES, CANDIDATE_TO_BARES as MAVERICK_CANDIDATE_TO_BARES
 from consensus_disambiguation_lookup import load_consensus_disambiguation_lookup, VALID_CONSENSUS_CANDIDATES, CANDIDATE_TO_BARES as CONSENSUS_CANDIDATE_TO_BARES
-from stance_window_utils import extract_entity_window
+from stance_window_utils import extract_entity_window, filter_quoted_spans, is_list_or_link_dump_window
 
-STANCE_MODEL_PATH = 'data/processed/stance_classifier.joblib'
+STANCE_MODEL_PATH = 'data/processed/stance_classifier_3class.joblib'
 OUT_PATH = 'data/processed/per_entity_stance_breakdown.csv'
 MIN_MENTIONS_TO_REPORT = 20  # below this, distribution stats are too noisy to be meaningful
 
@@ -63,6 +78,7 @@ def entity_groups_for_row(text, cid, rx, lookup, candidate_to_bares):
     or the resolved candidate name for lookup-fallback hits."""
     text = str(text)
     direct_spans = [{"start": m.start(), "end": m.end(), "text": m.group(0)} for m in rx.finditer(text)]
+    direct_spans = filter_quoted_spans(text, direct_spans)
     groups = {}
     for s in direct_spans:
         groups.setdefault(s["text"].lower(), []).append(s)
@@ -73,6 +89,7 @@ def entity_groups_for_row(text, cid, rx, lookup, candidate_to_bares):
         for bare in bares:
             bare_rx = re.compile(r'\b' + re.escape(bare) + r'\b', re.IGNORECASE)
             fallback_spans.extend({"start": m.start(), "end": m.end(), "text": m.group(0)} for m in bare_rx.finditer(text))
+        fallback_spans = filter_quoted_spans(text, fallback_spans)
         if fallback_spans:
             # FIX: lowercase here too, matching direct-match keys above --
             # otherwise e.g. "Stephen Hawking" (lookup-resolved, title
@@ -82,14 +99,14 @@ def entity_groups_for_row(text, cid, rx, lookup, candidate_to_bares):
     return groups
 
 
-def build_long_table(df, has_col, rx, lookup, candidate_to_bares, vec, clf, text_lookup):
+def build_long_table(df, has_col, rx, lookup, candidate_to_bares, vec, clf, classes, text_lookup):
     mask = df[has_col] == 1
     ids = df.loc[mask, 'id'].astype(str)
     print(f"  Processing {len(ids):,} {has_col} mentions...")
 
-    rows = []
     windows_to_score = []
     row_meta = []
+    n_list_dump = 0
     for cid in ids:
         text = text_lookup.get(cid)
         if text is None:
@@ -99,36 +116,40 @@ def build_long_table(df, has_col, rx, lookup, candidate_to_bares, vec, clf, text
             if entity_key is None:
                 continue
             window = extract_entity_window(text, spans)
+            is_dump = is_list_or_link_dump_window(window)
+            n_list_dump += is_dump
             windows_to_score.append(window)
-            row_meta.append({"comment_id": cid, "entity": entity_key})
+            row_meta.append({"comment_id": cid, "entity": entity_key, "is_list_dump": is_dump})
+
+    if n_list_dump:
+        print(f"  {n_list_dump:,} mention(s) flagged as list/link-dump (2+ URLs in the entity's own "
+              f"window) -- scored normally, not excluded (see module docstring).")
 
     if not windows_to_score:
-        return pd.DataFrame(columns=["comment_id", "entity", "stance_prob"])
+        return pd.DataFrame(columns=["comment_id", "entity", "is_list_dump", "predicted_label"] + [f"p_{c}" for c in classes])
 
     print(f"  Scoring {len(windows_to_score):,} (comment, entity) windows...")
     X = vec.transform(windows_to_score)
-    probs = clf.predict_proba(X)[:, 1]
-    for r, p in zip(row_meta, probs):
-        r["stance_prob"] = p
-    return pd.DataFrame(row_meta)
+    probs = clf.predict_proba(X)  # columns ordered per `classes` (clf.classes_)
+    pred_idx = probs.argmax(axis=1)
+    out = pd.DataFrame(row_meta)
+    for i, c in enumerate(classes):
+        out[f"p_{c}"] = probs[:, i]
+    out["predicted_label"] = [classes[i] for i in pred_idx]
+    return out
 
 
-def summarize(long_df, construct_label):
+def summarize(long_df, construct_label, classes):
     if long_df.empty:
         return pd.DataFrame()
-    g = long_df.groupby('entity')['stance_prob']
-    summary = g.agg(
-        mention_count='count',
-        mean_stance_prob='mean',
-        median_stance_prob='median',
-        p25_stance_prob=lambda x: x.quantile(0.25),
-        p75_stance_prob=lambda x: x.quantile(0.75),
-    ).reset_index()
-    summary['pct_hostile'] = g.apply(lambda x: (x < 0.5).mean()).values
-    summary['pct_strongly_hostile_lt_0.3'] = g.apply(lambda x: (x < 0.3).mean()).values
-    summary['pct_lean_hostile_0.3_0.5'] = g.apply(lambda x: ((x >= 0.3) & (x < 0.5)).mean()).values
-    summary['pct_lean_endorse_0.5_0.7'] = g.apply(lambda x: ((x >= 0.5) & (x < 0.7)).mean()).values
-    summary['pct_strongly_endorse_gte_0.7'] = g.apply(lambda x: (x >= 0.7).mean()).values
+    g = long_df.groupby('entity')
+    summary = g.size().rename('mention_count').reset_index()
+    for c in classes:
+        summary[f'mean_p_{c}'] = g[f'p_{c}'].mean().values
+        summary[f'pct_predicted_{c}'] = g.apply(lambda x, c=c: (x['predicted_label'] == c).mean()).values
+    summary['pct_list_dump'] = g['is_list_dump'].mean().values
+    # kept for continuity with prior binary-era reports/scripts that key off this name
+    summary['pct_hostile'] = summary['pct_predicted_hostile']
     summary['construct'] = construct_label
     return summary.sort_values('mention_count', ascending=False)
 
@@ -148,7 +169,8 @@ def main():
     print("Loading stance classifier...")
     stance_model = joblib.load(STANCE_MODEL_PATH)
     vec, clf = stance_model['vec'], stance_model['clf']
-    print(f"  cv_kappa={stance_model['cv_kappa']:.3f}, cv_auc={stance_model['cv_auc']:.3f}")
+    classes = list(clf.classes_)
+    print(f"  classes={classes}, cv_kappa={stance_model['cv_kappa']:.3f}, cv_auc={stance_model['cv_auc']:.3f}")
 
     print("Loading verified entity lists...")
     mavericks, canon, consensus = load_entities_split_corrected()
@@ -212,23 +234,23 @@ def main():
     print(f"  Fetched {len(text_lookup):,} texts.")
 
     print("\nBuilding per-entity long table (maverick)...")
-    long_mav = build_long_table(df, 'has_maverick', rx_mav, lookup, MAVERICK_CANDIDATE_TO_BARES, vec, clf, text_lookup)
+    long_mav = build_long_table(df, 'has_maverick', rx_mav, lookup, MAVERICK_CANDIDATE_TO_BARES, vec, clf, classes, text_lookup)
     print("Building per-entity long table (consensus)...")
-    long_con = build_long_table(df, 'has_consensus_expert', rx_con, consensus_lookup, CONSENSUS_CANDIDATE_TO_BARES, vec, clf, text_lookup)
+    long_con = build_long_table(df, 'has_consensus_expert', rx_con, consensus_lookup, CONSENSUS_CANDIDATE_TO_BARES, vec, clf, classes, text_lookup)
 
-    summary_mav = summarize(long_mav, 'maverick')
-    summary_con = summarize(long_con, 'consensus')
+    summary_mav = summarize(long_mav, 'maverick', classes)
+    summary_con = summarize(long_con, 'consensus', classes)
     summary = pd.concat([summary_mav, summary_con], ignore_index=True)
     summary.to_csv(OUT_PATH, index=False)
     print(f"\nSaved full per-entity breakdown to {OUT_PATH}")
 
     print(f"\n=== Top 30 mavericks by mention count (min {MIN_MENTIONS_TO_REPORT} mentions) ===")
     top_mav = summary_mav[summary_mav['mention_count'] >= MIN_MENTIONS_TO_REPORT].head(30)
-    print(top_mav[['entity', 'mention_count', 'mean_stance_prob', 'pct_hostile']].to_string(index=False))
+    print(top_mav[['entity', 'mention_count', 'pct_predicted_hostile', 'pct_predicted_endorsement', 'pct_predicted_other']].to_string(index=False))
 
     print(f"\n=== Top 30 consensus figures by mention count (min {MIN_MENTIONS_TO_REPORT} mentions) ===")
     top_con = summary_con[summary_con['mention_count'] >= MIN_MENTIONS_TO_REPORT].head(30)
-    print(top_con[['entity', 'mention_count', 'mean_stance_prob', 'pct_hostile']].to_string(index=False))
+    print(top_con[['entity', 'mention_count', 'pct_predicted_hostile', 'pct_predicted_endorsement', 'pct_predicted_other']].to_string(index=False))
 
     # Direct test of the "prominence predicts hostility" hypothesis
     for label, s in [("maverick", summary_mav), ("consensus", summary_con)]:

@@ -31,11 +31,15 @@ from bertopic import BERTopic
 
 # Insert src directory into path for local imports
 sys.path.insert(0, os.path.dirname(__file__))
-from rerun_refined_regressions_v2 import load_entities_split_corrected
+from rerun_refined_regressions_v2 import load_entities_split_corrected, compute_has_maverick, compute_has_consensus_expert
 from refine_thesis_models import build_regex
+from run_link_source_tier_regressions import determine_link_source_tier, build_source_authority_lookup
+from combined_maverick_detector import load_maverick_disambiguation_lookup
+from consensus_disambiguation_lookup import load_consensus_disambiguation_lookup
 
 # File paths
 STAGED_PATH = 'data/processed/research_corpus_staged_scores_full21m.parquet'
+HEDGED_SUSPICION_PATH = 'data/processed/hedged_suspicion_scores_full21m.parquet'
 EMPATH_PATH = 'data/processed/empath_scores_full.parquet'
 THREAD_PATH = 'data/processed/thread_quality_metrics.csv'
 PRESENCE_PATH = 'data/processed/thread_insider_presence.csv'
@@ -44,7 +48,8 @@ TOPIC_NAMES_PATH = 'data/processed/monthTopics1.csv'
 
 # Output paths
 OUT_REGRESSIONS_PATH = 'data/processed/topic_time_regression_results_pure_50k.csv'
-OUT_REPORT_PATH = '/Users/nash/.gemini/antigravity/brain/3ede4f65-2733-4214-bd23-07f7b26e9536/topic_time_user_synthesis_report_pure_50k.md'
+OUT_REPORT_PATH = '/Users/nash/.gemini/antigravity/brain/cd0cd598-9b19-42eb-b934-3b18572fd865/topic_time_user_synthesis_report_pure_50k.md'
+OUT_REPORT_PATH_BACKWARD_COMPAT = '/Users/nash/.gemini/antigravity/brain/3ede4f65-2733-4214-bd23-07f7b26e9536/topic_time_user_synthesis_report_pure_50k.md'
 
 # Mapping of fine-grained topics to 6 Super-Topics
 SUPER_TOPIC_MAP = {
@@ -100,10 +105,11 @@ def load_and_sample_dataset():
     con.register('sample_ids_tmp', df_sample_ids)
     
     full_query = f"""
-        SELECT s.id, e.author, e.created_utc, e.upvotes, e.char_length, s.pe_prob, s.ps_prob, e.has_link, e.text, SUBSTR(e.link_id, 4) as post_id
+        SELECT s.id, e.author, e.created_utc, e.upvotes, e.char_length, s.pe_prob, s.ps_prob, h.hs_prob, e.has_link, e.text, SUBSTR(e.link_id, 4) as post_id
         FROM sample_ids_tmp t_ids
         JOIN '{STAGED_PATH}' s ON t_ids.id = s.id
         JOIN '{EMPATH_PATH}' e ON s.id = e.id
+        LEFT JOIN '{HEDGED_SUSPICION_PATH}' h ON s.id = h.id
         QUALIFY ROW_NUMBER() OVER (PARTITION BY s.id) = 1
     """
     df_sample = con.execute(full_query).df()
@@ -120,10 +126,24 @@ def add_epistemic_features(df):
     rx_can = build_regex(canon)
     rx_con = build_regex(consensus)
     
-    print("Flagging entity mentions...")
-    df['has_maverick'] = df['text'].apply(lambda x: 1 if bool(rx_mav.search(str(x))) else 0)
+    # Load disambiguation lookups
+    print("Loading disambiguation lookups for entities...")
+    maverick_lookup = load_maverick_disambiguation_lookup()
+    consensus_lookup = load_consensus_disambiguation_lookup()
+    
+    print("Flagging entity mentions with disambiguation fallbacks...")
+    df['has_maverick'] = compute_has_maverick(df, rx_mav, maverick_lookup)
     df['has_canonical_expert'] = df['text'].apply(lambda x: 1 if bool(rx_can.search(str(x))) else 0)
-    df['has_consensus_expert'] = df['text'].apply(lambda x: 1 if bool(rx_con.search(str(x))) else 0)
+    df['has_consensus_expert'] = compute_has_consensus_expert(df, rx_con, consensus_lookup)
+    
+    # Build source authority and classify link tiers
+    print("Building source authority and classifying link tiers...")
+    build_source_authority_lookup()
+    df['link_source_tier'] = df.apply(lambda r: determine_link_source_tier(r['text'], r['has_link']), axis=1)
+    
+    # Construct binary indicators for each link tier
+    for tier in ['mainstream_reliable', 'mixed_or_low_reliability', 'aggregator_or_platform', 'unmatched_link']:
+        df[f'link_{tier}'] = (df['link_source_tier'] == tier).astype(int)
     
     # Log controls
     df['log_char_length'] = np.log(df['char_length'] + 1)
@@ -138,6 +158,7 @@ def add_epistemic_features(df):
     # Fill missing values
     df['pe_prob'] = df['pe_prob'].fillna(0.0)
     df['ps_prob'] = df['ps_prob'].fillna(0.0)
+    df['hs_prob'] = df['hs_prob'].fillna(0.0)
     
     return df
 
@@ -190,6 +211,13 @@ def run_robust_regression(formula, df_sub, name_label, cov_type='nonrobust', gro
         df_fit = df_sub
         groups = None
 
+    vars_to_store = [
+        "pe_prob", "ps_prob", "hs_prob",
+        "link_mainstream_reliable", "link_mixed_or_low_reliability",
+        "link_aggregator_or_platform", "link_unmatched_link",
+        "has_maverick", "has_canonical_expert", "has_consensus_expert", "log_char_length"
+    ]
+
     # 1. Logit Model (High Traction)
     try:
         if cov_type == 'cluster' and groups is not None:
@@ -197,7 +225,7 @@ def run_robust_regression(formula, df_sub, name_label, cov_type='nonrobust', gro
         else:
             m_logit = smf.logit(use_formula, data=df_fit).fit(disp=0, maxiter=100)
             
-        for var in ["pe_prob", "ps_prob", "has_link", "has_maverick", "has_canonical_expert", "has_consensus_expert", "log_char_length"]:
+        for var in vars_to_store:
             if var in m_logit.params:
                 res_dict_list.append({
                     "stratum": name_label,
@@ -230,7 +258,7 @@ def run_robust_regression(formula, df_sub, name_label, cov_type='nonrobust', gro
         else:
             m_ols = smf.ols(ols_formula, data=df_fit).fit()
             
-        for var in ["pe_prob", "ps_prob", "has_link", "has_maverick", "has_canonical_expert", "has_consensus_expert", "log_char_length"]:
+        for var in vars_to_store:
             if var in m_ols.params:
                 res_dict_list.append({
                     "stratum": name_label,
@@ -262,7 +290,11 @@ def run_stratified_regressions(df):
     """Phase 3: Run OLS and Logit models across Super-Topics and temporal Eras."""
     print("\n--- Phase 3: Fitting Stratified Regressions on Labeled 50k Core ---")
     
-    formula = "high_traction ~ pe_prob + ps_prob + has_link + has_maverick + has_canonical_expert + has_consensus_expert + log_char_length"
+    formula = (
+        "high_traction ~ pe_prob + ps_prob + hs_prob + "
+        "link_mainstream_reliable + link_mixed_or_low_reliability + link_aggregator_or_platform + link_unmatched_link + "
+        "has_maverick + has_canonical_expert + has_consensus_expert + log_char_length"
+    )
     
     # We will accumulate original naive results and comparative clustered results separately
     naive_results = []
@@ -334,13 +366,23 @@ def write_synthesis_report(df_results, df):
     """
     print("\n--- Phase 4: Compiling and Writing Synthesis Report ---")
 
-    variables = ["has_maverick", "has_canonical_expert", "has_consensus_expert", "pe_prob", "ps_prob"]
+    variables = [
+        "has_maverick", "has_canonical_expert", "has_consensus_expert",
+        "pe_prob", "ps_prob", "hs_prob",
+        "link_mainstream_reliable", "link_mixed_or_low_reliability",
+        "link_aggregator_or_platform", "link_unmatched_link"
+    ]
     var_labels = {
         "has_maverick": "`has_maverick`",
         "has_canonical_expert": "`has_canonical_expert`",
         "has_consensus_expert": "`has_consensus_expert`",
         "pe_prob": "`pe_prob`",
         "ps_prob": "`ps_prob`",
+        "hs_prob": "`hs_prob`",
+        "link_mainstream_reliable": "`link_mainstream_reliable`",
+        "link_mixed_or_low_reliability": "`link_mixed_or_low_reliability`",
+        "link_aggregator_or_platform": "`link_aggregator_or_platform`",
+        "link_unmatched_link": "`link_unmatched_link`"
     }
 
     # Bonferroni threshold across every OLS test actually fit (all strata x
@@ -445,8 +487,8 @@ By running sentence-transformer-based BERTopic inference over this sample, we ma
 
 The OLS models reveal the shifting value of epistemic markers across three key eras of r/conspiracy's evolution:
 
-| Historical Era | N | `has_maverick` (Dissenting) | `has_canonical` (Mainstream) | `has_consensus` (Official) | `pe_prob` (Personal Exp.) | `ps_prob` (Procedural Skep.) |
-| :--- | :---: | :--- | :--- | :--- | :--- | :--- |
+| Historical Era | N | `has_maverick` | `has_canonical` | `has_consensus` | `pe_prob` | `ps_prob` | `hs_prob` | `link_mainstream_reliable` | `link_mixed_or_low_reliability` | `link_aggregator_or_platform` | `link_unmatched_link` |
+| :--- | :---: | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
 {chr(10).join(era_rows)}
 
 ### Chronological Findings (data-driven, see note above on correction status):
@@ -458,8 +500,8 @@ The OLS models reveal the shifting value of epistemic markers across three key e
 
 The models reveal how epistemic authorities and narrative structures are rewarded differently across specific conspiratorial genres:
 
-| Thematic Super-Topic | N | `has_maverick` | `has_canonical` | `has_consensus` | `pe_prob` | `ps_prob` |
-| :--- | :---: | :--- | :--- | :--- | :--- | :--- |
+| Thematic Super-Topic | N | `has_maverick` | `has_canonical` | `has_consensus` | `pe_prob` | `ps_prob` | `hs_prob` | `link_mainstream_reliable` | `link_mixed_or_low_reliability` | `link_aggregator_or_platform` | `link_unmatched_link` |
+| :--- | :---: | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
 {chr(10).join(st_rows)}
 
 ### Thematic Findings (data-driven, see note above on correction status):
@@ -478,8 +520,15 @@ It does **not**, on its own, defend against multiple-comparison inflation from r
 """
     with open(OUT_REPORT_PATH, 'w') as f:
         f.write(report_content)
-
     print(f"Successfully wrote thesis synthesis report to {OUT_REPORT_PATH}")
+
+    try:
+        os.makedirs(os.path.dirname(OUT_REPORT_PATH_BACKWARD_COMPAT), exist_ok=True)
+        with open(OUT_REPORT_PATH_BACKWARD_COMPAT, 'w') as f:
+            f.write(report_content)
+        print(f"Backward-compatible copy successfully wrote to {OUT_REPORT_PATH_BACKWARD_COMPAT}")
+    except Exception as e:
+        print(f"Warning: could not write to backward-compatible report path: {e}")
 
 
 def main(report_only=False):

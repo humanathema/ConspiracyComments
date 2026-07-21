@@ -31,7 +31,17 @@ grouping by topic since there's a lot:
      mechanistically explained, not just noticed.** Per-entity breakdown
      (`src/per_entity_stance_breakdown.py`, `data/processed/per_entity_stance_breakdown.csv`)
      shows individual entities' hostility rates are STABLE across
-     populations (Alex Jones ~85-86% hostile whether pure or unfiltered;
+     populations (Alex Jones ~85-86% hostile whether pure or unfiltered —
+     **SUPERSEDED 2026-07-21, see `handoff/task_stance_endorsement_blindspot.md`:
+     a 99-row hand-labeled quality check found the binary classifier
+     couldn't reliably detect endorsement (38.9% held-out accuracy on its
+     own confident-endorsing predictions). Rebuilt as a 3-class model
+     (hostile/endorsement/other) using the previously-discarded
+     neutral+ambiguous labels; Jones is now 73.0% hostile / 14.7%
+     endorsement / 12.3% other (`per_entity_stance_breakdown_unfiltered.csv`),
+     a materially different and more defensible number than 85.8% —
+     endorsement is now a real, visible share instead of near-zero. Use
+     the 3-class numbers going forward, not 85.8%**;
      Wikileaks ~2.7-3.0% hostile either way) — what changes is which
      entities dominate which population. Bigger finding underneath this:
      leak-source whistleblowers (Wikileaks 41,881 mentions, Assange,
@@ -207,6 +217,27 @@ grouping by topic since there's a lot:
   processed) — apply it proactively to any new script touching the
   16.7M-row Unfiltered population or the 4.78M-row enriched corpus,
   don't wait to hit the OOM first.
+
+**Update 2026-07-21, later same day (separate Claude Code session, not
+Antigravity): stance classifier quality-checked and partially fixed, see
+`handoff/task_stance_endorsement_blindspot.md` for full detail.** Short
+version: built a 99-row hand-labeled quality-check queue for the Alex
+Jones per-entity finding above (85.8% hostile) and found the classifier
+is solid on confident-hostile predictions (87.5% held-out accuracy) but
+badly unreliable on confident-endorsing ones (38.9% accuracy, worse than
+chance -- reproduced in a second, totally separate population too, so
+it's a real property not a training-sample fluke). Fixed two real bugs
+this exposed (quote-stripping so a quoted stranger's words aren't
+attributed to the commenter; a list/link-dump Stage-1 filter for
+citation-dump comments with no real evaluative content), retrained the
+classifier (kappa 0.345->0.352), and built (but did not label) an
+active-learning round targeting the endorsement blind spot specifically.
+Also built and indexed the ~18.6M-row short-comment (<=100 char)
+population that's never been touched by anything in this pipeline --
+`Paths().short_comments` in `utils/file_paths.py`. **Don't cite the
+85.8%-hostile Jones number to that precision without reading the task
+file first** -- the fresh ground truth here suggests the real rate is
+likely closer to 76-80%.
 
 **Update 2026-07-20, later same day: both of the sessions mentioned below
 are now substantially done, uncommitted.** The r/politics crawl finished
@@ -520,6 +551,10 @@ don't assume from the source order.
 
 | File | What it is |
 |---|---|
+| `handoff/task_multi_entity_quality_check_queues.md` | **New (2026-07-21), not started, safe for Antigravity.** Generalizes the Jones quality-check queue builder to Wikileaks/Assange/Snowden/Greenwald — Nash's specific worry is that their high endorsement numbers (67-88% under the 3-class model) could have the same sarcasm/mockery blind spot the Jones check found ("limited hangout" accusations read like the "gay frogs" mockery pattern). Queue-building only, no labeling. |
+| `handoff/task_short_comment_quality_check_queue.md` | **New (2026-07-21), not started, safe for Antigravity.** Same generalization, pointed at the newly-indexed short-comment (<=100 char) corpus instead of an entity — checks whether stance detection holds up on much shorter, lower-context text before any decision to extend the core regression to that population. Queue-building only. |
+| `handoff/task_extend_citation_curation.md` | **New (2026-07-21), not started, safe for Antigravity WITH the guardrails read carefully** (real identification judgment per row, not pure mechanical transformation — explicit "flag uncertain, don't guess" instruction included given the self-graded-audit overclaiming problem found in `task_project_inventory_corrections.md` this same day). Extends `cited_content_curation_step2.md`'s top-~55 cited-URL table another ~100 rows down the tail. |
+| `handoff/task_stance_endorsement_blindspot.md` | **New (2026-07-21, later same-day session), quality-checked + partially fixed, next step ready but needs a human label pass.** Fresh 99-row hand-labeled quality check found the stance classifier is good at confident-hostile (87.5% acc) but bad at confident-endorsing (38.9% acc, worse than chance) for Alex Jones specifically, reproduced in a brand-new short-comment population too. Quote-stripping + list/link-dump Stage-1 filter already built and applied (classifier retrained, kappa 0.345->0.352); active-learning round 6 targeting the blind spot is built (`queue_maverick_stance_round6.csv`, 105 rows) but not yet labeled. Also ships a new short-comment (<=100 char) corpus index, `Paths().short_comments` -- the ~18.6M-row population never before touched by any classifier in this project. |
 | `handoff/task_credentials_problem_integration.md` | **New, not started.** The actual "credentials problem" research question is still open — everything so far (per-entity breakdown, `source_citation`, URL curation) is scaffolding, not yet assembled into the comparative finding (does anti-consensus/conspiracy-position sourcing lean on differently-credentialed sources than consensus-aligned sourcing, not just less-cited-by-name sources). See the 2026-07-21 update above for what's already built to reuse. |
 | `handoff/task_entity_fixed_effects_regression.md` | **New, proposed not executed.** Would make the per-entity finding (leak-source whistleblowers endorsed, media-personality mavericks attacked) quantitatively rigorous via entity fixed-effects instead of just descriptive tables. Nash said "could do, idk" — genuinely undecided, worth revisiting. |
 | `handoff/task_topic_era_rerun_corrected_constructs.md` | **New, not started.** The Bonferroni-corrected topic/era analysis (see below, "done 2026-07-20") is now stale relative to today's entity-list fixes, link source-tier taxonomy, and hedged_suspicion — needs a rerun with corrected constructs, keeping the Bonferroni correction intact. Do NOT merge this into `run_integrated_regressions.py`'s elasticity/insider grid — different, deliberate design tradeoff, see the 2026-07-20 conversation history for why (sparsity + multiple-comparisons integrity). |

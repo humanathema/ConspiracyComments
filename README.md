@@ -96,10 +96,7 @@ secondary/exploratory comparison corpora.
 - `ConspiracyMaster_Refactored.ipynb` — the canonical analysis notebook (research map in its header; Section 0 is a headline-findings TL;DR, Sections 1–9 are the original derivation/methodology sequence, Sections 10–14 are the 2026-07-21 stance/link-tier/credentials batch referenced above). Code cells are collapsed by default in Jupyter/VS Code/GitHub's viewer and hidden entirely (not just collapsed) in the static HTML export below — the notebook is a methods reference, not something meant to be read top-to-bottom line-by-line.
 - `ConspiracyMaster_Refactored.html` — static export of the notebook for reading without launching Jupyter (code hidden, findings/tables/plots only; regenerate with `jupyter nbconvert --to html --embed-images ConspiracyMaster_Refactored.ipynb --TagRemovePreprocessor.enabled=True --TagRemovePreprocessor.remove_input_tags='{"hide-input"}'` after editing the notebook)
 - `utils/` — shared helpers: epistemic lexicon, DuckDB patterns, plotting, path resolution
-- `src/` — the working pipeline: entity curation (Wikipedia/Wikidata/OpenAlex/PetScan),
-  Wikidata-based entity disambiguation, HITL rating tooling, the core regression engine,
-  and the original LLM (Vertex AI) semantic classification pipeline — that last piece is
-  one part of this directory now, not the whole of it
+- `src/` — entity curation, regression analysis, HITL rating tools, and external data pipelines (Wikipedia/Wikidata, Arctic Shift, OpenAlex); the original Vertex AI classification pipeline is one part of this, not the whole of it
 - `ANTIGRAVITY_HANDOFF.md` — current verified project state, guardrails, and open task index (start here for a status snapshot)
 - `handoff/PROJECT_INVENTORY.md` — file-by-file audit of every script in `src/`/`utils/`, with design-lineage history (what was superseded, and why)
 - `DATA_MANIFEST.md` — provenance map for every file in `data/processed/` (active / legacy / orphan; predates the 2026-07-13+ entity/regression work, being refreshed)

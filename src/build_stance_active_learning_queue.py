@@ -42,9 +42,9 @@ from rerun_refined_regressions_v2 import (
 import re
 from combined_maverick_detector import load_maverick_disambiguation_lookup, CANDIDATE_TO_BARES as MAVERICK_CANDIDATE_TO_BARES
 from consensus_disambiguation_lookup import load_consensus_disambiguation_lookup, CANDIDATE_TO_BARES as CONSENSUS_CANDIDATE_TO_BARES
-from stance_window_utils import extract_entity_window, compute_spans_for_row
+from stance_window_utils import extract_entity_window, compute_spans_for_row, is_list_or_link_dump_window
 
-STANCE_MODEL_PATH = 'data/processed/stance_classifier.joblib'
+STANCE_MODEL_PATH = 'data/processed/stance_classifier_3class.joblib'
 
 QUEUE_SPECS = {
     'maverick_stance': {
@@ -96,6 +96,18 @@ def main():
     parser.add_argument('--round', type=int, default=2,
                          help="Round number -- each round gets its own output file "
                               "(queue_<name>_round<N>.csv) so earlier rounds' ratings are never overwritten.")
+    parser.add_argument('--strategy', default='uncertainty', choices=['uncertainty', 'high_endorse', 'high_other'],
+                         help="'uncertainty' (default): least-confidence sampling on the 3-class model "
+                              "(1 - top predicted class probability -- the 3-class analog of the old "
+                              "|P-0.5| binary uncertainty). "
+                              "'high_endorse': targets the confirmed weak spot from the Jones quality "
+                              "check (2026-07-21) -- samples highest P(endorsement) rows; round 6 used "
+                              "this and endorsement precision improved 0.57->0.61 on retrain. "
+                              "'high_other': the 'other' class (neutral/ambiguous folded together) is "
+                              "still weak after round 6 (precision 0.32, recall 0.20, n=161, untouched "
+                              "by round 6's endorsement-only targeting) -- samples highest P(other) rows "
+                              "so Nash can confirm/correct genuinely-other candidates the same way round "
+                              "6 did for endorsement.")
     args = parser.parse_args()
 
     spec = QUEUE_SPECS[args.queue]
@@ -200,20 +212,47 @@ def main():
         for cid, text in zip(pop['id'].astype(str), pop['text'].fillna(''))
     ]
 
-    print("Scoring stance probability...")
+    n_list_dump = pop['text_window'].apply(is_list_or_link_dump_window)
+    if n_list_dump.any():
+        print(f"Excluding {n_list_dump.sum()} list/link-dump candidate(s) (2+ URLs in the entity's own "
+              "window) from sampling -- these aren't a labeling problem the classifier can fix, "
+              "see stance_window_utils.is_list_or_link_dump_window.")
+        pop = pop[~n_list_dump].copy()
+
+    print("Scoring stance probability (3-class: hostile/endorsement/other)...")
     X = vec.transform(pop['text_window'])
-    pop['stance_prob'] = clf.predict_proba(X)[:, 1]
-    pop['uncertainty'] = (pop['stance_prob'] - 0.5).abs()
+    probs = clf.predict_proba(X)
+    classes = list(clf.classes_)
+    for i, c in enumerate(classes):
+        pop[f'p_{c}'] = probs[:, i]
+    # least-confidence uncertainty: 1 - top predicted class probability.
+    # 3-class analog of the old binary |P-0.5| metric -- a row where the
+    # model is torn 3 ways (or 2 ways) between classes scores as MORE
+    # uncertain (closer to 1) than one where it's confident in a single class.
+    pop['top_prob'] = probs.max(axis=1)
+    pop['uncertainty'] = 1 - pop['top_prob']
+    # kept for continuity with prior rounds' output schema/downstream scripts
+    # that expect a single 'stance_prob' column -- P(endorsement) specifically,
+    # same semantics as the old binary model's column 1.
+    pop['stance_prob'] = pop['p_endorsement']
 
     n = min(args.n, len(pop))
-    sample = pop.nsmallest(n, 'uncertainty').copy()
-    print(f"Selected {len(sample)} most-uncertain rows "
-          f"(stance_prob range: {sample['stance_prob'].min():.3f}-{sample['stance_prob'].max():.3f})")
+    if args.strategy == 'high_endorse':
+        sample = pop.nlargest(n, 'p_endorsement').copy()
+        sort_col = 'p_endorsement'
+    elif args.strategy == 'high_other':
+        sample = pop.nlargest(n, 'p_other').copy()
+        sort_col = 'p_other'
+    else:
+        sample = pop.nsmallest(n, 'uncertainty').copy()
+        sort_col = 'uncertainty'
+    print(f"Selected {len(sample)} rows via '{args.strategy}' strategy "
+          f"({sort_col} range: {sample[sort_col].min():.3f}-{sample[sort_col].max():.3f})")
 
     shuffled = sample.sample(frac=1, random_state=42).reset_index(drop=True)
 
     os.makedirs(os.path.dirname(round_map_path), exist_ok=True)
-    shuffled[['id', 'stance_prob', 'uncertainty']].to_csv(round_map_path, index=False)
+    shuffled[['id', 'stance_prob', 'uncertainty'] + [f'p_{c}' for c in classes]].to_csv(round_map_path, index=False)
     print(f"Saved unblinded uncertainty map to {round_map_path}")
 
     # FIX 2026-07-20 (Nash's round-3 feedback): rows resolved ONLY via the

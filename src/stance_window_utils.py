@@ -31,6 +31,52 @@ import re
 
 WINDOW_WORDS = 15
 
+# Reddit markdown blockquote lines ("> quoted text", or the HTML-escaped
+# "&gt; quoted text" seen in ~11K rows, presumably from an un-decoded
+# export). An entity mention whose span falls entirely inside one of these
+# lines is someone else's text being quoted, not the commenter's own words
+# -- scoring it as the commenter's stance would attribute a stranger's
+# opinion to them. QUOTE_LINE_RE is multiline (?m) so each line of a
+# multi-line quote block is matched individually.
+QUOTE_LINE_RE = re.compile(r'(?m)^[ \t]*(?:>|&gt;)[ \t]*.*$')
+
+
+def quoted_line_ranges(text):
+    text = str(text)
+    return [(m.start(), m.end()) for m in QUOTE_LINE_RE.finditer(text)]
+
+
+def filter_quoted_spans(text, spans):
+    """Drops spans that fall entirely inside a quoted line. No-op (returns
+    spans unchanged) if the text has no quote markers at all, which is the
+    overwhelming majority of comments -- avoids paying the regex scan cost
+    twice for nothing."""
+    if not spans:
+        return spans
+    ranges = quoted_line_ranges(text)
+    if not ranges:
+        return spans
+    return [s for s in spans if not any(qs <= s["start"] and s["end"] <= qe for qs, qe in ranges)]
+
+
+URL_RE = re.compile(r'https?://\S+')
+MIN_WINDOW_URLS_FOR_LIST_DUMP = 2
+
+
+def is_list_or_link_dump_window(window_text):
+    """True if the entity's own +-15-word window (not the whole comment)
+    contains 2+ URLs -- confirmed against two real Jones quality-check
+    misses (2026-07-21): both were link-dump comments (a wall of RT/
+    YouTube links, a Google-search dump) where the target entity's
+    immediate context is other links, not evaluative language about the
+    entity at all. The classifier reads "no hostile-coded words nearby" as
+    endorsement, so these get scored confidently-endorsing (0.68-0.73)
+    while a human calls them neutral/unclear. Checking the WINDOW rather
+    than the full comment matters -- a comment can legitimately cite one
+    source while genuinely commenting on the entity elsewhere; it's only a
+    problem when the citation dump is what surrounds the mention itself."""
+    return len(URL_RE.findall(str(window_text))) >= MIN_WINDOW_URLS_FOR_LIST_DUMP
+
 
 def extract_entity_window(text, spans, window_words=WINDOW_WORDS):
     """spans: list of {"start":, "end":, "text":} dicts, OR a JSON string
@@ -58,15 +104,22 @@ def extract_entity_window(text, spans, window_words=WINDOW_WORDS):
     return " ".join(windows)
 
 
-def compute_spans_for_row(text, cid, rx, lookup, candidate_to_bares):
+def compute_spans_for_row(text, cid, rx, lookup, candidate_to_bares, filter_quotes=True):
     """Direct-regex spans for a comment; if none, falls back to
     highlighting the resolved candidate's bare form via the
     disambiguation lookup (same logic used in
     build_stance_active_learning_queue.py's queue-building, kept here so
     every scoring site can compute spans the same way instead of
-    duplicating this fallback separately)."""
+    duplicating this fallback separately).
+
+    filter_quotes=True (default) drops spans inside quoted lines at each
+    stage (direct match, then fallback) before falling through -- so a
+    mention that's ONLY quoted still lets the fallback bare-form search
+    run, same as if the direct regex had found nothing at all."""
     text = str(text)
     spans = [{"start": m.start(), "end": m.end(), "text": m.group(0)} for m in rx.finditer(text)]
+    if filter_quotes:
+        spans = filter_quoted_spans(text, spans)
     if spans:
         return spans
     resolved = lookup.get(str(cid))
@@ -74,4 +127,6 @@ def compute_spans_for_row(text, cid, rx, lookup, candidate_to_bares):
     for bare in bares:
         bare_rx = re.compile(r"\b" + re.escape(bare) + r"\b", re.IGNORECASE)
         spans.extend({"start": m.start(), "end": m.end(), "text": m.group(0)} for m in bare_rx.finditer(text))
+    if filter_quotes:
+        spans = filter_quoted_spans(text, spans)
     return spans

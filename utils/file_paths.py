@@ -59,6 +59,15 @@ class Paths:
     def corpus_metadata(self) -> str:
         """Cached corpus statistics (JSON)."""
         return str(self.base / 'corpus_metadata.json')
+
+    @property
+    def short_comments(self) -> str:
+        """Complement of `empath` -- comments with char_length<=100 (the
+        raw corpus minus the length-filtered 'usable' set), same base
+        schema as `empath` minus the 11 lexicon count columns. Built
+        2026-07-21 so querying this population doesn't require re-scanning
+        the raw gzipped JSONL every time (parquet: <1s vs ~48s)."""
+        return str(self.base / 'conspiracy_comments_short_lte100chars.parquet')
     
     @property
     def high_upvote_topics(self) -> str:

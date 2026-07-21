@@ -65,9 +65,35 @@ QUEUES = {
     "maverick_stance_round3": _abs("data/hitl/queue_maverick_stance_round3.csv"),
     "maverick_stance_round4": _abs("data/hitl/queue_maverick_stance_round4.csv"),
     "maverick_stance_round5": _abs("data/hitl/queue_maverick_stance_round5.csv"),
+    "maverick_stance_round6": _abs("data/hitl/queue_maverick_stance_round6.csv"),
+    "maverick_stance_round7": _abs("data/hitl/queue_maverick_stance_round7.csv"),
+    "wikileaks_quality_check": _abs("data/hitl/queue_wikileaks_stance_quality_check.csv"),
+    "assange_quality_check": _abs("data/hitl/queue_assange_stance_quality_check.csv"),
+    "snowden_quality_check": _abs("data/hitl/queue_snowden_stance_quality_check.csv"),
+    "greenwald_quality_check": _abs("data/hitl/queue_greenwald_stance_quality_check.csv"),
+    "jones_short_quality_check": _abs("data/hitl/queue_jones_short_stance_quality_check.csv"),
 }
 
 EMPATH_PATH = _abs("data/processed/empath_scores_full.parquet")
+
+# IRR (inter-rater-reliability) support, added 2026-07-21. Queue names
+# listed here route submissions to a PER-RATER response file
+# (data/hitl/irr_responses/{queue}__{rater}.csv) instead of writing
+# directly into the master queue CSV -- so multiple raters labeling the
+# SAME blind sample never collide/overwrite each other, and never see
+# each other's (or Nash's original) answers. Currently empty -- populate
+# once an actual IRR blind-sample queue exists (see
+# handoff/task_irr_sample_builder.md) and is added to QUEUES above.
+# Queues NOT in this set keep the original single-rater behavior exactly
+# as before (write straight to the source CSV) -- this is purely additive,
+# no change to any existing queue's behavior.
+IRR_QUEUES = set()
+IRR_RESPONSES_DIR = _abs("data/hitl/irr_responses")
+
+
+def _irr_response_path(queue, rater):
+    safe_rater = "".join(c if c.isalnum() or c in "-_" else "_" for c in rater) or "anonymous"
+    return os.path.join(IRR_RESPONSES_DIR, f"{queue}__{safe_rater}.csv")
 
 PAGE = """<!doctype html>
 <html><head><meta charset="utf-8"><title>HITL Rater</title>
@@ -97,6 +123,10 @@ PAGE = """<!doctype html>
 </style></head>
 <body>
 <div class="tabs" id="tabs"></div>
+<div style="margin-bottom:10px; color:#999;">
+  Rater name (only used for IRR queues, ignored otherwise):
+  <input id="rater_name" type="text" placeholder="e.g. nash" style="background:#1c1c1c; color:#eee; border:1px solid #333; border-radius:4px; padding:4px 8px; margin-left:6px;">
+</div>
 <div id="progress"></div>
 <div class="nav" id="nav"></div>
 <button id="context_btn" style="display:none">Load surrounding context (parent + sibling replies)</button>
@@ -113,6 +143,11 @@ let current = Object.keys(queueNames)[0];
 let rows = [];       // full row list for the current queue
 let idx = 0;          // current position in `rows`
 let labelCol = 'human_label';
+
+const raterInput = document.getElementById('rater_name');
+raterInput.value = localStorage.getItem('hitl_rater_name') || '';
+raterInput.addEventListener('input', () => localStorage.setItem('hitl_rater_name', raterInput.value));
+function raterName() { return raterInput.value.trim(); }
 
 function renderTabs() {
   const t = document.getElementById('tabs');
@@ -158,7 +193,11 @@ function renderLabelButtons(selected) {
   const l = document.getElementById('labels');
   l.innerHTML = '';
   let opts = [];
-  if (current === 'consensus_stance' || current === 'maverick_stance' || current === 'consensus_stance_politics' || current === 'maverick_stance_politics' || current === 'maverick_stance_round2' || current === 'maverick_stance_round3' || current === 'maverick_stance_round4' || current === 'maverick_stance_round5') {
+  const STANCE_QUEUES = ['consensus_stance', 'maverick_stance', 'consensus_stance_politics', 'maverick_stance_politics',
+    'maverick_stance_round2', 'maverick_stance_round3', 'maverick_stance_round4', 'maverick_stance_round5',
+    'maverick_stance_round6', 'maverick_stance_round7', 'wikileaks_quality_check', 'assange_quality_check',
+    'snowden_quality_check', 'greenwald_quality_check', 'jones_short_quality_check'];
+  if (STANCE_QUEUES.includes(current)) {
     opts = [
       ['endorsement', 'kp', '1'], ['hostile', 'kn', '2'],
       ['neutral', '', '3'], ['ambiguous', '', '4'],
@@ -217,7 +256,7 @@ async function loadQueue(resetToFirstUnlabeled) {
   // most recently issued request by the time it comes back.
   const requestQueue = current;
   const thisRequestId = ++queueRequestId;
-  const r = await fetch('/api/queue?queue=' + requestQueue);
+  const r = await fetch('/api/queue?queue=' + requestQueue + '&rater=' + encodeURIComponent(raterName()));
   const data = await r.json();
   if (thisRequestId !== queueRequestId) return; // a newer request superseded this one
   rows = data.rows;
@@ -296,7 +335,7 @@ async function submit(label) {
   await fetch('/api/label', {
     method: 'POST',
     headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify({queue: current, id: row.id, label_col: labelCol, human_label: label, notes: notes})
+    body: JSON.stringify({queue: current, id: row.id, label_col: labelCol, human_label: label, notes: notes, rater: raterName()})
   });
   renderLabelButtons(label);
   // auto-advance only if this was the first time this row was labeled AND we're at the frontier
@@ -316,7 +355,11 @@ document.addEventListener('keydown', (e) => {
   if (e.metaKey || e.ctrlKey || e.altKey) return;
 
   let map = {};
-  if (current === 'consensus_stance' || current === 'maverick_stance' || current === 'consensus_stance_politics' || current === 'maverick_stance_politics' || current === 'maverick_stance_round2' || current === 'maverick_stance_round3' || current === 'maverick_stance_round4' || current === 'maverick_stance_round5') {
+  const STANCE_QUEUES = ['consensus_stance', 'maverick_stance', 'consensus_stance_politics', 'maverick_stance_politics',
+    'maverick_stance_round2', 'maverick_stance_round3', 'maverick_stance_round4', 'maverick_stance_round5',
+    'maverick_stance_round6', 'maverick_stance_round7', 'wikileaks_quality_check', 'assange_quality_check',
+    'snowden_quality_check', 'greenwald_quality_check', 'jones_short_quality_check'];
+  if (STANCE_QUEUES.includes(current)) {
     map = {'1': 'endorsement', '2': 'hostile', '3': 'neutral', '4': 'ambiguous', '5': 'wrong_match'};
   } else {
     map = {'1': 'positive', '2': 'lean_positive', '3': 'negative', '4': 'unsure'};
@@ -367,12 +410,28 @@ class Handler(BaseHTTPRequestHandler):
         elif parsed.path == "/api/queue":
             qs = parse_qs(parsed.query)
             queue = qs.get("queue", [None])[0]
+            rater = qs.get("rater", [None])[0]
             path = QUEUES.get(queue)
             if not path:
                 self._json({"error": "unknown queue"}, 400)
                 return
             df = load_df(path)
             col = "human_stance" if "human_stance" in df.columns else "human_label"
+            if queue in IRR_QUEUES:
+                # Blind base rows -- the master file's label column is never
+                # read (or written) for IRR queues, only this rater's own
+                # response file is, so no rater ever sees anyone else's answer.
+                df[col] = None
+                df["notes"] = None
+                resp_path = _irr_response_path(queue, rater) if rater else None
+                if resp_path and os.path.exists(resp_path):
+                    resp = pd.read_csv(resp_path)
+                    resp_map = {str(r["id"]): (r.get(col), r.get("notes")) for _, r in resp.iterrows()}
+                    for i, row in df.iterrows():
+                        if str(row["id"]) in resp_map:
+                            lbl, nts = resp_map[str(row["id"])]
+                            df.at[i, col] = lbl
+                            df.at[i, "notes"] = nts
             # BUG FIXED 2026-07-20: `df.where(pd.notna(df), None)` doesn't
             # actually put None into a float64 column -- pandas silently
             # coerces it right back to np.nan (a well-known gotcha; float
@@ -436,12 +495,31 @@ class Handler(BaseHTTPRequestHandler):
         if parsed.path == "/api/label":
             length = int(self.headers.get("Content-Length", 0))
             payload = json.loads(self.rfile.read(length))
-            path = QUEUES.get(payload["queue"])
+            queue = payload["queue"]
+            path = QUEUES.get(queue)
             if not path:
                 self._json({"error": "unknown queue"}, 400)
                 return
+            col = payload.get("label_col") or "human_label"
+            if queue in IRR_QUEUES:
+                rater = (payload.get("rater") or "").strip()
+                if not rater:
+                    self._json({"error": "rater name required for IRR queues"}, 400)
+                    return
+                os.makedirs(IRR_RESPONSES_DIR, exist_ok=True)
+                resp_path = _irr_response_path(queue, rater)
+                resp = pd.read_csv(resp_path) if os.path.exists(resp_path) else pd.DataFrame(columns=["id", col, "notes"])
+                mask = resp["id"].astype(str) == str(payload["id"])
+                if mask.any():
+                    resp.loc[mask, col] = payload["human_label"]
+                    resp.loc[mask, "notes"] = payload.get("notes", "")
+                else:
+                    new_row = {"id": payload["id"], col: payload["human_label"], "notes": payload.get("notes", "")}
+                    resp = pd.concat([resp, pd.DataFrame([new_row])], ignore_index=True)
+                resp.to_csv(resp_path, index=False)
+                self._json({"ok": True})
+                return
             df = load_df(path)
-            col = payload.get("label_col") or ("human_stance" if "human_stance" in df.columns else "human_label")
             mask = df["id"].astype(str) == str(payload["id"])
             df.loc[mask, col] = payload["human_label"]
             df.loc[mask, "notes"] = payload.get("notes", "")

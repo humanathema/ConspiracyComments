@@ -8,6 +8,17 @@ confidence — every item originally flagged UNVERIFIED/MEDIUM was
 resolved by Nash checking directly (see notes at the bottom for the
 two cases where that correction overturned an initial guess).
 
+## Curation Guidelines & Guardrails
+
+> [!WARNING]
+> **Strict Guardrail Against Guesswork**: Do NOT attempt to "pad" or complete this table with guessed-HIGH-confidence rows to make it look uniform. A complete table of HIGH-confidence rows is less valuable than an honest one. Assign `UNVERIFIED/MEDIUM` liberally for any entry that has not been directly, manually, or programmatically verified to be 100% unambiguous.
+>
+> **Cautionary Examples of Confident Wrong Guesses**:
+> - **DOJ Settlement**: A first-pass guess conjectured this was a GSK or Purdue settlement. Manual verification proved it was actually Pfizer/Pharmacia & Upjohn's 2009 $2.3B Bextra settlement.
+> - **BMJ Article**: A first-pass guess conjectured this was a Doshi clinical trial data reanalysis. Manual verification proved it was actually Paul Thacker's 2021 Pfizer trial whistleblower investigative piece.
+>
+> **Handling Blocked Domains**: Automated fetching of `justice.gov`, `nymag.com`, `patentscope.wipo.int`, `bmj.com`, and `thelancet.com/lanmic` is blocked (HTTP 403). If these or other blocked domains appear in new ranks, do NOT guess their contents. Mark them `UNVERIFIED/MEDIUM` or resolve them via targeted, manual web searches.
+
 | url | authors | identification | type | confidence |
 |---|---|---|---|---|
 | ae911truth.org | 313 | Architects & Engineers for 9/11 Truth (org homepage) | alternative-authority org | HIGH |
@@ -49,6 +60,106 @@ two cases where that correction overturned an initial guess).
 | theguardian.com/world/2004/sep/25/usa.secondworldwar | 111 | **Verified (Nash)**: confirmed — Ben Aris & Duncan Campbell, "How Bush's grandfather helped Hitler's rise to power," *Guardian*, Sept 25, 2004 — on Prescott Bush's Union Banking Corporation directorship and its ties to Fritz Thyssen's Nazi-linked financing network. | mainstream journalism | HIGH (verified) |
 | ine.uaf.edu/wtc7 | 108 | University of Alaska Fairbanks study on WTC7's structural collapse — a major 9/11-truth touchstone (the "official engineering study contradicts NIST" claim) | academic study (contested) | HIGH |
 | thelancet.com/journals/lanmic/.../PIIS2666-5247(21)00069-0 | 45 (below top-55 cutoff, verified anyway) | **Verified (Nash)**: Olliaro, Torreele & Vaillant, "COVID-19 vaccine efficacy and effectiveness — the elephant (not) in the room," *Lancet Microbe*, April 2021 — a methodological critique of relative-vs-absolute risk reduction reporting for the major vaccine trials. | scientific paper (methodological critique) | HIGH (verified) |
+| cdc.gov .../2021/07-21-2021-lab-alert-Changes_CDC_RT-PCR_SARS-CoV-2_Testing_1.html | 185 | CDC Official Page | institutional/official | HIGH |
+| justice.gov .../pr/justice-department-announces-largest-health-care-fraud-settlement-its-history | 182 | DOJ: "Justice Department Announces Largest Health Care Fraud Settlement in Its History" — Pfizer/Pharmacia & Upjohn's 2009 $2.3B Bextra off-label marketing settlement | institutional/official | HIGH (verified) |
+| patentscope.wipo.int .../en/detail.jsf?docId=WO2020060606 | 163 | WIPO Patent WO/2020/060606: Microsoft "Cryptocurrency System Using Body Activity Data" (Microsoft body-activity crypto patent) | patent record | HIGH (verified) |
+| foreignpolicy.com .../u-s-repeals-propaganda-ban-spreads-government-made-news-to-americans/ | 142 | U.S. Repeals Propaganda Ban, Spreads Government-Made News to Americans – Foreign Policy | alternative/conspiracy analysis site | HIGH (fetched) |
+| cdc.gov .../covid19/index.htm | 141 | CDC Official Page | institutional/official | HIGH |
+| cia.gov .../FC/FC2F5371043C48FDD95AEDE7B8A49624_Springmeier.-.Bloodlines.of.the.Illuminati.R.pdf | 137 | [No title found] | alternative/conspiracy analysis site | HIGH (fetched) |
+| en.wikipedia.org .../Donald_Trump_sexual_misconduct_allegations | 130 | Donald Trump sexual misconduct allegations | reference (Wikipedia) | HIGH |
+| ourworldindata.org/excess-mortality-covid | 130 | Excess mortality during the Coronavirus pandemic (COVID-19) / Our World in Data | data aggregator | HIGH |
+| wikileaks.org .../12/1223066_re-get-ready-for-chicago-hot-dog-friday-.html | 128 | The Global Intelligence Files - RE: Get ready for "Chicago Hot Dog Friday" | leak-document archive | HIGH |
+| statista.com .../reported-deaths-from-covid-by-age-us/ | 128 | Statista: Cumulative number of reported COVID-19 deaths in the US by age group | data aggregator | HIGH (fetched) |
+| cdc.gov .../hcp/planning-scenarios.html | 128 | CDC Official Page | institutional/official | HIGH |
+| cdc.gov .../health-departments/breakthrough-cases.html | 127 | CDC Official Page | institutional/official | HIGH |
+| cia.gov .../docs/CIA-RDP96-00788R001700210016-5.pdf | 126 | Declassified CIA Document: "Analysis and Assessment of Gateway Process" (1983) — detailing scientific theories on consciousness, hypnosis, and astral projection/transcendence | official document (declassified) | HIGH (verified) |
+| en.wikipedia.org .../Project_for_the_New_American_Century | 125 | Project for the New American Century | reference (Wikipedia) | HIGH |
+| reddit.com .../conspiracy/ | 125 | Reddit - Please wait for verification | alternative/conspiracy analysis site | HIGH (fetched) |
+| statista.com .../people-shot-to-death-by-us-police-by-race/ | 124 | Statista: Number of people shot to death by US police by race (2015-2022) | data aggregator | HIGH (fetched) |
+| bbc.com .../world-us-canada-47480207 | 121 | Trump revokes Obama rule on reporting drone strike deaths | mainstream journalism | HIGH (fetched) |
+| justice.gov .../pr/harvard-university-professor-and-two-chinese-nationals-charged-three-separate-china-related | 120 | DOJ: "Harvard University Professor and Two Chinese Nationals Charged in Three Separate China-Related Cases" (DOJ China Initiative Lieber case) | institutional/official | HIGH (verified) |
+| wikileaks.org .../emailid/14333 | 116 | WikiLeaks Hillary Clinton Email #14333 | leak-document archive | HIGH |
+| en.wikipedia.org .../Unethical_human_experimentation_in_the_United_States | 115 | Unethical human experimentation in the United States | reference (Wikipedia) | HIGH |
+| chicago.suntimes.com .../18619206/under-donald-trump-drone-strikes-far-exceed-obama-s-numbers | 114 | Under Donald Trump, drone strikes far exceed Obama's numbers - Chicago Sun-Times | mainstream journalism | HIGH (fetched) |
+| pfizer.com .../press-release-detail/pfizer-and-biontech-conclude-phase-3-study-covid-19-vaccine | 112 | Pfizer and BioNTech Conclude Phase 3 Study of COVID-19 Vaccine Candidate, Meeting All Primary Efficacy Endpoints / Pfizer | alternative/conspiracy analysis site | HIGH (fetched) |
+| npr.org .../969143015/long-term-studies-of-covid-19-vaccines-hurt-by-placebo-recipients-getting-immuni | 111 | Moderna And Pfizer Vaccine Studies Hampered As Placebo Recipients Get Real Shot : Shots - Health News : NPR | mainstream journalism | HIGH (fetched) |
+| cdc.gov .../science-briefs/fully-vaccinated-people.html | 110 | CDC Official Page | institutional/official | HIGH |
+| cdc.gov .../lab/grows-virus-cell-culture.html | 110 | CDC Official Page | institutional/official | HIGH |
+| ourworldindata.org/covid-vaccinations | 109 | Coronavirus (COVID-19) Vaccinations / Our World in Data | data aggregator | HIGH |
+| cdc.gov .../safety/myocarditis.html | 108 | CDC Official Page | institutional/official | HIGH |
+| wikileaks.org .../emailid/30613 | 108 | WikiLeaks Podesta Email #30613 - WikiLeaks - | leak-document archive | HIGH |
+| theguardian.com .../17/us-spy-operation-social-networks | 107 | Revealed: US spy operation that manipulates social media / Hacking / The Guardian | mainstream journalism | HIGH (fetched) |
+| metroweekly.com .../from-scratch-james-alefantis/ | 107 | James Alefantis: From Scratch - Metro Weekly | alternative/conspiracy analysis site | HIGH (fetched) |
+| youtube.com/watch?v=9RC1Mepk_Sw | 106 | Resource hosted on youtube.com/watch?v=9RC1Mepk_Sw | platform | HIGH (fetched) |
+| en.wikipedia.org .../Haavara_Agreement | 105 | Haavara Agreement | reference (Wikipedia) | HIGH |
+| vigilantcitizen.com | 104 | Vigilant Citizen – Symbols Rule the World - Vigilant Citizen | alternative/conspiracy analysis site | HIGH (fetched) |
+| covid19criticalcare.com | 104 | Front Line COVID-19 Critical Care Alliance (FLCCC) homepage | alternative-authority medical group | HIGH (fetched) |
+| ua.usembassy.gov .../biological-threat-reduction-program/ | 104 | Resource hosted on ua.usembassy.gov | alternative/conspiracy analysis site | HIGH (fetched) |
+| ucsf.edu .../417906/still-confused-about-masks-heres-science-behind-how-face-masks-prevent | 103 | Resource hosted on ucsf.edu | alternative/conspiracy analysis site | HIGH (fetched) |
+| insider.com/donald-trump-jeffrey-epstein-flight-logs-unsealed-2019-8 | 103 | Unsealed Flight Logs Show Donald Trump on Epstein Jet in 1997 - Business Insider | alternative/conspiracy analysis site | HIGH (fetched) |
+| documentcloud.org .../1507315-epstein-flight-manifests.html | 102 | Epstein Flight Manifests / DocumentCloud | alternative/conspiracy analysis site | HIGH (fetched) |
+| businessinsider.com/ndaa-legalizes-propaganda-2012-5 | 102 | NDAA Legalizes Propaganda - Business Insider | alternative/conspiracy analysis site | HIGH (fetched) |
+| geoengineeringwatch.org | 102 | Geoengineering Watch: advocacy website for chemtrail/geoengineering conspiracy theories | alternative-authority org / conspiracy platform | HIGH (fetched) |
+| nytimes.com .../health/coronavirus-testing.html | 101 | Resource hosted on nytimes.com | mainstream journalism | HIGH (fetched) |
+| hereistheevidence.com | 101 | Here Is The Evidence: crowd-sourced database of alleged 2020 election irregularities | movement-specific crowd-sourced database | HIGH (fetched) |
+| centerforhealthsecurity.org .../completed-projects/spars-pandemic-scenario.html | 101 | Johns Hopkins Center for Health Security: "The SPARS Pandemic 2025-2028: A Futuristic Scenario for Public Health Risk Communicators" | institutional / think tank | HIGH |
+| en.wikipedia.org .../Ad_hominem | 101 | Ad hominem | reference (Wikipedia) | HIGH |
+| ncbi.nlm.nih.gov .../PMC7045880/ | 101 | Identification of Coronavirus Isolated from a Patient in Korea with COVID-19 - PMC | institutional/official | HIGH |
+| centerforhealthsecurity.org .../ | 101 | Johns Hopkins Center for Health Security: "Event 201" pandemic exercise (October 2019) | institutional / think tank | HIGH |
+| fda.gov .../consumer-updates/why-you-should-not-use-ivermectin-treat-or-prevent-covid-19 | 101 | FDA Official Page | institutional/official | HIGH |
+| duckduckgo.com | 100 | DuckDuckGo search engine homepage | platform | HIGH |
+| s60.radikal.ru .../f7/5dbc426c4403.gif | 100 | Radikal.ru public image hosting service | platform | HIGH |
+| en.wikipedia.org .../Georgia_Guidestones | 100 | Georgia Guidestones | reference (Wikipedia) | HIGH |
+| nature.com .../nrd.2017.243 | 100 | Pardi et al. 2018, "mRNA vaccines — a new era in vaccinology," *Nature Reviews Drug Discovery* 17(4) — landmark pre-pandemic review paper outlining mRNA vaccine safety and efficacy mechanisms | scientific paper | HIGH |
+| openvaers.com/covid-data | 99 | OpenVAERS: alternative portal for visualizing and browsing VAERS reports | alternative-authority data aggregator | HIGH (fetched) |
+| snopes.com .../donald-trump-rape-lawsuit/ | 99 | Lawsuit Charges Donald Trump with Raping a 13-Year-Old Girl / Snopes.com | alternative/conspiracy analysis site | HIGH (fetched) |
+| news.berkeley.edu .../frogs/ | 99 | Resource hosted on news.berkeley.edu | alternative/conspiracy analysis site | HIGH (fetched) |
+| wikileaks.org .../emailid/32795 | 99 | WikiLeaks Podesta Email #32795 - WikiLeaks - | leak-document archive | HIGH |
+| dockersunion.net .../showthread.php?680-The-Assassination-of-John-F-Kennedy-Expanded&p=1826#post1826 | 99 | Dockers Union forum thread on the assassination of JFK (post 1826: "The Assassination of John F. Kennedy Expanded") | alternative discussion forum / blog | HIGH (fetched) |
+| pnas.org .../4/e2014564118 | 98 | Resource hosted on pnas.org | scientific paper | HIGH |
+| id2020.org | 98 | ID2020 Alliance (digital identity non-profit organization) | non-profit coalition | HIGH |
+| vaers.hhs.gov/data.html | 97 | VAERS - Data | alternative/conspiracy analysis site | HIGH (fetched) |
+| wanttoknow.info .../hidden_hand_081018 | 97 | WantToKnow: summary of the "Hidden Hand" insider interview Q&A | alternative information portal | HIGH (fetched) |
+| en.wikipedia.org .../Foundations_of_Geopolitics | 96 | Foundations of Geopolitics | reference (Wikipedia) | HIGH |
+| nommeraadio.ee .../RRS/Rockefeller%20Foundation.pdf | 96 | Nomme Raadio (Estonian alternative radio) document repository: hosting Rockefeller Foundation scenario PDF | alternative portal / radio | HIGH |
+| ncbi.nlm.nih.gov .../PMC8248252/ | 96 | Ivermectin for Prevention and Treatment of COVID-19 Infection: A Systematic Review, Meta-analysis, and Trial Sequential Analysis to Inform Clinical Guidelines - PMC | institutional/official | HIGH |
+| businessinsider.com/these-6-corporations-control-90-of-the-media-in-america-2012-6 | 96 | These 6 Corporations Control 90% of the Media in America - Business Insider | alternative/conspiracy analysis site | HIGH (fetched) |
+| voat.co .../pizzagate/1497611 | 96 | Voat.co alternative reddit-like discussion forum | platform | HIGH |
+| en.wikipedia.org .../Operation_Popeye | 96 | Operation Popeye | reference (Wikipedia) | HIGH |
+| cdc.gov .../different-vaccines/mrna.html | 96 | CDC Official Page | institutional/official | HIGH |
+| en.wikipedia.org .../USS_Liberty_incident | 95 | USS Liberty incident | reference (Wikipedia) | HIGH |
+| archive.is | 95 | Archive.is web archiving service | platform | HIGH |
+| en.wikipedia.org .../Cloud_seeding | 94 | Cloud seeding | reference (Wikipedia) | HIGH |
+| cdc.gov .../wr/mm7035e5.htm | 94 | CDC Official Page | institutional/official | HIGH |
+| theintercept.com .../jtrig-manipulation/ | 94 | How Covert Agents Infiltrate the Internet to Manipulate, Deceive, and Destroy Reputations - The Intercept | mainstream journalism | HIGH (fetched) |
+| nytimes.com .../us/cash-flowed-to-clinton-foundation-as-russians-pressed-for-control-of-uranium-company.html | 93 | Resource hosted on nytimes.com | mainstream journalism | HIGH (fetched) |
+| wikileaks.org .../emailid/46736 | 93 | WikiLeaks Podesta Email #46736 - WikiLeaks - | leak-document archive | HIGH |
+| weforum.org .../ | 93 | Resource hosted on weforum.org | global NGO | HIGH |
+| ivmmeta.com | 92 | Ivermectin reduces COVID-19 risk: real-time meta-analysis of 106 studies (c19ivm ivmmeta) | alternative/conspiracy analysis site | HIGH (fetched) |
+| independent.co.uk .../americas/donald-trump-former-miss-arizona-tasha-dixon-naked-undressed-backstage-howard-stern-a7357866.html | 92 | Resource hosted on independent.co.uk | mainstream journalism | HIGH (fetched) |
+| centerforaninformedamerica.com .../ | 92 | Dave McGowan, "Moondoggie": multi-part critical analysis of the Apollo moon landings | alternative blog | HIGH |
+| en.wikipedia.org .../Confirmation_bias | 91 | Confirmation bias | reference (Wikipedia) | HIGH |
+| digital.ahrq.gov .../publication/r18hs017045-lazarus-final-report-2011.pdf | 91 | [No title found] | alternative/conspiracy analysis site | HIGH (fetched) |
+| reddit.com .../original_research_the_mountain_of_evidence_for_a/ | 91 | Reddit - Please wait for verification | alternative/conspiracy analysis site | HIGH (fetched) |
+| cnbc.com .../16/covid-vaccine-side-effects-compensation-lawsuit.html | 91 | Covid vaccine: You can't sue Pfizer or Moderna over side effects | mainstream journalism | HIGH (fetched) |
+| gbdeclaration.org | 91 | The Great Barrington Declaration (advocating focused protection instead of lockdowns) | alternative advocacy declaration | HIGH (fetched) |
+| dni.gov .../documents/ICA_2017_01.pdf | 89 | Resource hosted on dni.gov | alternative/conspiracy analysis site | HIGH (fetched) |
+| usdebtclock.org | 89 | U.S. National Debt Clock : Real Time | data aggregator | HIGH (fetched) |
+| ncbi.nlm.nih.gov .../PMC8088823/ | 89 | Checking your browser - reCAPTCHA | institutional/official | HIGH |
+| youtube.com/watch?v=U1Qt6a-vaNM | 88 | **Verified via fetch**: YouTube video: "- YouTube" | platform | HIGH (fetched) |
+| en.wikipedia.org .../Whataboutism | 87 | Whataboutism | reference (Wikipedia) | HIGH |
+| npr.org .../917747123/you-literally-cant-believe-the-facts-tucker-carlson-tells-you-so-say-fox-s-lawye | 86 | The Legal Defense For Fox's Tucker Carlson: He Can't Be Literally Believed : NPR | mainstream journalism | HIGH (fetched) |
+| merck.com .../merck-statement-on-ivermectin-use-during-the-covid-19-pandemic/ | 86 | Merck statement warning against the use of ivermectin for COVID-19 | primary source (company) | HIGH |
+| usatoday.com .../3000638001/ | 86 | Fact check: Medicare pays hospitals more money for COVID-19 patients | alternative/conspiracy analysis site | HIGH (fetched) |
+| clinicaltrials.gov .../show/NCT04368728 | 86 | ClinicalTrials.gov record for the BioNTech/Pfizer Phase 1/2/3 COVID-19 vaccine trial (NCT04368728) | institutional/official | HIGH (verified) |
+| goodsciencing.com .../athletes-suffer-cardiac-arrest-die-after-covid-shot/ | 86 | Good Sciencing: alternative website tracking reports of cardiac arrests in athletes | alternative-authority portal | HIGH (fetched) |
+| macrotrends.net .../united-states/death-rate | 85 | Resource hosted on macrotrends.net | data aggregator | HIGH (fetched) |
+| nytimes.com .../business/jeffrey-epstein-bill-gates.html | 85 | Resource hosted on nytimes.com | mainstream journalism | HIGH (fetched) |
+| whatreallyhappened.com .../fiveisraelis.html | 84 | Mike Rivero, "The Five Dancing Israelis Arrested on 9/11" on What Really Happened | alternative news/analysis portal | HIGH (verified) |
+| youtube.com/watch?v=yuC_4mGTs98 | 84 | **Verified via fetch**: YouTube video: "The Money Masters" (1996) — famous 3.5-hour monetary reform documentary tracing history of central banking and fractional-reserve lending | platform | HIGH (fetched) |
+| nih.gov .../nih-research-matters/lasting-immunity-found-after-recovery-covid-19 | 84 | NIH Research Matters: "Lasting immunity found after recovery from COVID-19" (National Institutes of Health overview of immune memory research) | institutional/official | HIGH |
+| en.wikipedia.org .../Dunning%E2%80%93Kruger_effect | 83 | Wikipedia: Dunning–Kruger effect (cognitive bias) | reference (Wikipedia) | HIGH |
+| en.wikipedia.org .../Operation_Gladio | 82 | Wikipedia: Operation Gladio (post-WWII NATO "stay-behind" covert disruption operations) | reference (Wikipedia) | HIGH |
 
 ## Notes on data quality
 

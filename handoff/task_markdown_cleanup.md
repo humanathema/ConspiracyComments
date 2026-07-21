@@ -1,6 +1,6 @@
 # Task: Small markdown cleanup
 
-**Status: not started. Small, mechanical, low-risk — safe to just do.**
+**Status: completed.**
 
 ## 1. Add "superseded" banners
 
