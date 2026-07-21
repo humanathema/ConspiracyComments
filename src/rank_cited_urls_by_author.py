@@ -77,7 +77,20 @@ def normalize_url(u):
         if path == '/':
             path = ''
         u = domain + path
+        
+    # Standardize documentcloud.org URLs (extract ID and slug, strip subdomains/S3 paths)
+    if 'documentcloud.org' in u.lower():
+        u_clean = u.split('#')[0].split('?')[0]
+        m_doc = re.search(r'/documents/(\d+)[-/]([^/]+)', u_clean, re.IGNORECASE)
+        if m_doc:
+            doc_id = m_doc.group(1)
+            slug = m_doc.group(2)
+            slug = re.sub(r'\.(html|pdf|txt)$', '', slug, flags=re.IGNORECASE)
+            slug = slug.rstrip('/')
+            u = f"https://www.documentcloud.org/documents/{doc_id}-{slug}"
+            
     return u
+
 
 
 def extract_urls(text):

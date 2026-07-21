@@ -6,6 +6,7 @@ using the project's pre-built Cell 61 Epistemic Domain Taxonomy.
 """
 
 import os
+import sys
 import re
 import numpy as np
 import pandas as pd
@@ -22,112 +23,13 @@ BRIGADE_PATH = "data/processed/comment_brigade_flags.csv"
 ASKREDDIT_PATH = "data/processed/comparison_askreddit_staged_scored.parquet"
 OUTPUT_CSV = "data/processed/link_type_regression_results.csv"
 
-# Pre-built Epistemic Domain Taxonomy (Cell 61 of master notebook)
-TAXONOMY = {
-    'mainstream_news': [
-        'nytimes.com', 'washingtonpost.com', 'theguardian.com', 'reuters.com',
-        'bbc.com', 'bbc.co.uk', 'cnn.com', 'nbcnews.com', 'cbsnews.com',
-        'abcnews.go.com', 'npr.org', 'bloomberg.com', 'newsweek.com',
-        'time.com', 'theatlantic.com', 'politico.com', 'thehill.com',
-        'apnews.com', 'forbes.com', 'businessinsider.com', 'cnbc.com',
-        'huffingtonpost.com', 'huffpost.com', 'usatoday.com', 'wsj.com',
-        'latimes.com', 'independent.co.uk', 'telegraph.co.uk',
-        'dailymail.co.uk', 'nypost.com', 'nydailynews.com', 'rollingstone.com'
-    ],
-    'alt_media': [
-        'zerohedge.com', 'infowars.com', 'breitbart.com', 'rt.com',
-        'globalresearch.ca', 'activistpost.com', 'beforeitsnews.com',
-        'naturalnews.com', 'thefreethoughtproject.com', 'thedailysheeple.com',
-        'mintpressnews.com', 'corbettreport.com', 'theintercept.com',
-        'greenwald.substack.com', 'rumble.com', 'bitchute.com',
-        'collective-evolution.com', 'humansarefree.com', 'yournewswire.com',
-        'theepochtimes.com', 'thegatewaypundit.com', 'childrenshealthdefense.org',
-        'mercola.com', 'lewrockwell.com', 'prisonplanet.com', 'whatreallyhappened.com',
-        'veteranstoday.com'
-    ],
-    'academic_scientific': [
-        'ncbi.nlm.nih.gov', 'pubmed.ncbi.nlm.nih.gov', 'nature.com',
-        'sciencedirect.com', 'springer.com', 'journals.plos.org',
-        'academic.oup.com', 'jamanetwork.com', 'nejm.org', 'thelancet.com',
-        'bmj.com', 'annals.org', 'cell.com', 'science.org',
-        'researchgate.net', 'academia.edu', 'jstor.org', 'scholar.google.com',
-        'biorxiv.org', 'medrxiv.org', 'tandfonline.com', 'wiley.com'
-    ],
-    'government_official': [
-        'cdc.gov', 'nih.gov', 'fda.gov', 'who.int', 'fbi.gov', 'cia.gov',
-        'state.gov', 'whitehouse.gov', 'congress.gov', 'senate.gov',
-        'house.gov', 'justice.gov', 'doj.gov', 'nsa.gov', 'nasa.gov',
-        'epa.gov', 'usda.gov', 'defense.gov', 'treasury.gov',
-        'federalreserve.gov', 'sec.gov', 'ftc.gov', 'un.org', 'nato.int'
-    ],
-    'archive_preservation': [
-        'archive.is', 'archive.org', 'web.archive.org', 'archive.ph',
-        'archive.fo', 'reveddit.com', 'removeddit.com', 'ceddit.com',
-        'ghostarchive.org', 'timeoutinternet.com'
-    ],
-    'leak_whistleblower': [
-        'wikileaks.org', 'wikileaks.com', 'cryptome.org', 'dcleaks.com',
-        'theintercept.com', 'documentcloud.org', 'foia.state.gov', 
-        'vault.fbi.gov', 'muckrock.com', 'judicialwatch.org', 'governmentattic.org'
-    ],
-    'legal_documents': [
-        'documentcloud.org', 'courtlistener.com', 'pacer.gov',
-        'law.cornell.edu', 'supremecourt.gov', 'findlaw.com',
-        'justia.com', 'scribd.com'
-    ],
-    'social_video': [
-        'youtube.com', 'youtu.be', 'm.youtube.com', 'twitter.com',
-        'x.com', 'mobile.twitter.com', 'facebook.com', 'm.facebook.com',
-        'instagram.com', 'tiktok.com', 'vm.tiktok.com', 'twitch.tv',
-        'odysee.com', 'bitchute.com', 'rumble.com', 'dailymotion.com',
-        'vimeo.com', 'streamable.com'
-    ],
-    'reference': [
-        'en.wikipedia.org', 'en.m.wikipedia.org', 'wikipedia.org',
-        'britannica.com', 'investopedia.com', 'merriam-webster.com'
-    ],
-    'image_screenshot': [
-        'i.imgur.com', 'imgur.com', 'i.redd.it', 'pbs.twimg.com',
-        'i.postimg.cc', 'files.catbox.moe', 'ibb.co', 'prnt.sc',
-        'postimg.cc', 'gyazo.com'
-    ]
-}
-
-# Reverse lookup
-domain_to_type = {}
-for etype, domains in TAXONOMY.items():
-    for d in domains:
-        domain_to_type[d] = etype
-
-def extract_domains(text):
-    if not isinstance(text, str):
-        return []
-    urls = re.findall(r'https?://(?:www\.)?([a-zA-Z0-9.-]+\.[a-zA-Z]{2,4})', text)
-    return [u.lower() for u in urls]
-
-def classify_domain(domain):
-    clean = domain.replace('https://', '').replace('http://', '').replace('www.', '').strip('/')
-    if clean in domain_to_type:
-        return domain_to_type[clean]
-    for key_domain, etype in domain_to_type.items():
-        if clean == key_domain or clean.endswith('.' + key_domain):
-            return etype
-    if any(x in clean for x in ['.gov', '.mil']):
-        return 'government_official'
-    if any(x in clean for x in ['substack', 'wordpress', 'blogspot', 'medium.com']):
-        return 'blog_independent'
-    if any(x in clean for x in ['university', 'edu', 'ac.uk', 'ac.nz']):
-        return 'academic_scientific'
-    return 'other'
-
-def compute_link_indicators(df):
-    """Adds binary indicators for the 5 target link types to the dataframe."""
-    df['domains'] = df['text'].apply(extract_domains)
-    df['domain_types'] = df['domains'].apply(lambda doms: [classify_domain(d) for d in doms])
+def compute_link_indicators_from_cache(df, cache_df):
+    """Adds binary indicators for the 5 target link types to the dataframe from pre-computed cache."""
+    comment_cats = cache_df.groupby('comment_id')['category'].apply(set).to_dict()
     
     target_types = ['leak_whistleblower', 'image_screenshot', 'academic_scientific', 'mainstream_news', 'government_official']
     for t in target_types:
-        df[f'link_{t}'] = df['domain_types'].apply(lambda dtypes: 1 if t in dtypes else 0)
+        df[f'link_{t}'] = df['id'].apply(lambda cid: 1 if t in comment_cats.get(cid, set()) else 0)
         
     return df
 
@@ -173,14 +75,22 @@ def main():
     print(f"Loaded {len(df_ar):,} r/AskReddit comments.")
     
     # 3. Compute indicators for both
+    cache_path = 'data/processed/citations_cache.parquet'
+    if not os.path.exists(cache_path):
+        print(f"Error: Missing centralized cache file: {cache_path}. Run build_citations_cache.py first.")
+        sys.exit(1)
+        
+    print("Loading pre-computed citation cache...")
+    cache_df = pd.read_parquet(cache_path)
+    
     print("Computing link indicators for r/conspiracy...")
-    df_con = compute_link_indicators(df_con)
+    df_con = compute_link_indicators_from_cache(df_con, cache_df)
     df_con['log_char_length'] = np.log(df_con['text'].str.len() + 1)
     df_con['log_upvotes'] = np.log(df_con['upvotes'] - df_con['upvotes'].min() + 1)
     df_con['high_traction'] = (df_con['upvotes'] >= 5).astype(int)
     
     print("Computing link indicators for r/AskReddit...")
-    df_ar = compute_link_indicators(df_ar)
+    df_ar = compute_link_indicators_from_cache(df_ar, cache_df)
     df_ar['log_char_length'] = np.log(df_ar['text'].str.len() + 1)
     df_ar['log_upvotes'] = np.log(df_ar['upvotes'] - df_ar['upvotes'].min() + 1)
     # AskReddit uses upvotes >= 5 as well for high traction (matching run_askreddit_control.py)

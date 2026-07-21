@@ -105,6 +105,10 @@ QUEUES = [
                                                             # organization-style mentions, these add real diverse examples.
     'data/hitl/queue_snowden_stance_quality_check.csv',    # same pattern, kappa=-0.045 (worse than chance) before folding in
     'data/hitl/queue_greenwald_stance_quality_check.csv',  # same pattern again, kappa=0.076 before folding in
+    'data/hitl/queue_jones_short_stance_quality_check.csv',  # short-comment (<=100 char) population check,
+                                                              # 2026-07-22 -- kappa=0.167 held-out, worse than the
+                                                              # long-comment Jones check (0.243) and errors spread
+                                                              # across all 3 classes, not just endorsement.
 ]
 OUT_PATH = 'data/processed/stance_classifier.joblib'
 OUT_PATH_3CLASS = 'data/processed/stance_classifier_3class.joblib'
@@ -126,6 +130,7 @@ ROUNDS = [
     ('round8_wikileaks_assange', QUEUES[:4] + QUEUES[4:12]),
     ('round9_snowden', QUEUES[:4] + QUEUES[4:13]),
     ('round10_greenwald', QUEUES[:4] + QUEUES[4:14]),
+    ('round11_jones_short', QUEUES[:4] + QUEUES[4:15]),
 ]
 
 LABEL_MAP_3CLASS = {

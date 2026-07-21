@@ -206,7 +206,7 @@ def load_integrated_dataset(rx_mav, rx_can, rx_con, maverick_lookup, consensus_l
     """).df()
     print(f"  Fetched {len(text_df):,} mention text rows.")
 
-    for tier in ['mainstream_reliable', 'mixed_or_low_reliability', 'aggregator_or_platform', 'unmatched_link']:
+    for tier in ['mainstream_reliable', 'mainstream_imperfect', 'alt_media', 'aggregator_or_platform', 'unmatched_link']:
         df[f'link_{tier}'] = (df['link_source_tier'] == tier).astype(int)
     print("  Link tier counts:")
     print(df['link_source_tier'].value_counts())
@@ -285,11 +285,9 @@ def main():
     # Define design factors
     elasticity_strata = ['Unfiltered', 'Low', 'Medium', 'High']
     insider_thresholds = [None, -0.5, 0.0, 0.5, 1.0, 1.5]
-    # has_link replaced with the 5-tier source-quality taxonomy (no_link is
-    # the implicit reference category, dropped from the formula).
-    link_terms = "link_mainstream_reliable + link_mixed_or_low_reliability + link_aggregator_or_platform + link_unmatched_link"
+    link_terms = "link_mainstream_reliable + link_mainstream_imperfect + link_alt_media + link_aggregator_or_platform + link_unmatched_link"
     constructs = ['pe_prob', 'ps_prob', 'hs_prob',
-                  'link_mainstream_reliable', 'link_mixed_or_low_reliability',
+                  'link_mainstream_reliable', 'link_mainstream_imperfect', 'link_alt_media',
                   'link_aggregator_or_platform', 'link_unmatched_link',
                   'has_maverick', 'has_canonical_expert', 'has_consensus_expert']
 
@@ -523,7 +521,7 @@ def run_interaction_regressions(df):
     # Medium as reference so both Low and High show as explicit contrasts
     df['elasticity_bin'] = pd.Categorical(df['elasticity_bin'], categories=['Medium', 'Low', 'High'])
 
-    link_terms = "link_mainstream_reliable + link_mixed_or_low_reliability + link_aggregator_or_platform + link_unmatched_link"
+    link_terms = "link_mainstream_reliable + link_mainstream_imperfect + link_alt_media + link_aggregator_or_platform + link_unmatched_link"
     formula = (f"log_upvotes ~ (pe_prob + ps_prob + hs_prob + {link_terms} + has_maverick "
                "+ has_canonical_expert + has_consensus_expert) * C(elasticity_bin)")
 
@@ -615,7 +613,7 @@ def run_stance_submodels(df, text_df, rx_mav, rx_con, maverick_lookup, consensus
     print(f"Loaded stance classifier (cv_kappa={stance_model['cv_kappa']:.3f}, "
           f"cv_auc={stance_model['cv_auc']:.3f}) -- treat weaker domains as provisional (see train_stance_classifier.py CV report).")
 
-    link_terms = "link_mainstream_reliable + link_mixed_or_low_reliability + link_aggregator_or_platform + link_unmatched_link"
+    link_terms = "link_mainstream_reliable + link_mainstream_imperfect + link_alt_media + link_aggregator_or_platform + link_unmatched_link"
     outcome_formulas = [
         ("OLS_log_upvotes", f"log_upvotes ~ stance_prob + pe_prob + ps_prob + hs_prob + {link_terms}", "OLS"),
         ("Logit_controversiality", f"controversiality ~ stance_prob + pe_prob + ps_prob + hs_prob + {link_terms}", "Logit"),

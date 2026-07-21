@@ -142,7 +142,7 @@ def add_epistemic_features(df):
     df['link_source_tier'] = df.apply(lambda r: determine_link_source_tier(r['text'], r['has_link']), axis=1)
     
     # Construct binary indicators for each link tier
-    for tier in ['mainstream_reliable', 'mixed_or_low_reliability', 'aggregator_or_platform', 'unmatched_link']:
+    for tier in ['mainstream_reliable', 'mainstream_imperfect', 'alt_media', 'aggregator_or_platform', 'unmatched_link']:
         df[f'link_{tier}'] = (df['link_source_tier'] == tier).astype(int)
     
     # Log controls
@@ -213,7 +213,7 @@ def run_robust_regression(formula, df_sub, name_label, cov_type='nonrobust', gro
 
     vars_to_store = [
         "pe_prob", "ps_prob", "hs_prob",
-        "link_mainstream_reliable", "link_mixed_or_low_reliability",
+        "link_mainstream_reliable", "link_mainstream_imperfect", "link_alt_media",
         "link_aggregator_or_platform", "link_unmatched_link",
         "has_maverick", "has_canonical_expert", "has_consensus_expert", "log_char_length"
     ]
@@ -292,7 +292,7 @@ def run_stratified_regressions(df):
     
     formula = (
         "high_traction ~ pe_prob + ps_prob + hs_prob + "
-        "link_mainstream_reliable + link_mixed_or_low_reliability + link_aggregator_or_platform + link_unmatched_link + "
+        "link_mainstream_reliable + link_mainstream_imperfect + link_alt_media + link_aggregator_or_platform + link_unmatched_link + "
         "has_maverick + has_canonical_expert + has_consensus_expert + log_char_length"
     )
     

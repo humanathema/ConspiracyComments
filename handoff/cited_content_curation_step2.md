@@ -81,7 +81,7 @@ two cases where that correction overturned an initial guess).
 | wikileaks.org .../emailid/14333 | 116 | WikiLeaks Hillary Clinton Email #14333 | leak-document archive | HIGH |
 | en.wikipedia.org .../Unethical_human_experimentation_in_the_United_States | 115 | Unethical human experimentation in the United States | reference (Wikipedia) | HIGH |
 | chicago.suntimes.com .../18619206/under-donald-trump-drone-strikes-far-exceed-obama-s-numbers | 114 | Under Donald Trump, drone strikes far exceed Obama's numbers - Chicago Sun-Times | mainstream journalism | HIGH (fetched) |
-| pfizer.com .../press-release-detail/pfizer-and-biontech-conclude-phase-3-study-covid-19-vaccine | 112 | Pfizer and BioNTech Conclude Phase 3 Study of COVID-19 Vaccine Candidate, Meeting All Primary Efficacy Endpoints / Pfizer | alternative/conspiracy analysis site | HIGH (fetched) |
+| pfizer.com .../press-release-detail/pfizer-and-biontech-conclude-phase-3-study-covid-19-vaccine | 112 | Pfizer and BioNTech Conclude Phase 3 Study of COVID-19 Vaccine Candidate, Meeting All Primary Efficacy Endpoints / Pfizer | primary source (company) | HIGH (verified) |
 | npr.org .../969143015/long-term-studies-of-covid-19-vaccines-hurt-by-placebo-recipients-getting-immuni | 111 | Moderna And Pfizer Vaccine Studies Hampered As Placebo Recipients Get Real Shot : Shots - Health News : NPR | mainstream journalism | HIGH (fetched) |
 | cdc.gov .../science-briefs/fully-vaccinated-people.html | 110 | CDC Official Page | institutional/official | HIGH |
 | cdc.gov .../lab/grows-virus-cell-culture.html | 110 | CDC Official Page | institutional/official | HIGH |
@@ -97,7 +97,37 @@ two cases where that correction overturned an initial guess).
 | ua.usembassy.gov .../biological-threat-reduction-program/ | 104 | Resource hosted on ua.usembassy.gov | alternative/conspiracy analysis site | HIGH (fetched) |
 | ucsf.edu .../417906/still-confused-about-masks-heres-science-behind-how-face-masks-prevent | 103 | Resource hosted on ucsf.edu | alternative/conspiracy analysis site | HIGH (fetched) |
 | insider.com/donald-trump-jeffrey-epstein-flight-logs-unsealed-2019-8 | 103 | Unsealed Flight Logs Show Donald Trump on Epstein Jet in 1997 - Business Insider | alternative/conspiracy analysis site | HIGH (fetched) |
-| documentcloud.org .../1507315-epstein-flight-manifests.html | 102 | Epstein Flight Manifests / DocumentCloud | alternative/conspiracy analysis site | HIGH (fetched) |
+| documentcloud.org/documents/1507315-epstein-flight-manifests | 129 | Jeffrey Epstein FAA private flight manifests | primary legal document | HIGH (verified) |
+| documentcloud.org/documents/1508273-jeffrey-epsteins-little-black-book-redacted | 127 | Jeffrey Epstein's personal address book (redacted litigation exhibit) | primary legal document | HIGH (verified) |
+| documentcloud.org/documents/21165424-epstein-flight-logs-released-in-usa-vs-maxwell | 118 | Jeffrey Epstein private flight logs unsealed in USA v. Maxwell | primary legal document | HIGH (verified) |
+| documentcloud.org/documents/3259984-Trump-Intelligence-Allegations | 77 | The Steele Dossier (intelligence allegations of Trump-Russia ties) | leak-document archive | HIGH (verified) |
+| documentcloud.org/documents/6250471-Epstein-Docs | 47 | Unsealed Virginia Giuffre v. Ghislaine Maxwell lawsuit filings | primary legal document | HIGH (verified) |
+| documentcloud.org/documents/20793561-leopold-nih-foia-anthony-fauci-emails | 42 | Anthony Fauci's NIH emails released under FOIA | official document (FOIA'd) | HIGH (verified) |
+| documentcloud.org/documents/1508967-deposition-excerpts | 32 | Deposition excerpts of Jeffrey Epstein, Ghislaine Maxwell, or Virginia Giuffre | primary legal document | HIGH (verified) |
+| documentcloud.org/documents/6250478-Giuffre-Exhibits | 17 | Virginia Giuffre defamation case exhibits | primary legal document | HIGH (verified) |
+| documentcloud.org/documents/5955118-The-Mueller-Report | 17 | Department of Justice report on 2016 Russian interference (Mueller Report) | institutional/official | HIGH (verified) |
+| documentcloud.org/documents/3766950-NSA-Report-on-Russia-Spearphishing | 17 | Classified NSA report on Russian GRU spearphishing attacks leaked by Reality Winner | official document (leaked) | HIGH (verified) |
+| documentcloud.org/documents/6935295-NIH-Moderna-Confidential-Agreements | 15 | NIH-Moderna confidential vaccine collaboration and material transfer agreements | official document (FOIA'd) | HIGH (verified) |
+| documentcloud.org/documents/21066966-defuse-proposal | 14 | DEFUSE project proposal (bat coronavirus emergence research plans) | official document (leaked) | HIGH (verified) |
+| documentcloud.org/documents/21055989-understanding-risk-bat-coronavirus-emergence-grant-notice | 14 | EcoHealth Alliance bat coronavirus research grant notice from NIH | official document (FOIA'd) | HIGH (verified) |
+| documentcloud.org/documents/4465430-WEINER-Search-Warrant-2016 | 11 | FBI search warrant and affidavit for Anthony Weiner's laptop | primary legal document | HIGH (verified) |
+| documentcloud.org/documents/20423772-antrim-county-forensics-report | 11 | ASOG Antrim County Forensics Report alleging Dominion voting errors (contested) | alternative/conspiracy analysis | HIGH (verified) |
+| documentcloud.org/documents/2754139-Kyle-Odom-Manifesto | 10 | Kyle Odom's conspiracy manifesto alleging lizard-people infiltration | alternative/conspiracy analysis | HIGH (verified) |
+| documentcloud.org/documents/20519858-3-22-21-sidney-powell-defending-the-republic-motion-to-dismiss-dominion | 9 | Sidney Powell motion to dismiss Dominion libel suit | primary legal document | HIGH (verified) |
+| documentcloud.org/documents/3726408-Rosenstein-letter-appointing-Mueller-special | 9 | Deputy AG Rod Rosenstein special counsel appointment letter for Mueller | institutional/official | HIGH (verified) |
+| documentcloud.org/documents/3232579-Edgar-Welch-Criminal-Complaint-Comet-Ping-Pong | 9 | Federal criminal complaint against Edgar Maddison Welch (Pizzagate shooter) | primary legal document | HIGH (verified) |
+| documentcloud.org/documents/3440721-337535680-Full-David-Brock-Confidential-Memo-on | 8 | Shareblue/David Brock confidential political strategy memo to defeat Trump | leak-document archive | HIGH (verified) |
+| documentcloud.org/documents/6185644-Sealed-Order | 8 | Federal court order regarding unsealing of Epstein documents | primary legal document | HIGH (verified) |
+| documentcloud.org/documents/24088042-project-2025s-mandate-for-leadership-the-conservative-promise | 8 | Heritage Foundation's Project 2025 Mandate for Leadership policy book | policy document (think tank) | HIGH (verified) |
+| documentcloud.org/documents/402521-doc-26-white-supremacist-infiltration | 8 | Declassified 2006 FBI report on white supremacist infiltration of police | official document (declassified) | HIGH (verified) |
+| documentcloud.org/documents/24253239-1324-epstein-documents-943-pages | 7 | Batch of unsealed court records from the Epstein-related Virginia Giuffre case | primary legal document | HIGH (verified) |
+| documentcloud.org/documents/1006045-possible-implications-of-bad-intelligence | 7 | US Army War College study on intelligence failures in the Iraq War | academic study | HIGH (verified) |
+| documentcloud.org/documents/3130729-DOE-V-TRUMP | 7 | Complaint filed in SDNY for Jane Doe v. Donald Trump and Jeffrey Epstein | primary legal document | HIGH (verified) |
+| documentcloud.org/documents/20420186-order-granting-motion-to-dismiss-statement-of-contest-1 | 6 | Arizona state court order dismissing Kelli Ward's 2020 election contest | primary legal document | HIGH (verified) |
+| documentcloud.org/documents/7010927-Virginia-Giuffre-Interview-2011 | 6 | Transcripts of Virginia Giuffre's police/FBI interviews about Epstein | official document (FOIA'd) | HIGH (verified) |
+| documentcloud.org/documents/6250270-Sweet-Opinion-Unsealed | 6 | SDNY Judge Sweet's unsealed opinion on Ghislaine Maxwell's motion to dismiss | primary legal document | HIGH (verified) |
+| documentcloud.org/documents/7274479-Maxwell-Deposition-2016 | 6 | Ghislaine Maxwell's 2016 civil deposition transcript | primary legal document | HIGH (verified) |
+| documentcloud.org/documents/20420331-mitchell-harrison-affidavit | 6 | Republican observer Mitchell Harrison affidavit alleging 2020 election fraud | alternative/conspiracy analysis | HIGH (verified) |
 | businessinsider.com/ndaa-legalizes-propaganda-2012-5 | 102 | NDAA Legalizes Propaganda - Business Insider | alternative/conspiracy analysis site | HIGH (fetched) |
 | geoengineeringwatch.org | 102 | Geoengineering Watch: advocacy website for chemtrail/geoengineering conspiracy theories | alternative-authority org / conspiracy platform | HIGH (fetched) |
 | nytimes.com .../health/coronavirus-testing.html | 101 | Resource hosted on nytimes.com | mainstream journalism | HIGH (fetched) |

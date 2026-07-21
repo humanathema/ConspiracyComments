@@ -151,7 +151,8 @@ def score_for_entity(entity):
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument('--entity', default='all', choices=['all', 'wikileaks', 'assange', 'snowden', 'greenwald'],
+    parser.add_argument('--entity', default='all',
+                        choices=['all', 'wikileaks', 'assange', 'snowden', 'greenwald', 'jones_short'],
                         help="Score quality check queue for a specific entity or all of them.")
     args = parser.parse_args()
 

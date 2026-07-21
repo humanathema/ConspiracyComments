@@ -159,14 +159,17 @@ def classify_single_domain(domain):
             row = news_domain_map[parent]
             rel = str(row['reliability_label']).lower()
             if rel in ['high', 'very high', 'mostly factual', 'unclassified news']:
-                return 'mainstream_reliable' if rel != 'mixed' and rel != 'low' and rel != 'very low' else 'mixed_or_low_reliability'
+                return 'mainstream_reliable'
             elif rel in ['mixed', 'low', 'very low']:
-                return 'mixed_or_low_reliability'
+                # Operational Split: mainstream imperfect vs alternative media
+                if domain in TAXONOMY['alt_media'] or domain in ['zerohedge.com', 'infowars.com', 'breitbart.com', 'rt.com']:
+                    return 'alt_media'
+                return 'mainstream_imperfect'
                 
     # Check run_link_type_regressions.py taxonomy
     if domain in TAXONOMY['mainstream_news']:
         if 'dailymail.co.uk' in domain or 'nypost.com' in domain:
-            return 'mixed_or_low_reliability'
+            return 'mainstream_imperfect'
         return 'mainstream_reliable'
         
     if domain in TAXONOMY['academic_scientific']:
@@ -176,7 +179,7 @@ def classify_single_domain(domain):
         return 'mainstream_reliable'
         
     if domain in TAXONOMY['alt_media']:
-        return 'mixed_or_low_reliability'
+        return 'alt_media'
         
     # Check substring/normalized match of entity in domain
     norm_dom = normalize_text(domain.split('.')[-2]) if len(domain.split('.')) >= 2 else normalize_text(domain)
@@ -193,7 +196,7 @@ def classify_single_domain(domain):
             if rel in ['q1', 'q2']:
                 return 'mainstream_reliable'
             else:
-                return 'mixed_or_low_reliability'
+                return 'mainstream_imperfect'
                 
     # Check news
     for norm_ent, row in news_domain_map.items():
@@ -203,7 +206,9 @@ def classify_single_domain(domain):
                 if rel in ['high', 'very high', 'mostly factual', 'unclassified news']:
                     return 'mainstream_reliable'
                 else:
-                    return 'mixed_or_low_reliability'
+                    if domain in TAXONOMY['alt_media'] or domain in ['zerohedge.com', 'infowars.com', 'breitbart.com', 'rt.com']:
+                        return 'alt_media'
+                    return 'mainstream_imperfect'
                     
     return 'unmatched_link'
 
@@ -219,8 +224,10 @@ def determine_link_source_tier(text, has_link):
     # Precedence order resolution
     if 'mainstream_reliable' in tiers:
         return 'mainstream_reliable'
-    if 'mixed_or_low_reliability' in tiers:
-        return 'mixed_or_low_reliability'
+    if 'mainstream_imperfect' in tiers:
+        return 'mainstream_imperfect'
+    if 'alt_media' in tiers:
+        return 'alt_media'
     if 'aggregator_or_platform' in tiers:
         return 'aggregator_or_platform'
     if 'unmatched_link' in tiers:
@@ -231,12 +238,41 @@ def determine_link_source_tier(text, has_link):
 def main():
     print("=== RUNNING LINK SOURCE TIER REGRESSIONS ===")
     
-    if not os.path.exists(POLITICS_PATH):
-        print(f"\nMISSING: {POLITICS_PATH}. Ensure previous scoring steps are complete.")
+    cache_path = 'data/processed/citations_cache.parquet'
+    if not os.path.exists(cache_path):
+        print(f"Error: Missing centralized cache file: {cache_path}. Run build_citations_cache.py first.")
         sys.exit(1)
         
-    print("Loading source authority lookup tables...")
-    build_source_authority_lookup()
+    print("Loading pre-computed citation cache...")
+    cache_df = pd.read_parquet(cache_path)
+    
+    # 5-tier Mapping (mapping split tiers to mixed_or_low_reliability for legacy parity)
+    cache_df['tier_5'] = cache_df['link_source_tier'].replace({
+        'mainstream_imperfect': 'mixed_or_low_reliability',
+        'alt_media': 'mixed_or_low_reliability'
+    })
+    
+    precedence_5 = {
+        'mainstream_reliable': 4,
+        'mixed_or_low_reliability': 3,
+        'aggregator_or_platform': 2,
+        'unmatched_link': 1,
+        'no_link': 0
+    }
+    cache_df['prec_5'] = cache_df['tier_5'].map(precedence_5).fillna(0)
+    comment_tiers_5 = cache_df.sort_values('prec_5', ascending=False).drop_duplicates('comment_id').set_index('comment_id')['tier_5'].to_dict()
+    
+    # 6-tier Split Mapping (mainstream_reliable > mainstream_imperfect > alt_media > aggregator_or_platform > unmatched_link)
+    precedence_6 = {
+        'mainstream_reliable': 5,
+        'mainstream_imperfect': 4,
+        'alt_media': 3,
+        'aggregator_or_platform': 2,
+        'unmatched_link': 1,
+        'no_link': 0
+    }
+    cache_df['prec_6'] = cache_df['link_source_tier'].map(precedence_6).fillna(0)
+    comment_tiers_6 = cache_df.sort_values('prec_6', ascending=False).drop_duplicates('comment_id').set_index('comment_id')['link_source_tier'].to_dict()
     
     print("Splitting entities...")
     mavericks, canon, consensus = load_entities_split_corrected()
@@ -270,7 +306,10 @@ def main():
     df_con['log_char_length'] = np.log(df_con['char_length'] + 1)
     df_con['log_upvotes'] = np.log(df_con['upvotes'] - df_con['upvotes'].min() + 1)
     df_con['high_traction'] = (df_con['upvotes'] >= 5).astype(int)
-    df_con['link_source_tier'] = df_con.apply(lambda r: determine_link_source_tier(r['text'], r['has_link']), axis=1)
+    
+    # Assign comment-level tiers from pre-computed dictionary mapping
+    df_con['link_source_tier'] = df_con['id'].map(comment_tiers_5).fillna('no_link')
+    df_con['link_source_tier_split'] = df_con['id'].map(comment_tiers_6).fillna('no_link')
     
     print("\nProcessing r/politics control sample...")
     df_pol = pd.read_parquet(POLITICS_SCORED_PATH)
@@ -283,16 +322,27 @@ def main():
     df_pol['log_char_length'] = np.log(df_pol['char_length'] + 1)
     df_pol['log_upvotes'] = np.log(df_pol['upvotes'] - df_pol['upvotes'].min() + 1)
     df_pol['high_traction'] = (df_pol['upvotes'] >= 5).astype(int)
-    df_pol['link_source_tier'] = df_pol.apply(lambda r: determine_link_source_tier(r['text'], r['has_link']), axis=1)
+    
+    # Assign comment-level tiers from pre-computed dictionary mapping
+    df_pol['link_source_tier'] = df_pol['id'].map(comment_tiers_5).fillna('no_link')
+    df_pol['link_source_tier_split'] = df_pol['id'].map(comment_tiers_6).fillna('no_link')
     
     # Quick sanity-check printout of link source tier distributions
     for name, df_sub in [("r/conspiracy", df_con), ("r/politics", df_pol)]:
-        print(f"\n[{name}] Link Source Tier Distribution:")
+        print(f"\n[{name}] Link Source Tier Distribution (Legacy 5-tier):")
         counts = df_sub['link_source_tier'].value_counts()
         pcts = df_sub['link_source_tier'].value_counts(normalize=True) * 100
         for cat in ['no_link', 'mainstream_reliable', 'mixed_or_low_reliability', 'aggregator_or_platform', 'unmatched_link']:
             c = counts.get(cat, 0)
             p = pcts.get(cat, 0.0)
+            print(f"  - {cat:25s}: {c:7d} ({p:.3f}%)")
+            
+        print(f"\n[{name}] Link Source Tier Distribution (Split 6-tier):")
+        counts_sp = df_sub['link_source_tier_split'].value_counts()
+        pcts_sp = df_sub['link_source_tier_split'].value_counts(normalize=True) * 100
+        for cat in ['no_link', 'mainstream_reliable', 'mainstream_imperfect', 'alt_media', 'aggregator_or_platform', 'unmatched_link']:
+            c = counts_sp.get(cat, 0)
+            p = pcts_sp.get(cat, 0.0)
             print(f"  - {cat:25s}: {c:7d} ({p:.3f}%)")
             
     print("\n--- Running Regressions ---")
@@ -302,66 +352,90 @@ def main():
         ("r/politics", df_pol),
     ]
     
-    # We replace 'has_link' with categorical link_source_tier
-    formula = "high_traction ~ pe_prob + ps_prob + C(link_source_tier, Treatment(reference='no_link')) + has_maverick + has_canonical_expert + has_consensus_expert + log_char_length"
+    # Run Legacy 5-tier models
+    print("\n=== RUNNING LEGACY 5-TIER LOGIT REGRESSIONS ===")
+    formula_5 = "high_traction ~ pe_prob + ps_prob + C(link_source_tier, Treatment(reference='no_link')) + has_maverick + has_canonical_expert + has_consensus_expert + log_char_length"
     
     for name, df_sub in specs:
         n_consensus = int(df_sub["has_consensus_expert"].sum())
-        print(f"\n[{name}] has_consensus_expert positive cases: {n_consensus} / {len(df_sub):,}")
-        
-        use_formula = formula
+        use_formula = formula_5
         dropped_consensus = False
         
-        # Check for separation with consensus expert mentions
         if n_consensus < 20:
-            use_formula = formula.replace(" + has_consensus_expert", "")
+            use_formula = use_formula.replace(" + has_consensus_expert", "")
             dropped_consensus = True
-            print(f"[{name}] has_consensus_expert too sparse (N={n_consensus}) -- refitting without it.")
         else:
             ct = pd.crosstab(df_sub["has_consensus_expert"], df_sub["high_traction"])
             if (ct.values == 0).any():
-                use_formula = formula.replace(" + has_consensus_expert", "")
+                use_formula = use_formula.replace(" + has_consensus_expert", "")
                 dropped_consensus = True
-                print(f"[{name}] has_consensus_expert has an empty cell in contingency table -- refitting without it.")
                 
-        print(f"Running Logit Model for {name}...")
+        print(f"Running Legacy Logit Model for {name}...")
         try:
             m = smf.logit(use_formula, data=df_sub).fit(disp=0, maxiter=100)
             print(m.summary().tables[1])
             
             # Extract standard parameters
-            covariates = [
-                "pe_prob", "ps_prob", "has_maverick", "has_canonical_expert", 
-                "has_consensus_expert", "log_char_length"
-            ]
-            for c in covariates:
+            for c in ["pe_prob", "ps_prob", "has_maverick", "has_canonical_expert", "has_consensus_expert", "log_char_length"]:
                 if c in m.params:
                     results.append({
-                        "subreddit": name, "variable": c,
-                        "coef": m.params[c], "se": m.bse[c],
-                        "pvalue": m.pvalues[c], "n_obs": int(m.nobs)
+                        "model": "legacy_5_tier", "subreddit": name, "variable": c,
+                        "coef": m.params[c], "se": m.bse[c], "pvalue": m.pvalues[c], "n_obs": int(m.nobs)
                     })
-            if dropped_consensus:
-                results.append({
-                    "subreddit": name, "variable": "has_consensus_expert",
-                    "coef": np.nan, "se": np.nan, "pvalue": np.nan, "n_obs": int(m.nobs),
-                    "note": f"excluded from model, too sparse (N={n_consensus})"
-                })
-                
-            # Extract categorical link_source_tier categories
+            # Extract link_source_tier categories
             for cat in ['mainstream_reliable', 'mixed_or_low_reliability', 'aggregator_or_platform', 'unmatched_link']:
                 var_name = f"C(link_source_tier, Treatment(reference='no_link'))[T.{cat}]"
                 if var_name in m.params:
                     results.append({
-                        "subreddit": name, "variable": f"link_{cat}",
-                        "coef": m.params[var_name], "se": m.bse[var_name],
-                        "pvalue": m.pvalues[var_name], "n_obs": int(m.nobs)
+                        "model": "legacy_5_tier", "subreddit": name, "variable": f"link_{cat}",
+                        "coef": m.params[var_name], "se": m.bse[var_name], "pvalue": m.pvalues[var_name], "n_obs": int(m.nobs)
                     })
         except Exception as e:
-            print(f"Model failed for {name}: {e}")
+            print(f"Legacy model failed for {name}: {e}")
+
+    # Run Split 6-tier models
+    print("\n=== RUNNING SPLIT 6-TIER LOGIT REGRESSIONS (Mainstream Imperfect vs Alt Media) ===")
+    formula_6 = "high_traction ~ pe_prob + ps_prob + C(link_source_tier_split, Treatment(reference='no_link')) + has_maverick + has_canonical_expert + has_consensus_expert + log_char_length"
+    
+    for name, df_sub in specs:
+        n_consensus = int(df_sub["has_consensus_expert"].sum())
+        use_formula = formula_6
+        dropped_consensus = False
+        
+        if n_consensus < 20:
+            use_formula = use_formula.replace(" + has_consensus_expert", "")
+            dropped_consensus = True
+        else:
+            ct = pd.crosstab(df_sub["has_consensus_expert"], df_sub["high_traction"])
+            if (ct.values == 0).any():
+                use_formula = use_formula.replace(" + has_consensus_expert", "")
+                dropped_consensus = True
+                
+        print(f"Running Split 6-tier Logit Model for {name}...")
+        try:
+            m = smf.logit(use_formula, data=df_sub).fit(disp=0, maxiter=100)
+            print(m.summary().tables[1])
+            
+            # Extract standard parameters
+            for c in ["pe_prob", "ps_prob", "has_maverick", "has_canonical_expert", "has_consensus_expert", "log_char_length"]:
+                if c in m.params:
+                    results.append({
+                        "model": "split_6_tier", "subreddit": name, "variable": c,
+                        "coef": m.params[c], "se": m.bse[c], "pvalue": m.pvalues[c], "n_obs": int(m.nobs)
+                    })
+            # Extract link_source_tier categories
+            for cat in ['mainstream_reliable', 'mainstream_imperfect', 'alt_media', 'aggregator_or_platform', 'unmatched_link']:
+                var_name = f"C(link_source_tier_split, Treatment(reference='no_link'))[T.{cat}]"
+                if var_name in m.params:
+                    results.append({
+                        "model": "split_6_tier", "subreddit": name, "variable": f"link_{cat}",
+                        "coef": m.params[var_name], "se": m.bse[var_name], "pvalue": m.pvalues[var_name], "n_obs": int(m.nobs)
+                    })
+        except Exception as e:
+            print(f"Split model failed for {name}: {e}")
             
     pd.DataFrame(results).to_csv(OUTPUT_CSV, index=False)
-    print(f"\nSaved categorical link-source-tier regression results to {OUTPUT_CSV}")
+    print(f"\nSaved combined regression results to {OUTPUT_CSV}")
 
 if __name__ == "__main__":
     main()
