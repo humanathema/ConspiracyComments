@@ -2,12 +2,11 @@
 """Post-process nbconvert 'lab' template HTML:
 - collapse code cells into <details>
 - wrap oversized outputs in scrollable boxes
-- wrap markdown sections (by H2/H3/H4 heading) into nested collapsible
-  <details>, mirroring Jupyter's "collapsible headings" feature
-- generate a clickable, nested table of contents that auto-expands
-  collapsed ancestor sections on click
+- wrap markdown sections into collapsible <details> (preserving 100% native Jupyter typography & alignment)
+- make Research Map table section numbers clickable anchor links
 """
 import sys
+import re
 from bs4 import BeautifulSoup
 
 SRC = sys.argv[1]
@@ -15,7 +14,7 @@ DST = sys.argv[2]
 
 OUTPUT_SCROLL_THRESHOLD_CHARS = 2000
 OUTPUT_MAX_HEIGHT_PX = 350
-HEADING_TAGS = ("h2", "h3", "h4")  # h1 is the one-off document title, not a section
+HEADING_TAGS = ("h1", "h2", "h3", "h4")
 
 with open(SRC, encoding="utf-8") as f:
     soup = BeautifulSoup(f, "html.parser")
@@ -44,44 +43,83 @@ for output_area in soup.select("div.jp-Cell-outputWrapper div.jp-Cell-outputArea
         )
         n_scrolled += 1
 
-# --- 3. Build the TOC entry list (every heading anywhere, including ones
-#     nested inside cell 0's intro block, not just cell-leading ones) ---
-toc_entries = []  # (level, id, text)
-for tag in soup.find_all(HEADING_TAGS):
-    if tag.get("id"):
-        toc_entries.append((int(tag.name[1]), tag["id"], tag.get_text().rstrip("¶").strip()))
+# Find the main document title (the first H1 tag)
+h1_tags = soup.find_all("h1")
+first_h1 = h1_tags[0] if h1_tags else None
 
-# --- 4. Wrap sections into nested collapsible <details>, at cell granularity ---
+# --- 3. Make Research Map table section numbers clickable links ---
+heading_id_map = {}
+for tag in soup.find_all(HEADING_TAGS):
+    if tag is not first_h1 and tag.get("id"):
+        txt = tag.get_text().rstrip("¶").strip()
+        heading_id_map[txt] = tag["id"]
+
+for table in soup.find_all("table"):
+    if "Section" in table.get_text():
+        for tr in table.find_all("tr"):
+            tds = tr.find_all(["td", "th"])
+            if len(tds) >= 2 and tds[0].name == "td":
+                raw_sec = tds[0].get_text().strip()
+                m = re.match(r"^(\d+(?:\.\d+)?)", raw_sec)
+                sec_num = m.group(1) if m else raw_sec
+                
+                target_id = None
+                for htxt, hid in heading_id_map.items():
+                    if htxt.startswith(sec_num + ".") or htxt.startswith(sec_num + " "):
+                        target_id = hid
+                        break
+                
+                if target_id:
+                    strong = tds[0].find("strong")
+                    a = soup.new_tag("a", href=f"#{target_id}", style="color: #2c5aa0; text-decoration: underline; cursor: pointer;")
+                    if strong:
+                        a.string = strong.get_text()
+                        strong.clear()
+                        strong.append(a)
+                    else:
+                        a.string = raw_sec
+                        tds[0].clear()
+                        tds[0].append(a)
+
+# --- 4. Wrap sections into collapsible <details>, preserving exact native Jupyter layout ---
 main = soup.find("main") or soup.body
 cells = main.find_all("div", class_="jp-Cell", recursive=False) if main else []
 
 
 def leading_heading_tag(cell):
-    """If this cell's rendered content starts with an H2-H4 (after skipping
-    a leading <hr> -- most section headers are written as "---\\n## Heading"
-    in the source markdown -- and blank text nodes), return the heading tag
-    itself, still attached to the tree."""
     md = cell.select_one("div.jp-Cell-inputWrapper .jp-RenderedMarkdown, div.jp-MarkdownCell .jp-RenderedMarkdown")
     if not md:
         return None
+    first_heading = None
     for child in md.children:
         name = getattr(child, "name", None)
         if name is None:
             if str(child).strip():
-                return None  # non-blank text before any heading
+                return None
             continue
         if name == "hr":
             continue
         if name in HEADING_TAGS and child.get("id"):
-            return child
-        return None  # first real element isn't a heading
-    return None
+            if child is first_h1:
+                return None
+            first_heading = child
+            break
+        return None
+
+    if not first_heading:
+        return None
+
+    same_level_headings = md.find_all(first_heading.name)
+    if len(same_level_headings) > 1:
+        return None
+
+    return first_heading
 
 
 n_sections = 0
 if cells:
     stack = []  # list of (level, details_tag)
-    new_top_level = []  # cells/details placed directly under <main>
+    new_top_level = []
 
     for cell in cells:
         heading_tag = leading_heading_tag(cell)
@@ -90,25 +128,45 @@ if cells:
             hid = heading_tag["id"]
             while stack and stack[-1][0] >= level:
                 stack.pop()
-            details = soup.new_tag("details", **{"class": "section-collapse", "open": ""})
+            
+            details = soup.new_tag("details", **{"class": "jp-Section-collapse", "open": ""})
             summary = soup.new_tag("summary")
-            # Drop any leading <hr> siblings that preceded the heading --
-            # redundant now that the details wrapper has its own border.
+            
+            # Reconstruct the exact Jupyter boilerplate flex layout wrapper 
+            # so the heading inherits 100% native padding, margins, and prompt gutters
+            summary_cell = soup.new_tag("div", **{"class": "jp-Cell jp-MarkdownCell jp-Notebook-cell"})
+            summary_input_wrapper = soup.new_tag("div", **{"class": "jp-Cell-inputWrapper"})
+            summary_collapser = soup.new_tag("div", **{"class": "jp-Collapser jp-InputCollapser jp-Cell-inputCollapser"})
+            summary_input_area = soup.new_tag("div", **{"class": "jp-InputArea jp-Cell-inputArea"})
+            
+            # The empty left gutter where [ ]: usually goes
+            summary_prompt = soup.new_tag("div", **{"class": "jp-InputPrompt jp-InputArea-prompt"})
+            
+            summary_md = soup.new_tag("div", **{"class": "jp-RenderedHTMLCommon jp-RenderedMarkdown jp-MarkdownOutput", "data-mime-type": "text/markdown"})
+            
             for sibling in list(heading_tag.previous_siblings):
                 if getattr(sibling, "name", None) == "hr":
                     sibling.extract()
-            summary.append(heading_tag.extract())  # only the heading itself is clickable
+            
+            summary_md.append(heading_tag.extract())
+            
+            summary_input_area.append(summary_prompt)
+            summary_input_area.append(summary_md)
+            summary_input_wrapper.append(summary_collapser)
+            summary_input_wrapper.append(summary_input_area)
+            summary_cell.append(summary_input_wrapper)
+            
+            summary.append(summary_cell)
             details.append(summary)
+            
             if stack:
                 stack[-1][1].append(details)
             else:
                 new_top_level.append(details)
             stack.append((level, details))
             n_sections += 1
-            # Any content that followed the heading within the SAME cell
-            # (e.g. a one-paragraph description written right under "##
-            # Heading" in the same markdown block) becomes the section's
-            # first body item, not part of the clickable summary.
+            
+            # If the original cell still has paragraph text left over, add it as a normal body cell
             if cell.get_text(strip=True) or cell.find(True):
                 stack[-1][1].append(cell.extract())
             else:
@@ -122,96 +180,50 @@ if cells:
     for item in new_top_level:
         main.append(item)
 
-# --- 5. Build the TOC nav block, inserted right after the H1 title ---
-def build_toc_list(entries):
-    ul = soup.new_tag("ul")
-    stack = [(1, ul)]  # (level, current <ul>)
-    for level, hid, text in entries:
-        while stack[-1][0] >= level:
-            stack.pop()
-        li = soup.new_tag("li")
-        a = soup.new_tag("a", href=f"#{hid}")
-        a.string = text
-        li.append(a)
-        stack[-1][1].append(li)
-        child_ul = soup.new_tag("ul")
-        li.append(child_ul)
-        stack.append((level, child_ul))
-    # drop empty trailing <ul> tags with no <li> children -- scoped to
-    # this TOC only, NOT soup.find_all, which would touch unrelated
-    # empty <ul> elements anywhere else in the rendered notebook content
-    for tag in ul.find_all("ul"):
-        if not tag.find("li"):
-            tag.decompose()
-    return ul
-
-
-if toc_entries:
-    toc_details = soup.new_tag("details", **{"class": "toc-nav", "open": ""})
-    toc_summary = soup.new_tag("summary")
-    toc_summary.string = "Contents"
-    toc_details.append(toc_summary)
-    toc_details.append(build_toc_list(toc_entries))
-
-    h1 = soup.find("h1")
-    if h1:
-        # insert right after the H1's containing cell
-        h1_cell = h1.find_parent("div", class_="jp-Cell")
-        if h1_cell:
-            h1_cell.insert_after(toc_details)
-        else:
-            h1.insert_after(toc_details)
-
-# --- 6. Styles + click-to-expand-ancestors behavior ---
+# --- 5. Native Jupyter CSS overrides & smooth scroll JS ---
 style_tag = soup.new_tag("style")
 style_tag.string = """
-/* Clean documentation aesthetic */
-body {
-  max-width: 960px !important;
-  margin: 0 auto !important;
-  padding: 24px 32px !important;
-  background-color: #ffffff;
+/* Guarantee native Jupyter sans-serif typography */
+summary {
+  font-family: var(--jp-content-font-family, system-ui, -apple-system, blinkmacsystemfont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif) !important;
 }
 
-body, .jp-RenderedMarkdown, .jp-MarkdownCell {
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif !important;
-  line-height: 1.6 !important;
-  color: #24292e !important;
+/* Reset Details Container completely transparent to layout */
+details.jp-Section-collapse {
+  border: none !important;
+  margin: 0 !important;
+  padding: 0 !important;
 }
 
-/* Headings scale and hierarchy */
-h1 {
-  font-size: 2.5em !important;
-  font-weight: 700 !important;
-  margin-top: 1.5em !important;
-  margin-bottom: 0.5em !important;
-  color: #24292e !important;
+details.jp-Section-collapse > summary {
+  list-style: none !important;
+  list-style-type: none !important;
+  cursor: pointer;
+  outline: none;
+  display: block !important; 
 }
 
-h2 {
-  font-size: 2.0em !important;
-  font-weight: 700 !important;
-  margin-top: 2.0em !important;
-  margin-bottom: 0.5em !important;
-  border-bottom: 1px solid #eaecef !important;
-  padding-bottom: 0.3em !important;
-  color: #24292e !important;
+details.jp-Section-collapse > summary::-webkit-details-marker,
+details.jp-Section-collapse > summary::marker {
+  display: none !important;
+  content: "" !important;
 }
 
-h3 {
-  font-size: 1.5em !important;
-  font-weight: 600 !important;
-  margin-top: 1.8em !important;
-  margin-bottom: 0.5em !important;
-  color: #24292e !important;
+/* Inject the disclosure triangle securely inside the invisible Jupyter prompt gutter */
+details.jp-Section-collapse > summary .jp-InputPrompt::after {
+  content: "\\25BC";
+  display: block;
+  width: 100%;
+  text-align: right;
+  padding-right: 12px;
+  box-sizing: border-box;
+  color: #757575;
+  font-size: 0.7em;
+  padding-top: 1.5em; /* Aligns triangle vertically with the H1/H2 text baseline */
 }
 
-h4 {
-  font-size: 1.2em !important;
-  font-weight: 600 !important;
-  margin-top: 1.5em !important;
-  margin-bottom: 0.5em !important;
-  color: #24292e !important;
+details.jp-Section-collapse:not([open]) > summary .jp-InputPrompt::after {
+  content: "\\25B6";
 }
 
 details.code-collapse { width: 100%; }
@@ -226,60 +238,6 @@ details.code-collapse > summary {
 details.code-collapse > summary::-webkit-details-marker { display: none; }
 details.code-collapse > summary::before { content: "\\25B6  "; }
 details.code-collapse[open] > summary::before { content: "\\25BC  "; }
-
-details.section-collapse {
-  border-left: 3px solid #e8e8e8;
-  padding-left: 14px;
-  margin: 6px 0 6px 2px;
-}
-details.section-collapse > summary {
-  cursor: pointer;
-  list-style: none;
-  margin-left: -14px;
-  padding-left: 14px;
-}
-details.section-collapse > summary::-webkit-details-marker { display: none; }
-details.section-collapse > summary::before {
-  content: "\\25BC";
-  display: inline-block;
-  width: 1em;
-  margin-left: -1.3em;
-  color: #aaa;
-  font-size: 0.75em;
-}
-details.section-collapse:not([open]) > summary::before { content: "\\25B6"; }
-details.section-collapse > summary h2,
-details.section-collapse > summary h3,
-details.section-collapse > summary h4 { display: inline; }
-
-details.toc-nav {
-  background: #f7f7f7;
-  border: 1px solid #e2e2e2;
-  border-radius: 6px;
-  padding: 10px 16px;
-  margin: 16px 0 24px 0;
-}
-details.toc-nav > summary {
-  cursor: pointer;
-  font-weight: 600;
-  list-style: none;
-}
-details.toc-nav > summary::-webkit-details-marker { display: none; }
-details.toc-nav > summary::before { content: "\\25BC  "; color: #888; }
-details.toc-nav:not([open]) > summary::before { content: "\\25B6  "; }
-details.toc-nav ul { list-style: none; padding-left: 18px; margin: 4px 0; }
-details.toc-nav > ul { padding-left: 4px; }
-details.toc-nav a { text-decoration: none; color: #2c5aa0; font-size: 0.92em; }
-details.toc-nav a:hover { text-decoration: underline; }
-
-@media (prefers-color-scheme: dark) {
-  body { background-color: #1e1e1e !important; }
-  body, .jp-RenderedMarkdown, .jp-MarkdownCell, h1, h2, h3, h4 { color: #e4e4e4 !important; }
-  details.section-collapse { border-left-color: #3a3a3a; }
-  details.toc-nav { background: #252526; border-color: #3a3a3a; }
-  details.toc-nav a { color: #7aa7e0; }
-  h2 { border-bottom-color: #3a3a3a !important; }
-}
 """
 if soup.head:
     soup.head.append(style_tag)
@@ -288,12 +246,14 @@ else:
 
 script_tag = soup.new_tag("script")
 script_tag.string = """
-document.querySelectorAll('details.toc-nav a[href^="#"]').forEach(function (a) {
+document.querySelectorAll('a[href^="#"]').forEach(function (a) {
   a.addEventListener('click', function (e) {
-    e.preventDefault();
-    var id = decodeURIComponent(this.getAttribute('href').slice(1));
+    var href = this.getAttribute('href');
+    if (!href || href === '#') return;
+    var id = decodeURIComponent(href.slice(1));
     var target = document.getElementById(id);
     if (!target) return;
+    e.preventDefault();
     var el = target.closest('details');
     while (el) {
       el.open = true;
@@ -312,5 +272,4 @@ with open(DST, "w", encoding="utf-8") as f:
 print(f"code cells collapsed: {n_code_collapsed}")
 print(f"outputs made scrollable (>{OUTPUT_SCROLL_THRESHOLD_CHARS} chars): {n_scrolled}")
 print(f"sections wrapped: {n_sections}")
-print(f"TOC entries: {len(toc_entries)}")
 print(f"written to: {DST}")

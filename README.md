@@ -36,6 +36,51 @@ whether the framing is hostile or approving, not because attacking wins
 more. Full current-state detail, caveats, and the entity allowlists
 behind these numbers: **`ANTIGRAVITY_HANDOFF.md`**.
 
+### Stance-split findings (splitting "is X mentioned" into "hostile vs. endorsing")
+
+The table above treats `has_consensus_expert`/`has_maverick` as pooled
+"any mention" binaries. Splitting mentions by stance (a local TF-IDF +
+LogisticRegression classifier, 5-fold CV kappa=0.345, no LLM calls —
+`src/train_stance_classifier.py`) surfaces two findings the pooled
+numbers hide:
+
+- **Consensus-expert stance is opposite-signed across subreddits**:
+  hostility toward consensus experts (Fauci, CDC, etc.) drives traction
+  in r/conspiracy; endorsement of them drives traction in r/politics —
+  not just different magnitudes, opposite signs.
+- **The maverick-stance null in the pure r/conspiracy population is a
+  composition artifact, not a real absence of effect.** Media
+  personalities (Alex Jones, Tucker Carlson, Roger Stone, Matt Gaetz)
+  are attacked ~82-97% of the time in both the pure and unfiltered
+  populations; leak-source whistleblowers (Wikileaks, Assange, Snowden)
+  are endorsed ~94-97% of the time in both — those per-entity rates
+  barely move. What shifts is the *mix*: the pure population has a
+  higher media-to-whistleblower mention ratio (~0.78 vs. ~0.49
+  unfiltered), which cancels the pooled stance signal down to
+  non-significant even though neither entity type's behavior changed.
+
+See Sections 10–11 of the notebook (below) for the full regression
+tables and per-entity breakdown.
+
+### Link source quality and the "credentials problem"
+
+The flat `has_link` penalty above replaces cleanly with a 5-tier
+taxonomy (`no_link` / `mainstream_reliable` / `mixed_or_low_reliability`
+/ `aggregator_or_platform` / `unmatched_link`, built from Media
+Bias/Fact Check + Scimago Journal Rank) — the penalty concentrates
+almost entirely in `aggregator_or_platform` links (−1.75), while
+`mainstream_reliable` links are mildly *rewarded* (+0.05). Separately, a
+previously-dormant `source_citation` construct (found via
+`handoff/methods_provenance_audit.md`, validated at kappa=0.655,
+AUC=0.859) shows that **97.8% of comments that score high on "cites
+something as authoritative" match neither `has_maverick` nor
+`has_consensus_expert`** — most authority-citing behavior in this corpus
+is invisible to the named-entity measures the core regression relies
+on. See notebook Sections 12–13; the "credentials problem" question this
+scaffolding was built for (does anti-consensus sourcing lean on
+differently-credentialed sources?) is not yet assembled into a
+comparative finding — see `handoff/task_credentials_problem_integration.md`.
+
 ## Comparison / control corpora
 
 r/askreddit and r/TopMindsOfReddit were both tried and rejected as baseline
@@ -48,7 +93,8 @@ secondary/exploratory comparison corpora.
 
 ## Layout
 
-- `ConspiracyMaster_Refactored.ipynb` — the canonical analysis notebook (research map in its header)
+- `ConspiracyMaster_Refactored.ipynb` — the canonical analysis notebook (research map in its header; Section 0 is a headline-findings TL;DR, Sections 1–9 are the original derivation/methodology sequence, Sections 10–14 are the 2026-07-21 stance/link-tier/credentials batch referenced above). Code cells are collapsed by default in Jupyter/VS Code/GitHub's viewer and hidden entirely (not just collapsed) in the static HTML export below — the notebook is a methods reference, not something meant to be read top-to-bottom line-by-line.
+- `ConspiracyMaster_Refactored.html` — static export of the notebook for reading without launching Jupyter (code hidden, findings/tables/plots only; regenerate with `jupyter nbconvert --to html --embed-images ConspiracyMaster_Refactored.ipynb --TagRemovePreprocessor.enabled=True --TagRemovePreprocessor.remove_input_tags='{"hide-input"}'` after editing the notebook)
 - `utils/` — shared helpers: epistemic lexicon, DuckDB patterns, plotting, path resolution
 - `src/` — the working pipeline: entity curation (Wikipedia/Wikidata/OpenAlex/PetScan),
   Wikidata-based entity disambiguation, HITL rating tooling, the core regression engine,
