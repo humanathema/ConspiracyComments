@@ -11,6 +11,7 @@ __pycache__/
 # archived notebook history stays on disk, out of the repo
 notebooks/archive/
 notebooks/scratchpads/
+scratch/
 *.backup.ipynb
 .secrets/
 *.log

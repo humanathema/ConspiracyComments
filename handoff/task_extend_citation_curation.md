@@ -1,9 +1,15 @@
 # Task: Extend the cited-URL curation table past the top ~55
 
-**Status: not started. Mechanical extension of an established, working
-pattern — bounded, but DOES require real identification work per row
-(not pure data transformation), so read the guardrails carefully before
-starting.**
+**Status: PARTIALLY SUPERSEDED (2026-07-22) — the "top ~55" framing is
+stale. The curation table already grew to 139+ rows via today's
+documentcloud.org curation (`task_domain_taxonomy_followups.md`, marked
+COMPLETED). Re-check the actual current row count in
+`cited_content_curation_step2.md` before resuming this specific task —
+the "ranks ~56-155" range below may already be covered. Separately, see
+`task_author_byline_extraction.md` for a related-but-distinct new task
+(extracting actual author BYLINES from cited articles, not just
+identifying/classifying the URL itself — different technical step, not
+just a bigger version of this one).**
 
 ## Why
 

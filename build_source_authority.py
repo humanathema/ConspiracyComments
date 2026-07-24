@@ -2,6 +2,8 @@ import os
 import csv
 import re
 
+REPO_ROOT = os.path.dirname(os.path.abspath(__file__))
+
 def normalize_name(name):
     if not name:
         return ""
@@ -33,10 +35,10 @@ def is_individual(wp_desc, name):
     return False
 
 def build_source_authority():
-    candidates_path = "/Users/nash/Projects/ConspiracyComments/data/processed/institutional_source_candidates.csv"
-    mbfc_path = "/Users/nash/Projects/ConspiracyComments/data/raw/mbfc.csv"
-    sjr_path = "/Users/nash/Projects/ConspiracyComments/data/raw/scimagojr 2025.csv"
-    output_path = "/Users/nash/Projects/ConspiracyComments/data/processed/source_authority_scores.csv"
+    candidates_path = os.path.join(REPO_ROOT, "data/processed/institutional_source_candidates.csv")
+    mbfc_path = os.path.join(REPO_ROOT, "data/raw/mbfc.csv")
+    sjr_path = os.path.join(REPO_ROOT, "data/raw/scimagojr 2025.csv")
+    output_path = os.path.join(REPO_ROOT, "data/processed/source_authority_scores.csv")
 
     print("Loading institutional source candidates...")
     candidates = []
