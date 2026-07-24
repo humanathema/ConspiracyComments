@@ -31,6 +31,58 @@ THREAD_REGEX = re.compile(r'/forum/thread(\d+)/pg(\d+|lastpost)?', re.IGNORECASE
 PID_REGEX = re.compile(r'(?:post|pid)(\d+)', re.IGNORECASE)
 
 
+def check_tor_available():
+    """
+    Checks if a local SOCKS5 proxy is listening on Tor's default port 9050.
+    """
+    import socket
+    s = socket.socket()
+    try:
+        s.settimeout(1.0)
+        s.connect(('127.0.0.1', 9050))
+        s.close()
+        return True
+    except Exception:
+        return False
+
+
+def rotate_tor_ip(control_port=9051):
+    """
+    Sends a NEWNYM signal to the Tor CLI ControlPort, requesting a clean exit node / IP.
+    """
+    try:
+        from stem import Signal
+        from stem.control import Controller
+        with Controller.from_port(port=control_port) as controller:
+            controller.authenticate()  # Uses cookie auth or password
+            controller.signal(Signal.NEWNYM)
+            print("  [TOR] IP rotation triggered. Requesting new circuit exit node...")
+            time.sleep(2.5)  # Wait for circuit to establish
+            return True
+    except Exception as e:
+        print(f"  [TOR WARNING] Failed to rotate IP via stem control port 9051: {e}", file=sys.stderr)
+        return False
+
+
+def get_http_session(use_tor_if_available=True):
+    """
+    Returns a requests.Session, routing traffic through Tor if Tor is active.
+    """
+    session = requests.Session()
+    session.headers.update({"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"})
+    
+    if use_tor_if_available and check_tor_available():
+        print("  [TOR] Local Tor SOCKS5 proxy detected on port 9050. Enabling targeted proxy routing!")
+        session.proxies = {
+            'http': 'socks5h://127.0.0.1:9050',
+            'https': 'socks5h://127.0.0.1:9050'
+        }
+    else:
+        if use_tor_if_available:
+            print("  [INFO] No Tor proxy detected on port 9050. Proceeding with a direct connection.")
+    return session
+
+
 def fetch_metadata(limit=1000, clean_only=True, output_path=DEFAULT_METADATA_FILE):
     """
     Queries the Wayback Machine CDX API for clean AboveTopSecret thread captures.
@@ -47,8 +99,8 @@ def fetch_metadata(limit=1000, clean_only=True, output_path=DEFAULT_METADATA_FIL
     )
     
     try:
-        headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
-        response = requests.get(cdx_url, headers=headers, timeout=30)
+        session = get_http_session()
+        response = session.get(cdx_url, timeout=30)
         response.raise_for_status()
         data = response.json()
     except Exception as e:
@@ -125,54 +177,130 @@ def fetch_metadata(limit=1000, clean_only=True, output_path=DEFAULT_METADATA_FIL
     return metadata_list
 
 
-def download_captures(metadata_list, cache_dir=DEFAULT_CACHE_DIR, delay=1.5, limit=None):
+def download_captures(metadata_list, cache_dir=DEFAULT_CACHE_DIR, delay=1.5, limit=None, threads=1):
     """
     Downloads raw rewritten-free HTML captures from the Wayback Machine.
+    Supports multi-threaded parallel downloads and Tor IP rotation.
     """
+    from threading import Lock
+    from concurrent.futures import ThreadPoolExecutor
+    import concurrent.futures
+
     os.makedirs(cache_dir, exist_ok=True)
-    downloaded_count = 0
-    cached_count = 0
     
     # Apply limit if specified
     targets = metadata_list[:limit] if limit else metadata_list
     total = len(targets)
     
-    print(f"Beginning download phase for {total} captures (delay={delay}s)...")
+    # Detect if Tor is active
+    test_session = get_http_session()
+    is_using_tor = bool(test_session.proxies)
     
-    for i, item in enumerate(targets):
+    print(f"Beginning download phase for {total} captures (threads={threads}, delay={delay}s, tor_rotation={is_using_tor})...")
+    
+    # Filter out already cached targets first to prevent threading overhead on cached files
+    remaining_targets = []
+    cached_count = 0
+    
+    for item in targets:
         thread_id = item['thread_id']
         page_num = item['page_num']
         timestamp = item['timestamp']
-        original_url = item['original_url']
         
-        # Local cache filename
         filename = f"thread_{thread_id}_pg{page_num}_{timestamp}.html"
         file_path = os.path.join(cache_dir, filename)
         
         if os.path.exists(file_path):
             cached_count += 1
-            continue
+        else:
+            remaining_targets.append(item)
             
-        # Construct raw raw HTML Wayback URL
-        wayback_url = f"https://web.archive.org/web/{timestamp}id_/{original_url}"
+    print(f"Already cached: {cached_count:,}. Remaining to download: {len(remaining_targets):,}")
+    
+    if not remaining_targets:
+        print("All target captures are already cached on disk!")
+        return 0
         
-        print(f"[{i+1}/{total}] Downloading thread {thread_id} page {page_num}...")
-        try:
-            headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
-            res = requests.get(wayback_url, headers=headers, timeout=20)
-            if res.status_code == 200:
-                with open(file_path, 'w', encoding='utf-8', errors='ignore') as f:
-                    f.write(res.text)
-                downloaded_count += 1
-            else:
-                print(f"  Warning: HTTP status {res.status_code} for {wayback_url}", file=sys.stderr)
-        except Exception as e:
-            print(f"  Error downloading {wayback_url}: {e}", file=sys.stderr)
+    downloaded_count = 0
+    global_download_lock = Lock()
+    last_rotation_time = [0.0]  # Use mutable list to allow updates within nested closures
+
+    def rotate_tor_ip_throttled():
+        with global_download_lock:
+            now = time.time()
+            if now - last_rotation_time[0] > 15.0:
+                rotate_tor_ip()
+                last_rotation_time[0] = now
+                return True
+        return False
+
+    def worker_thread(worker_items, thread_id_num):
+        nonlocal downloaded_count
+        session = get_http_session()
+        
+        for idx, item in enumerate(worker_items):
+            thread_id_val = item['thread_id']
+            page_num = item['page_num']
+            timestamp = item['timestamp']
+            original_url = item['original_url']
             
-        # Respect rate limits
-        if i < total - 1:
-            time.sleep(delay)
+            filename = f"thread_{thread_id_val}_pg{page_num}_{timestamp}.html"
+            file_path = os.path.join(cache_dir, filename)
             
+            wayback_url = f"https://web.archive.org/web/{timestamp}id_/{original_url}"
+            
+            with global_download_lock:
+                print(f"[Thread-{thread_id_num}] [{idx+1}/{len(worker_items)}] Downloading thread {thread_id_val} page {page_num}...")
+                
+            max_attempts = 3 if is_using_tor else 1
+            success = False
+            
+            for attempt in range(max_attempts):
+                try:
+                    if delay > 0 and idx > 0 and attempt == 0:
+                        time.sleep(delay)
+                        
+                    res = session.get(wayback_url, timeout=20)
+                    if res.status_code == 200:
+                        with open(file_path, 'w', encoding='utf-8', errors='ignore') as f:
+                            f.write(res.text)
+                        with global_download_lock:
+                            downloaded_count += 1
+                        success = True
+                        break
+                    elif res.status_code in [429, 403, 503]:
+                        with global_download_lock:
+                            print(f"  [Thread-{thread_id_num}] -> HTTP status {res.status_code} (Blocked/Throttled) on attempt {attempt+1}/{max_attempts}.", file=sys.stderr)
+                        if is_using_tor:
+                            rotate_tor_ip_throttled()
+                            time.sleep(3)
+                        else:
+                            break
+                    else:
+                        with global_download_lock:
+                            print(f"  [Thread-{thread_id_num}] Warning: HTTP status {res.status_code} for {wayback_url}", file=sys.stderr)
+                        break
+                except Exception as e:
+                    with global_download_lock:
+                        print(f"  [Thread-{thread_id_num}] Connection error/Timeout: {e} on attempt {attempt+1}/{max_attempts}.", file=sys.stderr)
+                    if is_using_tor:
+                        rotate_tor_ip_throttled()
+                        time.sleep(3)
+                    else:
+                        break
+                        
+    # Split the remaining targets across worker threads
+    chunks = [[] for _ in range(threads)]
+    for i, item in enumerate(remaining_targets):
+        chunks[i % threads].append(item)
+        
+    with ThreadPoolExecutor(max_workers=threads) as executor:
+        futures = []
+        for i in range(threads):
+            if chunks[i]:
+                futures.append(executor.submit(worker_thread, chunks[i], i + 1))
+        concurrent.futures.wait(futures)
+        
     print(f"Download phase completed. New downloads: {downloaded_count}, Already cached: {cached_count}")
     return downloaded_count
 
@@ -341,6 +469,7 @@ def main():
     dl_parser.add_argument("--cache-dir", default=DEFAULT_CACHE_DIR, help="Directory to store cached HTML files")
     dl_parser.add_argument("--delay", type=float, default=1.5, help="Delay (seconds) between sequential downloads")
     dl_parser.add_argument("--limit", type=int, default=None, help="Limit the number of threads to download")
+    dl_parser.add_argument("--threads", type=int, default=1, help="Number of concurrent worker threads")
     
     # Subcommand: parse
     parse_parser = subparsers.add_parser("parse", help="Parse cached HTML files into structured comments")
@@ -366,7 +495,7 @@ def main():
             sys.exit(1)
         with open(args.metadata) as f:
             metadata_list = json.load(f)
-        download_captures(metadata_list, cache_dir=args.cache_dir, delay=args.delay, limit=args.limit)
+        download_captures(metadata_list, cache_dir=args.cache_dir, delay=args.delay, limit=args.limit, threads=args.threads)
         
     elif args.command == "parse":
         if args.local_file:

@@ -158,12 +158,12 @@ def extract_record_from_cc(record):
             res = requests.get(cdn_url, headers=headers, timeout=15)
             if res.status_code in [200, 206]:
                 break
-            elif res.status_code in [429, 503]:
-                # Server throttled or rate-limited; back off and retry
+            elif res.status_code in [403, 429, 503]:
+                # Server throttled, rate-limited, or returned temporary 403 Forbidden; back off and retry
                 if attempt == max_retries - 1:
                     res.raise_for_status()
                 import random
-                sleep_time = (backoff_factor ** attempt) + random.uniform(0.5, 1.5)
+                sleep_time = (backoff_factor ** attempt) + random.uniform(1.0, 3.0)
                 time.sleep(sleep_time)
             else:
                 res.raise_for_status()
@@ -171,7 +171,7 @@ def extract_record_from_cc(record):
             if attempt == max_retries - 1:
                 raise e
             import random
-            sleep_time = (backoff_factor ** attempt) + random.uniform(0.5, 1.5)
+            sleep_time = (backoff_factor ** attempt) + random.uniform(1.0, 3.0)
             time.sleep(sleep_time)
             
     if not res:
@@ -281,13 +281,35 @@ def extract_threads_parallel(index_path, max_workers=10, limit=None, output_path
     if limit:
         targets = targets[:limit]
         
+    # Resume support: Load already processed (thread_id, page_num) pairs to support seamless checkpoint recovery
+    processed_pages = set()
+    if os.path.exists(output_path):
+        print(f"Detecting existing output file {output_path} for resume support...")
+        try:
+            with open(output_path, 'r', encoding='utf-8') as f:
+                for line in f:
+                    line = line.strip()
+                    if line:
+                        try:
+                            record = json.loads(line)
+                            processed_pages.add((record['thread_id'], record['page_num']))
+                        except:
+                            continue
+            print(f"  -> Found {len(processed_pages):,} already processed thread-page combinations.")
+        except Exception as e:
+            print(f"  -> Error loading existing output for resume: {e}", file=sys.stderr)
+            
+    if processed_pages:
+        original_count = len(targets)
+        targets = [t for t in targets if (t['thread_id'], t['page_num']) not in processed_pages]
+        print(f"  -> Resume filtered targets. Remaining targets to process: {len(targets):,} (Skipped {original_count - len(targets):,} already processed targets!)")
+        
     total_pages = len(targets)
     if total_pages == 0:
-        print("No target captures to parse.")
+        print("All target captures have already been successfully processed!")
         return
         
     print(f"Starting multi-threaded Common Crawl extraction (workers={max_workers}, pages={total_pages})...")
-    os.makedirs(os.path.dirname(output_path), exist_ok=True)
     
     # Initialize locks and statistics
     write_lock = threading.Lock()
