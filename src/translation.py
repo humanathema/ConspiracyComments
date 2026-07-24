@@ -2,6 +2,8 @@ import re
 import urllib.parse
 import requests
 import time
+import json
+from bs4 import BeautifulSoup
 
 def translate_wikipedia_url(url: str) -> str:
     """Extracts a readable title from a Wikipedia URL."""
@@ -167,6 +169,184 @@ def fetch_article_titles_batch(urls, delay: float = 0.3):
         titles.append(fetch_article_title(url))
         time.sleep(delay)
     return titles
+
+def clean_author_name(name: str) -> str:
+    """Clean and normalize raw extracted author strings, filtering out boilerplate."""
+    if not isinstance(name, str):
+        return ""
+    # Normalize whitespace
+    name = re.sub(r"\s+", " ", name).strip()
+    # Strip leading "by " or "By " (case-insensitive)
+    name = re.sub(r"(?i)^by\s+", "", name).strip()
+    # Handle concatenated "ByName" (e.g. "ByIan Lee")
+    name = re.sub(r"^By([A-Z])", r"\1", name).strip()
+    
+    # Reject if empty, too long, too short, or contains HTML tags
+    if not name or len(name) > 100 or len(name) < 2 or "<" in name or ">" in name:
+        return ""
+        
+    # Reject common boilerplate words or terms indicating non-authors
+    blacklist = [
+        "share", "subscribe", "comments", "comment", "email", "print", "follow", 
+        "facebook", "twitter", "instagram", "login", "register", "posted", "published", 
+        "updated", "modified", "click here", "read more", "about the author", "about us",
+        "home", "news", "homepage", "contact us"
+    ]
+    name_lower = name.lower()
+    for word in blacklist:
+        if word == name_lower or f" {word} " in f" {name_lower} ":
+            return ""
+            
+    # Also ignore purely numeric/date strings
+    if re.match(r"^\d+[\s\d\-:/]*$", name):
+        return ""
+        
+    return name
+
+def _extract_names_from_author_val(author_val):
+    """Recursively extract name(s) from a schema.org JSON-LD author value."""
+    if not author_val:
+        return None
+        
+    if isinstance(author_val, str):
+        cleaned = clean_author_name(author_val)
+        return [cleaned] if cleaned else None
+        
+    if isinstance(author_val, dict):
+        name_val = author_val.get("name")
+        if name_val:
+            if isinstance(name_val, str):
+                cleaned = clean_author_name(name_val)
+                return [cleaned] if cleaned else None
+            elif isinstance(name_val, list):
+                names = []
+                for n in name_val:
+                    if isinstance(n, str):
+                        c = clean_author_name(n)
+                        if c:
+                            names.append(c)
+                return names if names else None
+                
+    if isinstance(author_val, list):
+        names = []
+        for item in author_val:
+            res = _extract_names_from_author_val(item)
+            if res:
+                names.extend(res)
+        return names if names else None
+        
+    return None
+
+def _find_author_in_json(obj):
+    """Recursively search for 'author' field in JSON-LD objects."""
+    if isinstance(obj, dict):
+        if 'author' in obj:
+            authors = _extract_names_from_author_val(obj['author'])
+            if authors:
+                return authors
+        for k, v in obj.items():
+            res = _find_author_in_json(v)
+            if res:
+                return res
+    elif isinstance(obj, list):
+        for item in obj:
+            res = _find_author_in_json(item)
+            if res:
+                return res
+    return None
+
+def _extract_byline(html: str, url: str) -> tuple[str | None, str]:
+    """
+    Extract author byline from HTML content using JSON-LD, meta tags,
+    and common HTML selector patterns in order of reliability.
+    """
+    soup = BeautifulSoup(html, "html.parser")
+    
+    # Method 1: JSON-LD
+    ld_scripts = soup.find_all("script", type="application/ld+json")
+    for script in ld_scripts:
+        if not script.string:
+            continue
+        try:
+            data = json.loads(script.string.strip())
+            authors = _find_author_in_json(data)
+            if authors:
+                return ", ".join(authors), "json-ld"
+        except Exception:
+            continue
+            
+    # Method 2: Meta Tags
+    meta_keys = ["author", "article:author", "twitter:creator", "dc.creator", "sailthru.author", "byl"]
+    for key in meta_keys:
+        meta = soup.find("meta", attrs={"name": re.compile(f"^{re.escape(key)}$", re.IGNORECASE)})
+        if not meta:
+            meta = soup.find("meta", attrs={"property": re.compile(f"^{re.escape(key)}$", re.IGNORECASE)})
+        if meta and meta.get("content"):
+            cleaned = clean_author_name(meta["content"])
+            if cleaned:
+                return cleaned, "meta-tag"
+                
+    selectors = [
+        "a[rel='author']",
+        ".byline",
+        ".author-name",
+        ".author__name",
+        ".entry-author",
+        ".article-author",
+        ".author",
+    ]
+    for selector in selectors:
+        try:
+            elements = soup.select(selector)
+            for elem in elements:
+                text = elem.get_text(strip=True)
+                cleaned = clean_author_name(text)
+                if cleaned and len(cleaned) > 2 and len(cleaned) < 80:
+                    return cleaned, "html-pattern"
+        except Exception:
+            continue
+            
+    return None, "failed"
+
+def fetch_article_byline(url: str, timeout: float = 5) -> tuple[str | None, str]:
+    """
+    Best-effort author byline extraction for an arbitrary article URL.
+    Attempts direct fetch first, and falls back to Wayback Machine snapshot
+    if blocked or unavailable. Returns (extracted_byline, extraction_method).
+    """
+    try:
+        response = requests.get(
+            url, timeout=timeout,
+            headers={"User-Agent": "Mozilla/5.0 (research corpus citation resolver)"}
+        )
+        if response.status_code == 200:
+            byline, method = _extract_byline(response.text, url)
+            if byline:
+                return byline, method
+    except Exception:
+        pass
+
+    # Wayback Machine Fallback
+    try:
+        avail = requests.get(
+            f"http://archive.org/wayback/available?url={url}", timeout=timeout
+        )
+        if avail.status_code == 200:
+            snapshot = avail.json().get("archived_snapshots", {}).get("closest", {}).get("url")
+            if snapshot:
+                snap_response = requests.get(
+                    snapshot, timeout=timeout,
+                    headers={"User-Agent": "Mozilla/5.0 (research corpus citation resolver)"}
+                )
+                if snap_response.status_code == 200:
+                    byline, method = _extract_byline(snap_response.text, url)
+                    if byline:
+                        return byline, method
+    except Exception:
+        pass
+
+    return None, "failed"
+
 
 def resolve_titles_with_reddit_first(urls, reddit_title_lookup, delay: float = 0.3):
     """
