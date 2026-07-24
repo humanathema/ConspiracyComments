@@ -9,45 +9,21 @@ Usage:
     # then open http://localhost:8420 in a browser
 
 Queues are hardcoded below — edit QUEUES to add/remove files.
-
-CHANGELOG 2026-07-17 (Nash's feedback on real usage):
-  1. Fixed accidental-rating bug: the old keydown handler fired on ANY
-     keypress anywhere on the page, including while typing in the notes
-     textarea (typing a note containing "2" would submit a "hostile"
-     rating mid-sentence) or from stray keystrokes after switching tabs
-     and back. Now ignores keydown when the notes textarea has focus or
-     when any modifier key is held.
-  2. Added Back/Next navigation across the WHOLE queue (not just "next
-     unlabeled") so an accidental rating can be found and corrected --
-     previously there was no way to revisit an already-labeled row.
-  3. Added entity-span highlighting (queues with an `entity_spans`
-     column, currently just consensus_stance) -- long comments with
-     multiple entities now show which mention is the actual rating
-     target via <mark> highlighting, while still showing the full
-     comment for context.
-  4. Added on-demand "Load context" button (queues with `parent_id`/
-     `link_id` columns) -- fetches the parent comment being replied to
-     and a few sibling replies to the same parent, so a rater can check
-     whether the target comment is quoting/responding to something that
-     changes its interpretation (sarcasm, quotation, etc). Fetched live
-     via DuckDB against the raw corpus, not preloaded (keeps the tool
-     fast by default, only queries when asked).
 """
 import json
 import os
 import duckdb
 import pandas as pd
-from http.server import BaseHTTPRequestHandler, HTTPServer
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse, parse_qs
 
+# Global configuration defaults (overridden by command-line args)
+HOST = "0.0.0.0"
 PORT = 8420
+TOKEN = ""
 
 # Anchored to the repo root via this file's own location, not the
-# process's CWD -- this file has been launched both as
-# `python3.12 src/hitl_rater.py` (from the repo root, per README.md) and
-# as `cd src && python hitl_rater.py` (Nash's actual habit), and a
-# relative path only works for one of those. Resolving from __file__
-# makes it work the same way regardless of where it's launched from.
+# process's CWD
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 def _abs(rel_path):
@@ -67,33 +43,42 @@ QUEUES = {
     "maverick_stance_round5": _abs("data/hitl/queue_maverick_stance_round5.csv"),
     "maverick_stance_round6": _abs("data/hitl/queue_maverick_stance_round6.csv"),
     "maverick_stance_round7": _abs("data/hitl/queue_maverick_stance_round7.csv"),
+    "maverick_stance_round8": _abs("data/hitl/queue_maverick_stance_round8.csv"),
+    "consensus_stance_round8": _abs("data/hitl/queue_consensus_stance_round8.csv"),
     "wikileaks_quality_check": _abs("data/hitl/queue_wikileaks_stance_quality_check.csv"),
     "assange_quality_check": _abs("data/hitl/queue_assange_stance_quality_check.csv"),
     "snowden_quality_check": _abs("data/hitl/queue_snowden_stance_quality_check.csv"),
     "greenwald_quality_check": _abs("data/hitl/queue_greenwald_stance_quality_check.csv"),
     "jones_short_quality_check": _abs("data/hitl/queue_jones_short_stance_quality_check.csv"),
+    "wikileaks_short_quality_check": _abs("data/hitl/queue_short_wikileaks_stance_quality_check.csv"),
+    "assange_short_quality_check": _abs("data/hitl/queue_short_assange_stance_quality_check.csv"),
+    "snowden_short_quality_check": _abs("data/hitl/queue_short_snowden_stance_quality_check.csv"),
+    "greenwald_short_quality_check": _abs("data/hitl/queue_short_greenwald_stance_quality_check.csv"),
+    "irr_stance_shared": _abs("data/hitl/queue_irr_stance_shared.csv"),
 }
 
 EMPATH_PATH = _abs("data/processed/empath_scores_full.parquet")
 
-# IRR (inter-rater-reliability) support, added 2026-07-21. Queue names
-# listed here route submissions to a PER-RATER response file
-# (data/hitl/irr_responses/{queue}__{rater}.csv) instead of writing
-# directly into the master queue CSV -- so multiple raters labeling the
-# SAME blind sample never collide/overwrite each other, and never see
-# each other's (or Nash's original) answers. Currently empty -- populate
-# once an actual IRR blind-sample queue exists (see
-# handoff/task_irr_sample_builder.md) and is added to QUEUES above.
-# Queues NOT in this set keep the original single-rater behavior exactly
-# as before (write straight to the source CSV) -- this is purely additive,
-# no change to any existing queue's behavior.
-IRR_QUEUES = set()
+# IRR (inter-rater-reliability) support, added 2026-07-21.
+IRR_QUEUES = {"irr_stance_shared"}
 IRR_RESPONSES_DIR = _abs("data/hitl/irr_responses")
+
+# Pre-compiled context cache to bypass heavy parquet searches on VM, added 2026-07-22.
+CONTEXT_CACHE = {}
+CONTEXT_CACHE_PATH = _abs("data/hitl/context_cache.json")
+if os.path.exists(CONTEXT_CACHE_PATH):
+    try:
+        with open(CONTEXT_CACHE_PATH, "r", encoding="utf-8") as f:
+            CONTEXT_CACHE = json.load(f)
+        print(f"Loaded context cache with {len(CONTEXT_CACHE)} items.")
+    except Exception as e:
+        print(f"Failed to load context cache: {e}")
 
 
 def _irr_response_path(queue, rater):
     safe_rater = "".join(c if c.isalnum() or c in "-_" else "_" for c in rater) or "anonymous"
     return os.path.join(IRR_RESPONSES_DIR, f"{queue}__{safe_rater}.csv")
+
 
 PAGE = """<!doctype html>
 <html><head><meta charset="utf-8"><title>HITL Rater</title>
@@ -124,8 +109,8 @@ PAGE = """<!doctype html>
 <body>
 <div class="tabs" id="tabs"></div>
 <div style="margin-bottom:10px; color:#999;">
-  Rater name (only used for IRR queues, ignored otherwise):
-  <input id="rater_name" type="text" placeholder="e.g. nash" style="background:#1c1c1c; color:#eee; border:1px solid #333; border-radius:4px; padding:4px 8px; margin-left:6px;">
+  Rater name (required for all queues):
+  <input id="rater_name" type="text" placeholder="e.g. nash" style="background:#1c1c1c; color:#eee; border:1px solid #333; border-radius:4px; padding:4px 8px; margin-left:6px; outline:none;">
 </div>
 <div id="progress"></div>
 <div class="nav" id="nav"></div>
@@ -138,6 +123,21 @@ PAGE = """<!doctype html>
 <div id="done" style="display:none">All rows in this queue are labeled. Switch queue above.</div>
 
 <script>
+// Token management and apiFetch helper
+const urlParams = new URLSearchParams(window.location.search);
+const urlToken = urlParams.get('token');
+if (urlToken) {
+  localStorage.setItem('hitl_access_token', urlToken);
+  window.history.replaceState({}, document.title, window.location.pathname);
+}
+
+function apiFetch(url, options = {}) {
+  const token = localStorage.getItem('hitl_access_token') || '';
+  const separator = url.includes('?') ? '&' : '?';
+  const finalUrl = url + separator + 'token=' + encodeURIComponent(token);
+  return fetch(finalUrl, options);
+}
+
 const queueNames = QUEUES_JSON;
 let current = Object.keys(queueNames)[0];
 let rows = [];       // full row list for the current queue
@@ -146,7 +146,10 @@ let labelCol = 'human_label';
 
 const raterInput = document.getElementById('rater_name');
 raterInput.value = localStorage.getItem('hitl_rater_name') || '';
-raterInput.addEventListener('input', () => localStorage.setItem('hitl_rater_name', raterInput.value));
+raterInput.addEventListener('input', () => {
+  localStorage.setItem('hitl_rater_name', raterInput.value);
+  raterInput.style.border = '1px solid #333';
+});
 function raterName() { return raterInput.value.trim(); }
 
 function renderTabs() {
@@ -195,8 +198,9 @@ function renderLabelButtons(selected) {
   let opts = [];
   const STANCE_QUEUES = ['consensus_stance', 'maverick_stance', 'consensus_stance_politics', 'maverick_stance_politics',
     'maverick_stance_round2', 'maverick_stance_round3', 'maverick_stance_round4', 'maverick_stance_round5',
-    'maverick_stance_round6', 'maverick_stance_round7', 'wikileaks_quality_check', 'assange_quality_check',
-    'snowden_quality_check', 'greenwald_quality_check', 'jones_short_quality_check'];
+    'maverick_stance_round6', 'maverick_stance_round7', 'maverick_stance_round8', 'consensus_stance_round8',
+    'wikileaks_quality_check', 'assange_quality_check', 'snowden_quality_check', 'greenwald_quality_check',
+    'jones_short_quality_check', 'wikileaks_short_quality_check', 'assange_short_quality_check', 'snowden_short_quality_check', 'greenwald_short_quality_check', 'irr_stance_shared'];
   if (STANCE_QUEUES.includes(current)) {
     opts = [
       ['endorsement', 'kp', '1'], ['hostile', 'kn', '2'],
@@ -248,15 +252,9 @@ async function loadQueue(resetToFirstUnlabeled) {
   renderTabs();
   document.getElementById('context').style.display = 'none';
   document.getElementById('context').innerHTML = '';
-  // Guard against out-of-order responses: if tabs are switched quickly, a
-  // slower earlier request can resolve AFTER a faster later one and
-  // silently overwrite it -- the tab button shows the queue you clicked,
-  // but the content is whichever response happened to arrive last, not
-  // whichever was requested last. Only apply a response if it's still the
-  // most recently issued request by the time it comes back.
   const requestQueue = current;
   const thisRequestId = ++queueRequestId;
-  const r = await fetch('/api/queue?queue=' + requestQueue + '&rater=' + encodeURIComponent(raterName()));
+  const r = await apiFetch('/api/queue?queue=' + requestQueue + '&rater=' + encodeURIComponent(raterName()));
   const data = await r.json();
   if (thisRequestId !== queueRequestId) return; // a newer request superseded this one
   rows = data.rows;
@@ -310,7 +308,7 @@ async function loadContext(id) {
   const ctx = document.getElementById('context');
   ctx.style.display = 'block';
   ctx.textContent = 'Loading...';
-  const r = await fetch('/api/context?queue=' + current + '&id=' + encodeURIComponent(id));
+  const r = await apiFetch('/api/context?queue=' + current + '&id=' + encodeURIComponent(id));
   const data = await r.json();
   let html = '';
   if (data.parent_text) {
@@ -328,14 +326,23 @@ async function loadContext(id) {
 }
 
 async function submit(label) {
+  const rater = raterName();
+  if (!rater) {
+    const input = document.getElementById('rater_name');
+    input.focus();
+    input.style.border = '2px solid #f55';
+    input.placeholder = 'ENTER NAME FIRST!';
+    setTimeout(() => { input.style.border = '1px solid #333'; }, 2000);
+    return;
+  }
   const row = rows[idx];
   const notes = document.getElementById('notes').value;
   row[labelCol] = label;
   row.notes = notes;
-  await fetch('/api/label', {
+  await apiFetch('/api/label', {
     method: 'POST',
     headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify({queue: current, id: row.id, label_col: labelCol, human_label: label, notes: notes, rater: raterName()})
+    body: JSON.stringify({queue: current, id: row.id, label_col: labelCol, human_label: label, notes: notes, rater: rater})
   });
   renderLabelButtons(label);
   // auto-advance only if this was the first time this row was labeled AND we're at the frontier
@@ -357,8 +364,9 @@ document.addEventListener('keydown', (e) => {
   let map = {};
   const STANCE_QUEUES = ['consensus_stance', 'maverick_stance', 'consensus_stance_politics', 'maverick_stance_politics',
     'maverick_stance_round2', 'maverick_stance_round3', 'maverick_stance_round4', 'maverick_stance_round5',
-    'maverick_stance_round6', 'maverick_stance_round7', 'wikileaks_quality_check', 'assange_quality_check',
-    'snowden_quality_check', 'greenwald_quality_check', 'jones_short_quality_check'];
+    'maverick_stance_round6', 'maverick_stance_round7', 'maverick_stance_round8', 'consensus_stance_round8',
+    'wikileaks_quality_check', 'assange_quality_check', 'snowden_quality_check', 'greenwald_quality_check',
+    'jones_short_quality_check', 'wikileaks_short_quality_check', 'assange_short_quality_check', 'snowden_short_quality_check', 'greenwald_short_quality_check', 'irr_stance_shared'];
   if (STANCE_QUEUES.includes(current)) {
     map = {'1': 'endorsement', '2': 'hostile', '3': 'neutral', '4': 'ambiguous', '5': 'wrong_match'};
   } else {
@@ -373,6 +381,44 @@ loadQueue(true);
 </script>
 </body></html>"""
 
+LOGIN_PAGE = """<!doctype html>
+<html><head><meta charset="utf-8"><title>HITL Rater - Access Required</title>
+<style>
+  body { font-family: -apple-system, sans-serif; background:#111; color:#eee; display: flex; align-items: center; justify-content: center; height: 100vh; margin: 0; }
+  .login-card { background: #1c1c1c; border: 1px solid #333; border-radius: 12px; padding: 30px; max-width: 380px; width: 100%; box-shadow: 0 8px 24px rgba(0,0,0,0.5); text-align: center; }
+  h2 { margin-top: 0; color: #3a6; font-size: 22px; }
+  p { color: #999; font-size: 14px; margin-bottom: 20px; }
+  input { width: 100%; box-sizing: border-box; background: #222; color: #eee; border: 1px solid #444; border-radius: 6px; padding: 12px; font-size: 14px; margin-bottom: 16px; outline: none; border-color:#444; }
+  input:focus { border-color: #3a6; }
+  button { width: 100%; padding: 12px; font-weight: bold; background: #3a6; color: white; border: none; border-radius: 6px; cursor: pointer; font-size: 14px; transition: background 0.2s; }
+  button:hover { background: #2c5; }
+  .error { color: #f55; font-size: 13px; margin-top: 10px; display: none; }
+</style></head>
+<body>
+<div class="login-card">
+  <h2>HITL Rater</h2>
+  <p>Please enter the shared access token to continue.</p>
+  <input id="token_input" type="password" placeholder="Access Token" autofocus>
+  <button onclick="submitToken()">Submit</button>
+  <div id="error" class="error">Invalid token. Please try again.</div>
+</div>
+<script>
+  function submitToken() {
+    const token = document.getElementById('token_input').value.trim();
+    if (!token) return;
+    localStorage.setItem('hitl_access_token', token);
+    window.location.href = '/?token=' + encodeURIComponent(token);
+  }
+  document.getElementById('token_input').addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') submitToken();
+  });
+  // If we were redirected here with an error flag, show the error
+  if (window.location.search.includes('error=1')) {
+    document.getElementById('error').style.display = 'block';
+  }
+</script>
+</body></html>"""
+
 
 def load_df(path):
     return pd.read_csv(path)
@@ -383,12 +429,6 @@ class Handler(BaseHTTPRequestHandler):
         pass
 
     def _json(self, obj, code=200):
-        # allow_nan=False: fail loudly with a server-side traceback if a
-        # non-standard-JSON float (NaN/Infinity) ever leaks into a response,
-        # instead of silently shipping invalid JSON that the browser's
-        # strict JSON.parse() then rejects with no visible error on this
-        # side at all (exactly what happened with the maverick_stance bug
-        # this was added alongside).
         body = json.dumps(obj, allow_nan=False).encode()
         self.send_response(code)
         self.send_header("Content-Type", "application/json")
@@ -396,10 +436,40 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
+    def is_authorized(self):
+        if not TOKEN:
+            return True
+        parsed = urlparse(self.path)
+        qs = parse_qs(parsed.query)
+        token_val = qs.get("token", [None])[0]
+        if not token_val:
+            token_val = self.headers.get("X-Access-Token")
+        return token_val == TOKEN
+
     def do_GET(self):
         parsed = urlparse(self.path)
+        if TOKEN and not self.is_authorized():
+            if parsed.path == "/":
+                # Serve the login page
+                body = LOGIN_PAGE.encode()
+                self.send_response(200)
+                self.send_header("Content-Type", "text/html")
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+                return
+            else:
+                self._json({"error": "unauthorized"}, 403)
+                return
+
         if parsed.path == "/":
-            html = PAGE.replace("QUEUES_JSON", json.dumps({k: True for k in QUEUES}))
+            qs = parse_qs(parsed.query)
+            queue_param = qs.get("queue", [None])[0]
+            if queue_param and queue_param in QUEUES:
+                queues_to_serve = {queue_param: True}
+            else:
+                queues_to_serve = {k: True for k in QUEUES}
+            html = PAGE.replace("QUEUES_JSON", json.dumps(queues_to_serve))
             body = html.encode()
             self.send_response(200)
             self.send_header("Content-Type", "text/html")
@@ -415,12 +485,13 @@ class Handler(BaseHTTPRequestHandler):
             if not path:
                 self._json({"error": "unknown queue"}, 400)
                 return
+            # If the queue file doesn't exist yet, we can't load it (graceful fail)
+            if not os.path.exists(path):
+                self._json({"rows": [], "label_col": "human_label"})
+                return
             df = load_df(path)
             col = "human_stance" if "human_stance" in df.columns else "human_label"
             if queue in IRR_QUEUES:
-                # Blind base rows -- the master file's label column is never
-                # read (or written) for IRR queues, only this rater's own
-                # response file is, so no rater ever sees anyone else's answer.
                 df[col] = None
                 df["notes"] = None
                 resp_path = _irr_response_path(queue, rater) if rater else None
@@ -432,18 +503,6 @@ class Handler(BaseHTTPRequestHandler):
                             lbl, nts = resp_map[str(row["id"])]
                             df.at[i, col] = lbl
                             df.at[i, "notes"] = nts
-            # BUG FIXED 2026-07-20: `df.where(pd.notna(df), None)` doesn't
-            # actually put None into a float64 column -- pandas silently
-            # coerces it right back to np.nan (a well-known gotcha; float
-            # columns can't natively hold Python None). A freshly-generated,
-            # zero-rated queue (e.g. maverick_stance before any rating) has
-            # its human_stance/notes columns read in as all-NaN float64, so
-            # this never took effect for it. The leftover float NaN then hit
-            # json.dumps, which serializes it as the bareword `NaN` -- valid
-            # for Python's json module but not standard JSON, so the
-            # browser's strict JSON.parse() threw and silently aborted the
-            # whole queue load (every row, not just some). Casting to
-            # object dtype first makes the None substitution actually stick.
             df = df.astype(object).where(pd.notna(df), None)
             self._json({"rows": df.to_dict(orient="records"), "label_col": col})
 
@@ -454,6 +513,12 @@ class Handler(BaseHTTPRequestHandler):
             path = QUEUES.get(queue)
             if not path or not comment_id:
                 self._json({"error": "bad request"}, 400)
+                return
+            if CONTEXT_CACHE and str(comment_id) in CONTEXT_CACHE:
+                self._json(CONTEXT_CACHE[str(comment_id)])
+                return
+            if not os.path.exists(path) or not os.path.exists(EMPATH_PATH):
+                self._json({"parent_text": None, "sibling_texts": []})
                 return
             df = load_df(path)
             row = df[df["id"].astype(str) == str(comment_id)]
@@ -491,6 +556,10 @@ class Handler(BaseHTTPRequestHandler):
             self._json({"error": "not found"}, 404)
 
     def do_POST(self):
+        if TOKEN and not self.is_authorized():
+            self._json({"error": "unauthorized"}, 403)
+            return
+
         parsed = urlparse(self.path)
         if parsed.path == "/api/label":
             length = int(self.headers.get("Content-Length", 0))
@@ -500,6 +569,8 @@ class Handler(BaseHTTPRequestHandler):
             if not path:
                 self._json({"error": "unknown queue"}, 400)
                 return
+            # If the queue directory doesn't exist, create it
+            os.makedirs(os.path.dirname(path), exist_ok=True)
             col = payload.get("label_col") or "human_label"
             if queue in IRR_QUEUES:
                 rater = (payload.get("rater") or "").strip()
@@ -519,10 +590,14 @@ class Handler(BaseHTTPRequestHandler):
                 resp.to_csv(resp_path, index=False)
                 self._json({"ok": True})
                 return
+
             df = load_df(path)
+            if "rater_id" not in df.columns:
+                df["rater_id"] = None
             mask = df["id"].astype(str) == str(payload["id"])
             df.loc[mask, col] = payload["human_label"]
             df.loc[mask, "notes"] = payload.get("notes", "")
+            df.loc[mask, "rater_id"] = (payload.get("rater") or "").strip()
             df.to_csv(path, index=False)
             self._json({"ok": True})
         else:
@@ -530,5 +605,18 @@ class Handler(BaseHTTPRequestHandler):
 
 
 if __name__ == "__main__":
-    print(f"HITL rater running at http://localhost:{PORT}")
-    HTTPServer(("localhost", PORT), Handler).serve_forever()
+    import argparse
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--host", default="0.0.0.0", help="Host to bind to (default: 0.0.0.0)")
+    parser.add_argument("--port", type=int, default=8420, help="Port to run on (default: 8420)")
+    parser.add_argument("--token", default="", help="Shared secret token for access safety")
+    args = parser.parse_args()
+
+    HOST = args.host
+    PORT = args.port
+    TOKEN = args.token
+
+    print(f"HITL rater running at http://{HOST}:{PORT}")
+    if TOKEN:
+        print("Token protection enabled.")
+    ThreadingHTTPServer((HOST, PORT), Handler).serve_forever()
