@@ -13,21 +13,12 @@ import re
 import sys
 import numpy as np
 import pandas as pd
-import joblib
 import duckdb
-
-# Setup path portability
-sys.path.insert(0, os.path.dirname(__file__))
-from rerun_refined_regressions_v2 import load_entities_split_corrected
-from refine_thesis_models import build_regex
-from combined_maverick_detector import load_maverick_disambiguation_lookup, VALID_MAVERICK_CANDIDATES, CANDIDATE_TO_BARES as MAVERICK_CANDIDATE_TO_BARES
-from consensus_disambiguation_lookup import load_consensus_disambiguation_lookup, VALID_CONSENSUS_CANDIDATES, CANDIDATE_TO_BARES as CONSENSUS_CANDIDATE_TO_BARES
-from stance_window_utils import extract_entity_window, filter_quoted_spans, is_list_or_link_dump_window, compute_spans_for_row
 
 CURATION_PATH = 'handoff/cited_content_curation_step2.md'
 SCORED_PATH = 'data/processed/authority_appeal_scored.parquet'
 ENRICHED_PATH = 'data/processed/research_corpus_enriched.parquet'
-STANCE_MODEL_PATH = 'data/processed/stance_classifier_3class.joblib'
+CACHE_PATH = 'data/processed/entity_mentions_cache_2stage_pooled.parquet'
 OUT_CSV_PATH = 'data/processed/credentials_integration_results.csv'
 OUT_REPORT_PATH = 'data/processed/credentials_problem_integration_report.md'
 
@@ -265,7 +256,7 @@ def main():
     print("=== INTEGRATING THE CREDENTIALS PROBLEM ===")
     
     # Check dependencies
-    for p in [SCORED_PATH, ENRICHED_PATH, STANCE_MODEL_PATH]:
+    for p in [SCORED_PATH, ENRICHED_PATH, CACHE_PATH]:
         if not os.path.exists(p):
             print(f"Error: Missing required input file: {p}")
             sys.exit(1)
@@ -285,12 +276,12 @@ def main():
     high_citation = scored_df[scored_df['source_citation_prob'] > 0.5]
     print(f"  Found {len(high_citation):,} comments with source_citation_prob > 0.5.")
     
-    print("\nJoining with enriched corpus (to get comment text and authors)...")
+    print("\nJoining with enriched corpus (to get comment authors)...")
     con = duckdb.connect()
     con.register("high_citation_view", high_citation[['id', 'source_citation_prob', 'has_maverick', 'has_consensus_expert']])
     
     enriched_matched = con.execute(f"""
-        SELECT h.id, h.source_citation_prob, h.has_maverick, h.has_consensus_expert, e.text, e.author
+        SELECT h.id, h.source_citation_prob, h.has_maverick, h.has_consensus_expert, e.author
         FROM '{ENRICHED_PATH}' e
         JOIN high_citation_view h ON e.id = h.id
     """).df()
@@ -309,59 +300,39 @@ def main():
     print(f"  Mapped {len(citations_df):,} citation records (comment-url pairs) "
           f"across {citations_df['comment_id'].nunique():,} distinct comments.")
           
-    # Load stance classifier for entity-stance categorization
-    print("\nLoading 3-class stance classifier...")
-    stance_model = joblib.load(STANCE_MODEL_PATH)
-    vec, clf = stance_model['vec'], stance_model['clf']
-    classes = list(clf.classes_)
-    print(f"  Loaded stance classifier with classes {classes}.")
+    # Load stance cache
+    print(f"\nLoading cascade-scored stance cache from {CACHE_PATH}...")
+    cache_2stage_df = pd.read_parquet(CACHE_PATH)
+    # Filter for the merged constructs
+    merged_cache = cache_2stage_df[cache_2stage_df['entity_key'].isin(['merged_maverick', 'merged_consensus'])]
     
-    # Load verified entities
-    mavericks, canon, consensus = load_entities_split_corrected()
-    rx_mav = build_regex(mavericks)
-    rx_con = build_regex(consensus)
-    lookup = load_maverick_disambiguation_lookup()
-    consensus_lookup = load_consensus_disambiguation_lookup()
+    mav_stance_lookup = dict(zip(
+        merged_cache[merged_cache['entity_key'] == 'merged_maverick']['comment_id'].astype(str),
+        merged_cache[merged_cache['entity_key'] == 'merged_maverick']['predicted_label']
+    ))
+    con_stance_lookup = dict(zip(
+        merged_cache[merged_cache['entity_key'] == 'merged_consensus']['comment_id'].astype(str),
+        merged_cache[merged_cache['entity_key'] == 'merged_consensus']['predicted_label']
+    ))
+    print(f"  Loaded {len(mav_stance_lookup):,} merged_maverick and {len(con_stance_lookup):,} merged_consensus labels.")
     
     # Get subset of citations that mention entities and need stance classification
     entity_citation_mask = (citations_df['has_maverick'] == 1) | (citations_df['has_consensus_expert'] == 1)
     entity_comment_ids = citations_df.loc[entity_citation_mask, 'comment_id'].unique()
     print(f"  Found {len(entity_comment_ids):,} unique comments with links that mention an entity.")
     
-    # Predict stance for these comments
-    text_lookup = dict(zip(enriched_matched['id'], enriched_matched['text']))
     has_mav_lookup = dict(zip(enriched_matched['id'], enriched_matched['has_maverick']))
     has_con_lookup = dict(zip(enriched_matched['id'], enriched_matched['has_consensus_expert']))
     comment_stances = {}
     
-    print("  Running stance classification on entity-mentioning comments...")
+    print("  Determining stance from cache lookup for entity-mentioning comments...")
     for cid in entity_comment_ids:
-        text = text_lookup.get(cid)
-        if not text:
-            continue
-            
-        # Check maverick stance (using fast dictionary lookups instead of slow pandas queries)
+        # Check maverick and consensus presence
         has_mav = int(has_mav_lookup.get(cid, 0))
         has_con = int(has_con_lookup.get(cid, 0))
         
-        predicted_stance = 'other'
-        
-        # Helper to get prediction
-        def get_pred(rx, ent_lookup, bares_map):
-            groups = entity_groups_for_row(text, cid, rx, ent_lookup, bares_map)
-            if not groups:
-                return 'other'
-            for ent_key, spans in groups.items():
-                win = extract_entity_window(text, spans)
-                if is_list_or_link_dump_window(win):
-                    continue
-                X = vec.transform([win])
-                probs = clf.predict_proba(X)[0]
-                return classes[probs.argmax()]
-            return 'other'
-            
-        mav_stance = get_pred(rx_mav, lookup, MAVERICK_CANDIDATE_TO_BARES) if has_mav else 'other'
-        con_stance = get_pred(rx_con, consensus_lookup, CONSENSUS_CANDIDATE_TO_BARES) if has_con else 'other'
+        mav_stance = mav_stance_lookup.get(str(cid), 'other') if has_mav else 'other'
+        con_stance = con_stance_lookup.get(str(cid), 'other') if has_con else 'other'
         
         # Categorize overall comment stance
         # Anti-Consensus (Conspiracy): Maverick Endorsement or Consensus Hostile
@@ -452,6 +423,24 @@ def main():
     print("\nComment-level Cross-tabulation (Comments Count):")
     print(comment_counts.to_string())
     
+    # -------------------------------------------------------------
+    # CHI-SQUARE SIGNIFICANCE TESTING
+    # -------------------------------------------------------------
+    print("\n=== CHI-SQUARE SIGNIFICANCE TESTING ===")
+    from scipy.stats import chi2_contingency
+    chi2_3way, p_3way, dof_3way, _ = chi2_contingency(comment_counts)
+    print(f"Chi-square (all 3 stances x category): chi2={chi2_3way:.2f}, dof={dof_3way}, p={p_3way:.4g}")
+    
+    avail_stances = set(comment_counts.index)
+    has_both_key_stances = {'Anti-Consensus', 'Consensus-Aligned'}.issubset(avail_stances)
+    if has_both_key_stances:
+        comment_counts_2way = comment_counts.loc[['Anti-Consensus', 'Consensus-Aligned']]
+        chi2_2way, p_2way, dof_2way, _ = chi2_contingency(comment_counts_2way)
+        print(f"Chi-square (Anti-Consensus vs Consensus-Aligned only): chi2={chi2_2way:.2f}, dof={dof_2way}, p={p_2way:.4g}")
+    else:
+        chi2_2way, p_2way, dof_2way = None, None, None
+        print("WARNING: 'Anti-Consensus' and 'Consensus-Aligned' not both in comment_counts. Skipping 2-way chi-square.")
+        
     # Average number of citations per comment by group
     avg_citations = citations_df.groupby('comment_id').size().mean()
     print(f"\nAverage Citations per Comment: {avg_citations:.2f}")
@@ -507,6 +496,15 @@ def main():
         for stance in ['Anti-Consensus', 'Consensus-Aligned', 'Neutral/Other']:
             vals = comment_crosstab.loc[stance]
             f.write(f"| **{stance}** | {vals.get('credentialed_institutional', 0.0):.2f}% | {vals.get('individual_named_source', 0.0):.2f}% | {vals.get('movement_internal_anonymous', 0.0):.2f}% | {vals.get('other', 0.0):.2f}% |\n")
+            
+        f.write("\n### Statistical Significance Testing\n\n")
+        f.write("To formally test whether epistemic sourcing patterns differ significantly by comment stance, ")
+        f.write("we perform a Chi-square test of independence on the comment-level precedence counts table:\n\n")
+        f.write(f"- **Overall test** (all 3 stances &times; 4 categories): ")
+        f.write(f"$\\chi^2$ = {chi2_3way:.2f}, df = {dof_3way}, $p$ = {p_3way:.4e}\n")
+        if has_both_key_stances:
+            f.write(f"- **Key contrast** (Anti-Consensus vs. Consensus-Aligned &times; 4 categories): ")
+            f.write(f"$\\chi^2$ = {chi2_2way:.2f}, df = {dof_2way}, $p$ = {p_2way:.4e}\n\n")
             
         f.write("\n## 4. Citation Volume Analysis\n\n")
         f.write("We calculated the average citation volume (links per comment) to check if anti-consensus "
