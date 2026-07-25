@@ -9,6 +9,32 @@ including corrections-to-corrections) lives in `handoff/ARCHIVE_full_session_his
 and in `git log`. You don't need it to execute a task — only read it if
 you need to understand *why*, not just *what*.
 
+## Also in flight (raised 2026-07-25, separate session, ended on usage limits mid-run)
+
+**`handoff/task_topic_quality_and_claim_detection.md`** — new work, not
+the corpus explorer thread below. Topic-quality audit script
+(`src/audit_topic_quality.py`, untracked/uncommitted) built and mostly
+calibrated but a corrected rerun was still in progress when the session
+ended — **read that task file's "what to check first" section before
+trusting any of `data/processed/topic_quality_audit.csv` /
+`topic_near_duplicate_pairs.csv` / `topic_split_candidates.csv`**, the
+versions on disk may be from a miscalibrated first pass. Longer-term goal
+(not started): topic-level "central claim" extraction via the same
+signature-word method already used for entity disambiguation, feeding
+into the already-scaffolded-but-13%-labeled `build_topic_stance_queue.py`.
+
+## Pick this up first if picking up fresh (raised 2026-07-25, session ended at 92% context)
+
+**`handoff/task_corpus_explorer_live_backend.md`** — the corpus explorer
+is now a real live web app with its own backend (GCE VM + Caddy/HTTPS +
+SQLite API), not just a static Claude Artifact — a whole separate
+infrastructure layer that doesn't exist anywhere else in this repo's
+history. Read that file before touching the explorer or its backend;
+it has exact URLs, credentials, a background job that was still running
+when the session ended, and several explicitly-scoped-but-not-built
+features (multi-rater identity, Outlier topic assignment + learning,
+richer comment context) with enough detail to pick up directly.
+
 ## Update 2026-07-21 — large Claude Code session, all uncommitted
 
 Everything below is real, tested, and mostly cross-validated, but **none
@@ -564,7 +590,7 @@ don't assume from the source order.
 | `handoff/task_fix_stale_politics_pipeline.md` | **Done (2026-07-21).** Crawl finished (140,824 rows, all 20 months), rescored, all regressions rerun against it multiple times over the course of 2026-07-21's work (pure population, unfiltered population, 3-way stance comparison all use this sample). |
 | `handoff/task_expand_politics_control_sample.md` | **Done**, see `task_fix_stale_politics_pipeline.md`. Kept for original design rationale only. |
 | `handoff/task_stance_queues_expansion.md` | **Done** (2026-07-20/21) — all base queues rated, plus 4 additional active-learning rounds (see 2026-07-21 update above). The `"Brand"`/`"Hawking"` noise this file flagged is resolved, not just "under investigation" anymore. |
-| `handoff/task_core_comparison_robustness.md` | **(A) done, (B) not done.** The formal pooled interaction test exists and ran (`synthesis_interaction_results_corrected.csv`, see 2026-07-21 update). The 2,387-author-overlap exclusion re-run (B) was never actually executed this session — still open. |
+| `handoff/task_core_comparison_robustness.md` | **(A) and (B) both done (2026-07-21, session `69436207`, missed in this doc until 2026-07-24).** Interaction test: `has_consensus_expert:subreddit[politics]=-0.949, p<0.001`; `ps_prob:subreddit[politics]=-0.666, p<0.001`. Overlap-exclusion rerun against the *expanded* r/politics sample (140,824 rows): 7,194 overlap authors (12.84%, not the pre-expansion 2,387/16.14%), residual N=118,318, core finding robust (`has_consensus_expert` -0.373->-0.399, still n.s. either way). See `data/processed/politics_overlap_excluded_comparison.csv` / `data/processed/subreddit_interaction_results.csv`. Being rerun again 2026-07-24 as a reproducibility check against current data. |
 | `handoff/task_clustered_standard_errors.md` | **Done** — `run_integrated_regressions.py` fits naive/thread-clustered/author-clustered cov types for every cell (see `_filtered_clustered.csv`), same pattern already used in `refined_regression_results_v2_clustered.csv`. |
 | `handoff/task_source_authority_regression_wiring.md` | **Done (2026-07-21).** `has_link` replaced by the 5-tier `link_source_tier` taxonomy in `run_integrated_regressions.py`, using `source_authority_scores.csv` + `run_link_source_tier_regressions.py`'s domain-classification logic. See 2026-07-21 update above for the aggregator/platform penalty finding. |
 | `handoff/task_trump_vs_classical_topic_split.md` | **Done** (2026-07-20) — redone with an actually-reviewed term list after the first attempt's review gate turned out to be a no-op. See current-state section above for the result and what changed. One open loose end: possible Logit-vs-OLS Bonferroni-labeling inconsistency in the script, not yet checked. |

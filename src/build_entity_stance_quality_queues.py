@@ -32,7 +32,7 @@ from refine_thesis_models import build_regex
 from rerun_refined_regressions_v2 import load_entities_split_corrected, STAGED_PATH, EMPATH_PATH, THREAD_PATH, BRIGADE_PATH
 from combined_maverick_detector import load_maverick_disambiguation_lookup, VALID_MAVERICK_CANDIDATES, CANDIDATE_TO_BARES
 from stance_window_utils import extract_entity_window
-from per_entity_stance_breakdown import entity_groups_for_row
+from build_entity_mentions_cache import entity_groups_for_row
 
 STANCE_MODEL_PATH = 'data/processed/stance_classifier_3class.joblib'
 RANDOM_SEED = 42
@@ -169,7 +169,14 @@ def main():
     rx_mav = build_regex(mavericks)
     lookup = load_maverick_disambiguation_lookup()
 
+    import shutil
+    temp_dir = f"data/processed/.duckdb_temp_{os.getpid()}"
+    os.makedirs(temp_dir, exist_ok=True)
+
     con = duckdb.connect()
+    # Configure PID-isolated temp directory and safe memory limit for 8GB system
+    con.execute(f"PRAGMA temp_directory='{temp_dir}'")
+    con.execute("PRAGMA memory_limit='6GB'")
     print("Loading r/conspiracy unfiltered population (has_maverick flag only)...")
     query = f"""
         SELECT
@@ -208,6 +215,12 @@ def main():
 
     for entity in entities:
         build_queue_for_entity(entity, df, rx_mav, lookup, text_lookup, meta_lookup, vec, clf, classes)
+
+    # Clean up the PID-isolated temp directory
+    try:
+        shutil.rmtree(temp_dir, ignore_errors=True)
+    except Exception:
+        pass
 
 
 if __name__ == "__main__":

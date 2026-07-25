@@ -24,7 +24,7 @@ from refine_thesis_models import build_regex
 from rerun_refined_regressions_v2 import load_entities_split_corrected, THREAD_PATH, BRIGADE_PATH
 from combined_maverick_detector import load_maverick_disambiguation_lookup, CANDIDATE_TO_BARES
 from stance_window_utils import extract_entity_window
-from per_entity_stance_breakdown import entity_groups_for_row
+from build_entity_mentions_cache import entity_groups_for_row
 
 # Paths
 SHORT_COMMENTS_PATH = 'data/processed/conspiracy_comments_short_lte100chars.parquet'

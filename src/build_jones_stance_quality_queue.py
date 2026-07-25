@@ -37,7 +37,7 @@ from refine_thesis_models import build_regex
 from rerun_refined_regressions_v2 import load_entities_split_corrected, STAGED_PATH, EMPATH_PATH, THREAD_PATH, BRIGADE_PATH
 from combined_maverick_detector import load_maverick_disambiguation_lookup, VALID_MAVERICK_CANDIDATES, CANDIDATE_TO_BARES
 from stance_window_utils import extract_entity_window
-from per_entity_stance_breakdown import entity_groups_for_row
+from build_entity_mentions_cache import entity_groups_for_row
 
 STANCE_MODEL_PATH = 'data/processed/stance_classifier.joblib'
 QUEUE_OUT_PATH = 'data/hitl/queue_jones_stance_quality_check.csv'

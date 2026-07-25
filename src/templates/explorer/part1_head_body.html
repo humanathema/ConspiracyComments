@@ -1,0 +1,646 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Corpus explorer — epistemic credibility in r/conspiracy</title>
+<style>
+:root {
+  --bg: #f5f2ea; --surface: #ffffff; --surface-sunk: #efece2;
+  --border: #ddd7c8; --border-strong: #c7bfa9;
+  --ink: #201d16; --ink-2: #6b6555; --ink-3: #948d79;
+  --accent: #8a6a34; --accent-bg: #ece1c9;
+  --pos: #3b6d11; --neg: #a32d2d;
+  --mono: ui-monospace, 'SF Mono', 'Cascadia Code', Consolas, monospace;
+  --serif: Georgia, 'Iowan Old Style', 'Times New Roman', serif;
+  --sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  --r: 10px;
+}
+@media (prefers-color-scheme: dark) {
+  :root { --bg:#15141b; --surface:#1d1c24; --surface-sunk:#131218; --border:#34323e; --border-strong:#45424f; --ink:#ede9de; --ink-2:#a7a294; --ink-3:#726d5f; --accent:#d3b478; --accent-bg:#3a3222; --pos:#7ea83f; --neg:#e0807f; }
+}
+:root[data-theme="dark"] { --bg:#15141b; --surface:#1d1c24; --surface-sunk:#131218; --border:#34323e; --border-strong:#45424f; --ink:#ede9de; --ink-2:#a7a294; --ink-3:#726d5f; --accent:#d3b478; --accent-bg:#3a3222; --pos:#7ea83f; --neg:#e0807f; }
+:root[data-theme="light"] { --bg:#f5f2ea; --surface:#ffffff; --surface-sunk:#efece2; --border:#ddd7c8; --border-strong:#c7bfa9; --ink:#201d16; --ink-2:#6b6555; --ink-3:#948d79; --accent:#8a6a34; --accent-bg:#ece1c9; --pos:#3b6d11; --neg:#a32d2d; }
+* { box-sizing: border-box; }
+body { background: var(--bg); color: var(--ink); font-family: var(--sans); }
+.wrap { max-width: 1150px; margin: 0 auto; padding: 2rem 1.5rem 4rem; }
+.masthead { border-bottom: 1px solid var(--border); padding-bottom: 1.1rem; margin-bottom: 1.1rem; }
+h1 { font-family: var(--serif); font-weight: 400; font-size: 25px; margin: 0 0 0.2rem; text-wrap: balance; }
+.deck { color: var(--ink-2); font-size: 13.5px; margin: 0; }
+nav.tabs { display: flex; gap: 4px; margin-bottom: 1.5rem; flex-wrap: wrap; }
+nav.tabs button { background: transparent; border: 1px solid var(--border); color: var(--ink-2); font-size: 13px; padding: 7px 13px; border-radius: 7px; cursor: pointer; font-family: var(--sans); }
+nav.tabs button:hover { border-color: var(--border-strong); color: var(--ink); }
+nav.tabs button.active { background: var(--accent-bg); color: var(--accent); border-color: transparent; }
+section.tab { display: none; }
+section.tab.active { display: block; }
+h2.section-title { font-family: var(--serif); font-weight: 400; font-size: 17px; margin: 0 0 0.9rem; }
+.panel { background: var(--surface); border: 1px solid var(--border); border-radius: var(--r); }
+.stat-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; margin-bottom: 1.5rem; }
+.stat-tile { background: var(--surface-sunk); border-radius: var(--r); padding: 0.9rem 1rem; }
+.stat-label { font-size: 11.5px; color: var(--ink-3); text-transform: uppercase; letter-spacing: 0.03em; margin: 0 0 4px; }
+.stat-value { font-family: var(--mono); font-size: 21px; color: var(--ink); }
+.stat-sub { font-size: 11px; color: var(--ink-3); margin-top: 2px; }
+.two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
+@media (max-width: 760px) { .two-col { grid-template-columns: 1fr; } }
+.chart-card { padding: 1.1rem 1.2rem; }
+.chart-card h3 { font-family: var(--serif); font-weight: 400; font-size: 14.5px; margin: 0 0 0.7rem; }
+.chart-box { position: relative; height: 260px; }
+.chart-box.tall { height: 420px; }
+.caption { font-size: 11.5px; color: var(--ink-3); margin-top: 0.6rem; line-height: 1.5; }
+/* topic picker (reused) */
+.grid-picker { display: grid; grid-template-columns: 260px 1fr; gap: 1.5rem; align-items: start; }
+@media (max-width: 760px) { .grid-picker { grid-template-columns: 1fr; } }
+.picker { padding: 1rem; }
+.picker-head { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 0.75rem; }
+.picker-head h3 { font-family: var(--serif); font-weight: 400; font-size: 14.5px; margin: 0; }
+.picker-count { font-family: var(--mono); font-size: 11px; color: var(--ink-3); }
+input[type="search"], input[type="text"] { width: 100%; background: var(--surface-sunk); border: 1px solid var(--border); border-radius: 6px; padding: 7px 10px; font-size: 13px; color: var(--ink); font-family: var(--sans); }
+input[type="search"]:focus, input[type="text"]:focus, select:focus { outline: none; border-color: var(--accent); }
+.topic-list { max-height: 480px; overflow-y: auto; display: flex; flex-direction: column; gap: 1px; margin-top: 0.6rem; }
+.topic-row { display: flex; align-items: center; gap: 8px; padding: 6px; border-radius: 6px; cursor: pointer; font-size: 12.5px; }
+.topic-row:hover { background: var(--surface-sunk); }
+.topic-row.disabled { opacity: 0.35; cursor: default; }
+.swatch { width: 10px; height: 10px; border-radius: 3px; border: 1px solid var(--border-strong); flex-shrink: 0; background: transparent; }
+.topic-row.checked .swatch { border-color: transparent; }
+.topic-name { flex: 1; color: var(--ink); }
+.topic-n { font-family: var(--mono); color: var(--ink-3); font-size: 10.5px; }
+.mode-toggle { display: flex; border: 1px solid var(--border); border-radius: 6px; overflow: hidden; }
+.mode-toggle button { background: var(--surface); border: none; color: var(--ink-2); font-size: 11.5px; padding: 5px 10px; cursor: pointer; font-family: var(--sans); }
+.mode-toggle button.active { background: var(--accent-bg); color: var(--accent); }
+.legend-strip { display: flex; flex-wrap: wrap; gap: 6px 14px; padding: 0.9rem 1.1rem; border-top: 1px solid var(--border); }
+.legend-item { display: flex; align-items: center; gap: 6px; font-size: 12px; }
+.legend-swatch { width: 9px; height: 9px; border-radius: 2px; flex-shrink: 0; }
+.legend-label { color: var(--ink-2); }
+.legend-peak { font-family: var(--mono); color: var(--ink-3); font-size: 10.5px; }
+/* tables */
+.table-controls { display: flex; gap: 8px; margin-bottom: 0.8rem; flex-wrap: wrap; }
+.table-controls select, .table-controls input { font-size: 12.5px; padding: 6px 9px; border-radius: 6px; }
+select { background: var(--surface-sunk); border: 1px solid var(--border); color: var(--ink); font-family: var(--sans); }
+.table-wrap { overflow-x: auto; border: 1px solid var(--border); border-radius: var(--r); }
+table { width: 100%; border-collapse: collapse; font-size: 12px; }
+table.tabular { font-variant-numeric: tabular-nums; }
+th, td { padding: 7px 10px; text-align: left; white-space: nowrap; border-bottom: 1px solid var(--border); }
+th { background: var(--surface-sunk); color: var(--ink-2); font-weight: 500; position: sticky; top: 0; cursor: pointer; user-select: none; font-size: 11px; text-transform: uppercase; letter-spacing: 0.02em; }
+th:hover { color: var(--ink); }
+tbody tr:hover { background: var(--surface-sunk); }
+td.num { font-family: var(--mono); text-align: right; }
+td.sig { color: var(--pos); font-weight: 500; }
+.row-count { font-size: 11.5px; color: var(--ink-3); margin-top: 0.6rem; }
+.foot { margin-top: 1.5rem; font-size: 11.5px; color: var(--ink-3); line-height: 1.6; }
+.foot code { font-family: var(--mono); background: var(--surface-sunk); padding: 1px 5px; border-radius: 4px; }
+/* drill-down modal */
+.examples-link { font-size: 10.5px; color: var(--accent); background: var(--accent-bg); border: none; border-radius: 4px; padding: 2px 6px; cursor: pointer; font-family: var(--sans); flex-shrink: 0; }
+.examples-link:hover { filter: brightness(0.95); }
+tr.clickable { cursor: pointer; }
+tr.clickable:hover td { color: var(--ink); }
+.modal-overlay { display: none; position: fixed; inset: 0; background: rgba(20,18,13,0.45); z-index: 50; align-items: flex-start; justify-content: center; padding: 4vh 1.5rem; overflow-y: auto; }
+.modal-overlay.open { display: flex; }
+.modal-panel { background: var(--surface); border: 1px solid var(--border); border-radius: var(--r); max-width: 1400px; width: 100%; max-height: 92vh; display: flex; flex-direction: column; }
+.modal-head { display: flex; justify-content: space-between; align-items: baseline; padding: 1rem 1.3rem; border-bottom: 1px solid var(--border); gap: 1rem; }
+.modal-head h3 { font-family: var(--serif); font-weight: 400; font-size: 16px; margin: 0; }
+.modal-close { background: transparent; border: 1px solid var(--border); color: var(--ink-2); font-size: 13px; width: 26px; height: 26px; border-radius: 6px; cursor: pointer; flex-shrink: 0; }
+.modal-close:hover { border-color: var(--border-strong); color: var(--ink); }
+.modal-cols { display: flex; gap: 12px; flex-wrap: wrap; padding: 0.8rem 1.3rem; border-bottom: 1px solid var(--border); font-size: 12px; color: var(--ink-2); }
+.modal-cols label { display: flex; align-items: center; gap: 5px; cursor: pointer; }
+.modal-body { overflow: hidden; padding: 0.6rem 1.3rem 1.2rem; display: flex; flex-direction: column; min-height: 0; flex: 1; }
+.modal-body table { font-size: 12px; }
+.modal-body td.snippet { white-space: normal; max-width: 420px; line-height: 1.5; font-family: var(--sans); }
+.modal-caption { font-size: 11px; color: var(--ink-3); padding: 0.7rem 1.3rem 0; }
+/* split view: list (left) + rich single-comment detail (right) */
+.modal-split { display: flex; gap: 1rem; flex: 1; min-height: 0; }
+.modal-split-list { width: 42%; overflow-y: auto; border: 1px solid var(--border); border-radius: var(--r); flex-shrink: 0; }
+.modal-split-detail { flex: 1; overflow-y: auto; padding: 1.2rem 1.4rem; background: var(--surface-sunk); border-radius: var(--r); }
+.modal-split-detail.empty { display: flex; align-items: center; justify-content: center; color: var(--ink-3); font-size: 13px; }
+tr.drill-row.selected td { background: var(--accent-bg); }
+.detail-zoom { display: flex; align-items: center; gap: 6px; margin-bottom: 0.9rem; }
+.detail-zoom button { background: var(--surface); border: 1px solid var(--border); color: var(--ink-2); width: 22px; height: 22px; border-radius: 5px; cursor: pointer; font-family: var(--mono); font-size: 12px; }
+.detail-zoom button:hover { border-color: var(--border-strong); color: var(--ink); }
+.detail-rating-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-top: 1rem;
+}
+.detail-rating-row button {
+  /* explicitly reset anything .detail-zoom's button rule would otherwise impose */
+  width: auto;
+  height: auto;
+  min-width: 0;
+  padding: 0.35rem 0.7rem;
+  font-size: 0.85rem;
+  line-height: 1.2;
+  white-space: nowrap;
+}
+.detail-context { font-size: 12px; color: var(--ink-2); margin-bottom: 0.9rem; padding-bottom: 0.7rem; border-bottom: 1px solid var(--border); line-height: 1.6; }
+.detail-context .label { color: var(--ink-3); text-transform: uppercase; font-size: 10px; letter-spacing: 0.03em; }
+.detail-legend { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 1rem; }
+.detail-legend .chip { font-size: 10.5px; padding: 2px 7px; border-radius: 10px; border: 1px solid var(--border-strong); color: var(--ink-2); }
+.detail-text { font-family: var(--serif); line-height: 1.75; white-space: pre-wrap; }
+.detail-text mark.hl-entity { background: var(--accent-bg); color: var(--accent); padding: 0 2px; border-radius: 3px; font-weight: 600; }
+.detail-text mark.hl-lex { padding: 0 2px; border-radius: 3px; cursor: help; }
+.detail-text mark.hl-evidence { background: #d7ead1; color: #1f4d17; }
+.detail-text mark.hl-adversarial { background: #f3d2d2; color: #6b1f1f; }
+.detail-text mark.hl-hedge { background: #eee0c9; color: #5c4415; }
+.detail-text mark.hl-certainty { background: #d4e3f2; color: #1f3a5c; }
+.detail-text mark.hl-alt_authority { background: #e5d7ef; color: #3f2a52; }
+.detail-text mark.hl-intuitive { background: #f6dced; color: #5c1f43; }
+.detail-text mark.hl-pattern { background: #dcece7; color: #1f4d3f; }
+.detail-text mark.hl-meta { background: #ececec; color: #3a3a3a; }
+.detail-text mark.hl-demand { background: #f4dfc7; color: #5c3a13; }
+.detail-text mark.hl-anecdotal { background: #e3e6f6; color: #2a2f5c; }
+.detail-text mark.hl-quantitative { background: #cdece6; color: #17453a; }
+@media (prefers-color-scheme: dark) {
+  .detail-text mark.hl-evidence { background: #234d1a; color: #b8e0ac; }
+  .detail-text mark.hl-adversarial { background: #5c2323; color: #f0c2c2; }
+  .detail-text mark.hl-hedge { background: #4d3d18; color: #ecd9a8; }
+  .detail-text mark.hl-certainty { background: #1e3550; color: #b9d4ee; }
+  .detail-text mark.hl-alt_authority { background: #3a2650; color: #ddc4ee; }
+  .detail-text mark.hl-intuitive { background: #501e3c; color: #eec2dd; }
+  .detail-text mark.hl-pattern { background: #1c4536; color: #b9e0d0; }
+  .detail-text mark.hl-meta { background: #3a3a3a; color: #d8d8d8; }
+  .detail-text mark.hl-demand { background: #4d3410; color: #eccb95; }
+  .detail-text mark.hl-anecdotal { background: #262a4d; color: #c6cbee; }
+  .detail-text mark.hl-quantitative { background: #123d33; color: #a8ded1; }
+}
+:root[data-theme="dark"] .detail-text mark.hl-evidence { background: #234d1a; color: #b8e0ac; }
+:root[data-theme="dark"] .detail-text mark.hl-adversarial { background: #5c2323; color: #f0c2c2; }
+:root[data-theme="dark"] .detail-text mark.hl-hedge { background: #4d3d18; color: #ecd9a8; }
+:root[data-theme="dark"] .detail-text mark.hl-certainty { background: #1e3550; color: #b9d4ee; }
+:root[data-theme="dark"] .detail-text mark.hl-alt_authority { background: #3a2650; color: #ddc4ee; }
+:root[data-theme="dark"] .detail-text mark.hl-intuitive { background: #501e3c; color: #eec2dd; }
+:root[data-theme="dark"] .detail-text mark.hl-pattern { background: #1c4536; color: #b9e0d0; }
+:root[data-theme="dark"] .detail-text mark.hl-meta { background: #3a3a3a; color: #d8d8d8; }
+:root[data-theme="dark"] .detail-text mark.hl-demand { background: #4d3410; color: #eccb95; }
+:root[data-theme="dark"] .detail-text mark.hl-anecdotal { background: #262a4d; color: #c6cbee; }
+:root[data-theme="dark"] .detail-text mark.hl-quantitative { background: #123d33; color: #a8ded1; }
+:root[data-theme="light"] .detail-text mark.hl-evidence { background: #d7ead1; color: #1f4d17; }
+:root[data-theme="light"] .detail-text mark.hl-adversarial { background: #f3d2d2; color: #6b1f1f; }
+:root[data-theme="light"] .detail-text mark.hl-hedge { background: #eee0c9; color: #5c4415; }
+:root[data-theme="light"] .detail-text mark.hl-certainty { background: #d4e3f2; color: #1f3a5c; }
+:root[data-theme="light"] .detail-text mark.hl-alt_authority { background: #e5d7ef; color: #3f2a52; }
+:root[data-theme="light"] .detail-text mark.hl-intuitive { background: #f6dced; color: #5c1f43; }
+:root[data-theme="light"] .detail-text mark.hl-pattern { background: #dcece7; color: #1f4d3f; }
+:root[data-theme="light"] .detail-text mark.hl-meta { background: #ececec; color: #3a3a3a; }
+:root[data-theme="light"] .detail-text mark.hl-demand { background: #f4dfc7; color: #5c3a13; }
+:root[data-theme="light"] .detail-text mark.hl-anecdotal { background: #e3e6f6; color: #2a2f5c; }
+:root[data-theme="light"] .detail-text mark.hl-quantitative { background: #cdece6; color: #17453a; }
+</style>
+
+<div class="wrap">
+  <div class="masthead">
+    <h1>Corpus explorer</h1>
+    <p class="deck">Epistemic credibility in online conspiracy communities &mdash; a working view across the corpus, its topics, and every regression run against it.</p>
+  </div>
+
+  <nav class="tabs" id="tabNav">
+    <button data-tab="overview" class="active">Overview</button>
+    <button data-tab="timeseries">Topics over time</button>
+    <button data-tab="authors">Author interests</button>
+    <button data-tab="credentials">Credentials &amp; stance by topic</button>
+    <button data-tab="entities">Named entities</button>
+    <button data-tab="domains">Domains</button>
+    <button data-tab="sources">Top cited sources</button>
+    <button data-tab="regressions">Regression browser</button>
+    <button data-tab="methods">Methods &amp; robustness</button>
+    <button data-tab="comparisons">Comparison corpora</button>
+    <button data-tab="keyness">Semantic keyness</button>
+    <button data-tab="threads">Threads</button>
+  </nav>
+
+  <section class="tab active" id="tab-overview">
+    <h2 class="section-title">Corpus composition</h2>
+    <div class="stat-grid" id="overviewStats"></div>
+    <div class="two-col">
+      <div class="panel chart-card">
+        <h3>Upvotes (full long-comment population)</h3>
+        <div class="chart-box"><canvas id="upvoteChart" role="img" aria-label="Bar chart of comment counts by upvote bucket"></canvas></div>
+      </div>
+      <div class="panel chart-card">
+        <h3>Comment length (full long-comment population)</h3>
+        <div class="chart-box"><canvas id="lenChart" role="img" aria-label="Bar chart of comment counts by character-length bucket"></canvas></div>
+      </div>
+    </div>
+    <p class="caption" style="margin-top:1rem;">Populations: full long/short comments are the entire topic-assigned corpus. Pure r/conspiracy and r/politics are the filtered regression populations (unbrigaded, insider-heavy pure core; matched-scope control sample). Outlier rate is the share of comments the BERTopic retrain couldn't confidently assign to any of the 100 topics.</p>
+  </section>
+
+  <section class="tab" id="tab-timeseries">
+    <h2 class="section-title">Monthly topic prevalence</h2>
+    <div class="grid-picker">
+      <div class="panel picker">
+        <div class="picker-head" style="display:flex; justify-content:space-between; align-items:center; width:100%;">
+          <h3>Topics</h3>
+          <div style="display:flex; align-items:center; gap:8px;">
+            <span class="picker-count" id="tsPickerCount">0 / 8 selected</span>
+            <button id="btnClearTopics" class="btn" style="padding: 2px 8px; font-size: 11px; background: transparent; border: 1px solid var(--border); border-radius: 4px; color: var(--ink-2); cursor: pointer;">Clear</button>
+          </div>
+        </div>
+        <input type="search" id="tsSearch" placeholder="Filter topics&hellip;" aria-label="Filter topics">
+        <div class="topic-list" id="tsTopicList"></div>
+      </div>
+      <div>
+        <div class="panel chart-card">
+          <div style="display:flex; justify-content:space-between; align-items:baseline; margin-bottom:0.7rem; flex-wrap:wrap; gap:0.5rem;">
+            <h3>Monthly comment share</h3>
+            <div class="mode-toggle">
+              <button id="tsModeShare" class="active">share of month</button>
+              <button id="tsModeCount">raw count</button>
+            </div>
+          </div>
+          <div class="chart-box tall" id="tsChartWrap"><canvas id="tsChart" role="img" aria-label="Line chart of selected topics' monthly comment share, 2008 to 2026"></canvas></div>
+          <p class="caption">Share of month controls for the corpus's own growth over time.</p>
+        </div>
+        <div class="panel legend-strip" id="tsLegend" style="margin-top: 1rem;"></div>
+      </div>
+    </div>
+
+    <h2 class="section-title" style="margin-top:1.5rem;">All topics</h2>
+    <div class="panel" style="padding: 1.1rem 1.2rem;">
+      <div class="table-controls">
+        <input type="text" id="allTopicsSearch" placeholder="Filter by topic name&hellip;" style="flex:1; min-width:180px;">
+      </div>
+      <div class="table-wrap">
+        <table class="tabular" id="allTopicsTable">
+          <thead><tr>
+            <th data-sort="topic">Topic</th><th data-sort="total">Total comments</th>
+          </tr></thead>
+          <tbody id="allTopicsTableBody"></tbody>
+        </table>
+      </div>
+      <p class="row-count" id="allTopicsRowCount"></p>
+      <p class="caption">Every topic the BERTopic retrain produced. Click a row for example comments; use "examples" in the picker above to plot without opening the full list.</p>
+    </div>
+
+    <h2 class="section-title" style="margin-top:1.5rem;">Vocabulary turnover over time</h2>
+    <div class="panel chart-card">
+      <h3>Month-over-month vocabulary overlap</h3>
+      <div class="chart-box tall" id="turnoverChartWrap"><canvas id="turnoverChart" role="img" aria-label="Line chart of month-over-month vocabulary overlap, 2010 to 2026"></canvas></div>
+      <p class="caption">Share of each month's vocabulary that also appeared the previous month -- a vocabulary-level companion to the topic-level view above. Lower = faster lexical drift that month. This is a distinct signal from BERTopic (which topics are discussed); this is whether the community's <em>words</em> are stable or turning over, independent of topic.</p>
+    </div>
+  </section>
+
+  <section class="tab" id="tab-authors">
+    <h2 class="section-title">What authors are primarily about</h2>
+    <div class="panel chart-card">
+      <h3>Topics ranked by number of authors whose single most-frequent topic it is</h3>
+      <div class="chart-box tall" id="authorChartWrap"><canvas id="authorChart" role="img" aria-label="Horizontal bar chart of topics ranked by number of authors for whom this is their top topic"></canvas></div>
+      <p class="caption">Among 190,000 authors with &ge;20 comments in the corpus. "Outliers" and the generic acknowledgment topic aside, vaccine/covid discussion and FBI/CIA/Assange content are the two most common single-topic specializations. This is about which topic dominates each author's activity, not raw topic volume.</p>
+    </div>
+  </section>
+
+  <section class="tab" id="tab-credentials">
+    <h2 class="section-title">Where the credentials pattern concentrates</h2>
+    <div class="panel chart-card">
+      <h3>Movement-internal/anonymous citation share: anti-consensus minus consensus-aligned, by topic</h3>
+      <div class="chart-box tall" id="credGapChartWrap"><canvas id="credGapChart" role="img" aria-label="Horizontal bar chart of the gap in movement-internal citation share between anti-consensus and consensus-aligned comments, by topic"></canvas></div>
+      <p class="caption">Positive means anti-consensus comments in that topic lean more on movement-internal/anonymous sources than consensus-aligned ones do; near zero or negative means the pattern doesn't hold there. Topics need &ge;30 stance-labeled comments on both sides to appear. The aggregate report shows one number for the whole corpus &mdash; this is why that number is a compression, not a uniform behavior.</p>
+    </div>
+    <div class="panel chart-card" style="margin-top:1rem;">
+      <h3>Maverick-entity hostility share, by topic</h3>
+      <div class="chart-box tall" id="stanceChartWrap"><canvas id="stanceChart" role="img" aria-label="Horizontal bar chart of the share of hostile stance toward maverick-authority entities, by topic"></canvas></div>
+      <p class="caption">Share of maverick-entity mentions (Jones, Assange, Rogan, etc.) that were scored hostile rather than endorsement/other, per topic. Topics need &ge;30 maverick mentions to appear.</p>
+    </div>
+  </section>
+
+  <section class="tab" id="tab-entities">
+    <h2 class="section-title">Entity mentions and hostility over time</h2>
+    <div class="grid-picker">
+      <div class="panel picker">
+        <div class="picker-head" style="display:flex; justify-content:space-between; align-items:center; width:100%;">
+          <h3>Entities</h3>
+          <div style="display:flex; align-items:center; gap:8px;">
+            <span class="picker-count" id="entTsPickerCount">0 / 8 selected</span>
+            <button id="btnClearEntities" class="btn" style="padding: 2px 8px; font-size: 11px; background: transparent; border: 1px solid var(--border); border-radius: 4px; color: var(--ink-2); cursor: pointer;">Clear</button>
+          </div>
+        </div>
+        <input type="search" id="entTsSearch" placeholder="Filter entities&hellip;" aria-label="Filter entities">
+        <div class="topic-list" id="entTsList"></div>
+      </div>
+      <div>
+        <div class="panel chart-card">
+          <div style="display:flex; justify-content:space-between; align-items:baseline; margin-bottom:0.7rem; flex-wrap:wrap; gap:0.5rem;">
+            <h3>Monthly mentions / hostility</h3>
+            <div class="mode-toggle">
+              <button id="entTsModeMentions" class="active">mentions</button>
+              <button id="entTsModeHostile">% hostile</button>
+            </div>
+          </div>
+          <div class="chart-box tall" id="entTsChartWrap"><canvas id="entTsChart" role="img" aria-label="Line chart of selected entities' monthly mentions or hostility share, 2008 to 2026"></canvas></div>
+          <p class="caption">Any entity with stance data is selectable (sorted by mention volume) -- monthly series for anything past the first few are fetched live from the backend on selection, not baked into this page. Hostility share requires &ge;5 mentions that month, otherwise left blank rather than shown as a noisy ratio.</p>
+        </div>
+        <div class="panel legend-strip" id="entTsLegend" style="margin-top: 1rem;"></div>
+      </div>
+    </div>
+
+    <h2 class="section-title" style="margin-top:1.5rem;">Named entities: whistleblowers vs media personalities</h2>
+    <div class="panel" style="padding: 1.1rem 1.2rem;">
+      <div class="table-controls" style="display:flex; flex-wrap:wrap; gap:10px; align-items:center;">
+        <select id="entPopulation" style="height:36px;">
+          <option value="unfiltered" selected>Unfiltered r/conspiracy</option>
+          <option value="pure">Pure r/conspiracy</option>
+        </select>
+        <select id="entConstruct" style="height:36px;"><option value="">All constructs</option><option value="maverick">Maverick only</option><option value="consensus">Consensus only</option><option value="canonical">Canonical expert only</option><option value="other">Other (bucketed, not stance-classified)</option><option value="unreviewed">Unreviewed (never bucketed at all)</option></select>
+        <input type="text" id="entSearch" placeholder="Filter by entity name&hellip;" style="flex:1; min-width:180px; height:36px;">
+        <button id="btnManageMerges" class="btn" style="display: flex; align-items: center; gap: 6px; padding: 0 14px; border-radius: var(--r); border: 1px solid var(--border); background: var(--surface); color: var(--ink); font-size: 12.5px; cursor: pointer; font-weight: 500; height:36px; white-space:nowrap;">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-right:2px;"><path d="M12 22c5.523 0 10-4.477 10-10S17.523 2 12 2 2 6.477 2 12s4.477 10 10 10z"/><path d="M12 8v4"/><path d="M12 16h.01"/></svg> Manage Merges (<span id="mergeCountLabel">0</span>)
+        </button>
+      </div>
+      <div class="table-wrap">
+        <table class="tabular" id="entTable">
+          <thead><tr>
+            <th style="width: 30px; text-align: center;"><input type="checkbox" id="entSelectAll" style="cursor: pointer;"></th>
+            <th data-sort="entity">Entity</th><th data-sort="construct">Construct</th>
+            <th data-sort="mention_count">Mentions</th><th data-sort="pct_hostile">% hostile</th>
+            <th data-sort="pct_predicted_endorsement">% endorsement</th><th data-sort="mean_p_hostile">Mean hostile prob.</th>
+          </tr></thead>
+          <tbody id="entTableBody"></tbody>
+        </table>
+      </div>
+      <p class="row-count" id="entRowCount"></p>
+      <p class="caption">Wikileaks/Assange/Snowden (leak-source whistleblowers) sit near the bottom on % hostile; Alex Jones/Tucker Carlson (media personalities) sit near the top &mdash; the entity-type split that motivated the maverick/consensus construct redesign. "Pure" is the unbrigaded core population; "unfiltered" is the wider r/conspiracy population before that filtering.</p>
+    </div>
+  </section>
+
+  <section class="tab" id="tab-domains">
+    <h2 class="section-title">Domains cited across the corpus</h2>
+    <div class="panel" style="padding: 1.1rem 1.2rem;">
+      <div class="table-controls">
+        <select id="domTier"><option value="">All link-source tiers</option></select>
+        <select id="domCred"><option value="">All credentials tiers</option></select>
+        <select id="domMbfc"><option value="">All MBFC labels</option></select>
+        <input type="text" id="domSearch" placeholder="Filter by domain&hellip;" style="flex:1; min-width:180px;">
+      </div>
+      <div class="table-wrap">
+        <table class="tabular" id="domTable">
+          <thead><tr>
+            <th data-sort="domain">Domain</th><th data-sort="n_distinct_urls">Distinct URLs</th>
+            <th data-sort="total_citations">Citations</th><th data-sort="total_distinct_authors">Distinct authors</th>
+            <th data-sort="credentials_taxonomy_tier">Credentials tier</th><th data-sort="link_source_tier">Link-source tier</th>
+            <th data-sort="mbfc_reliability_label">MBFC</th><th data-sort="sjr_quartile">SJR quartile</th>
+          </tr></thead>
+          <tbody id="domTableBody"></tbody>
+        </table>
+      </div>
+      <p class="row-count" id="domRowCount"></p>
+      <p class="caption">Every domain cited &ge;20 times anywhere in the corpus (8,096 of it), rolled up from 1.76M ranked distinct URLs. <code>link_source_tier</code>/<code>credentials_taxonomy_tier</code> are the modal (most common) value across that domain's citations, not a per-URL guarantee &mdash; a domain can carry a mix. MBFC and SJR coverage is inherently partial (major news outlets and journals only); blank means unrated, not low-quality.</p>
+    </div>
+  </section>
+
+  <section class="tab" id="tab-sources">
+    <h2 class="section-title">Top individually-cited URLs</h2>
+    <div class="panel" style="padding: 1.1rem 1.2rem;">
+      <div class="table-controls">
+        <select id="srcTier"><option value="">All link-source tiers</option></select>
+        <input type="text" id="srcSearch" placeholder="Filter by URL, domain, byline, or title&hellip;" style="flex:1; min-width:220px;">
+      </div>
+      <div class="table-wrap">
+        <table class="tabular" id="srcTable">
+          <thead><tr>
+            <th data-sort="url">URL</th><th data-sort="domain">Domain</th>
+            <th data-sort="distinct_authors">Distinct authors</th><th data-sort="mention_count">Mentions</th>
+            <th data-sort="link_source_tier">Link-source tier</th><th data-sort="sjr_quartile">SJR</th>
+            <th data-sort="extracted_byline">Byline</th><th data-sort="title">Title</th>
+          </tr></thead>
+          <tbody id="srcTableBody"></tbody>
+        </table>
+      </div>
+      <p class="row-count" id="srcRowCount"></p>
+      <p class="caption">Top 300 individual URLs by distinct-author count (despammed by construction &mdash; one author linking the same URL many times counts once). Byline/title are extracted from the linked page where recovery succeeded (75/300 have a byline); most rows won't have one, that's expected coverage, not a bug.</p>
+    </div>
+  </section>
+
+  <section class="tab" id="tab-regressions">
+    <h2 class="section-title">Every regression coefficient this project has produced</h2>
+    <div class="panel" style="padding: 1.1rem 1.2rem;">
+      <div class="table-controls">
+        <select id="regSource"><option value="">All sources</option></select>
+        <select id="regModel"><option value="">All model types</option></select>
+        <input type="text" id="regSearch" placeholder="Filter by stratum or variable&hellip;" style="flex:1; min-width:180px;">
+        <label style="display:flex; align-items:center; gap:6px; font-size:12.5px; color: var(--ink-2);"><input type="checkbox" id="regSigOnly"> p &lt; 0.05 only</label>
+      </div>
+      <div class="table-wrap">
+        <table class="tabular" id="regTable">
+          <thead><tr>
+            <th data-sort="source">Source</th><th data-sort="stratum">Stratum</th><th data-sort="model_type">Model</th>
+            <th data-sort="variable">Variable</th><th data-sort="coef">Coef</th><th data-sort="pvalue">p-value</th><th data-sort="n_obs">N</th>
+          </tr></thead>
+          <tbody id="regTableBody"></tbody>
+        </table>
+      </div>
+      <p class="row-count" id="regRowCount"></p>
+    </div>
+  </section>
+
+  <section class="tab" id="tab-methods">
+    <h2 class="section-title">How much this corpus can be trusted</h2>
+    <div class="panel chart-card">
+      <h3>Data quality diagnostics</h3>
+      <div class="table-wrap">
+        <table class="tabular" id="qualityTable">
+          <thead><tr><th>Metric</th><th>Flagged</th><th>Of</th><th>%</th><th>Detail</th></tr></thead>
+          <tbody id="qualityTableBody"></tbody>
+        </table>
+      </div>
+      <p class="caption">All aggregate -- no individual author or comment is identifiable from this table. Brigade-evaluated-subset scope is undocumented (see detail column); don't read its flag counts as a full-corpus rate.</p>
+    </div>
+
+    <div class="panel chart-card" style="margin-top:1rem;">
+      <h3>Insider-presence threshold sensitivity</h3>
+      <div class="table-wrap">
+        <table class="tabular" id="insiderTable">
+          <thead><tr><th>Threshold</th><th>N</th><th>OLS coef</th><th>OLS p-value</th><th>Logit coef</th><th>Logit p-value</th></tr></thead>
+          <tbody id="insiderTableBody"></tbody>
+        </table>
+      </div>
+      <p class="caption">How the "pure population" filter's insider-presence cutoff affects the core has_maverick-style coefficient. Coefficient sign and significance hold across the whole sweep -- the threshold choice isn't doing hidden work.</p>
+    </div>
+
+    <div class="panel chart-card" style="margin-top:1rem;">
+      <h3>Human-in-the-loop labeling coverage, by construct</h3>
+      <div class="table-wrap">
+        <table class="tabular" id="hitlTable">
+          <thead><tr><th>Construct</th><th>Group</th><th>N labeled</th><th>Label scheme</th><th>Note</th></tr></thead>
+          <tbody id="hitlTableBody"></tbody>
+        </table>
+      </div>
+      <p class="caption">Group A: real human ground truth exists (single-rater unless noted). Group B: files named <code>HITL_*.csv</code> that are actually 100% LLM-cascade labels, zero human ground truth, and have no written codebook -- don't cite these constructs as validated. Clustered-SE (naive/thread/author) comparison for the core regression is in the Regression browser tab under source "Core regression (clustered SEs)".</p>
+    </div>
+  </section>
+
+  <section class="tab" id="tab-comparisons">
+    <h2 class="section-title">What we tried and rejected as control corpora</h2>
+    <div class="panel" style="padding: 1.1rem 1.2rem;">
+      <div class="table-wrap">
+        <table class="tabular" id="corporaTable">
+          <thead><tr>
+            <th>Corpus</th><th>Status</th><th>Comments</th><th>Date range</th><th>Reasoning</th>
+          </tr></thead>
+          <tbody id="corporaTableBody"></tbody>
+        </table>
+      </div>
+      <p class="caption">Only r/politics is used as the primary control in the core regression. The others exist as real, scored data but were rejected or kept secondary -- shown here so the choice of control is checkable, not just asserted in prose.</p>
+    </div>
+  </section>
+
+  <section class="tab" id="tab-keyness">
+    <h2 class="section-title">Words most distinctive of maverick/canonical vs. consensus-expert context</h2>
+    <div class="panel" style="padding: 1.1rem 1.2rem;">
+      <div class="table-controls">
+        <select id="keyComparison">
+          <option value="">All comparisons</option>
+          <option value="maverick_vs_consensus">Maverick vs consensus</option>
+          <option value="canonical_vs_consensus">Canonical vs consensus</option>
+        </select>
+        <select id="keySubreddit"><option value="">All subreddits</option></select>
+        <input type="text" id="keySearch" placeholder="Filter by word&hellip;" style="flex:1; min-width:180px;">
+      </div>
+      <div class="table-wrap">
+        <table class="tabular" id="keyTable">
+          <thead><tr>
+            <th data-sort="word">Word</th><th data-sort="comparison">Comparison</th><th data-sort="subreddit">Subreddit</th>
+            <th data-sort="freq_c1">Freq (group 1)</th><th data-sort="freq_c2">Freq (group 2)</th><th data-sort="log_likelihood">Log-likelihood</th>
+          </tr></thead>
+          <tbody id="keyTableBody"></tbody>
+        </table>
+      </div>
+      <p class="row-count" id="keyRowCount"></p>
+      <p class="caption">Top 30 words per comparison/subreddit group by log-likelihood keyness. "Group 1" is the context window around maverick/canonical-entity mentions; "group 2" is the same for consensus-expert mentions (the comparison baseline). Higher log-likelihood = more distinctively associated with group 1's context, not group 2's. Vocabulary-level companion to the "Topics over time" tab's topic-level view.</p>
+    </div>
+  </section>
+
+  <section class="tab" id="tab-threads">
+    <h2 class="section-title">Does the post predict the comment section's epistemic style?</h2>
+    <div class="panel" style="padding: 1.1rem 1.2rem;">
+      <div class="table-controls">
+        <input type="text" id="threadSearch" placeholder="Filter by domain&hellip;" style="flex:1; min-width:180px;">
+      </div>
+      <div class="table-wrap">
+        <table class="tabular" id="threadTable">
+          <thead><tr>
+            <th data-sort="domain">Domain</th><th data-sort="n_threads">Threads</th>
+            <th data-sort="avg_post_score">Avg post score</th><th data-sort="avg_total_comments">Avg comments</th>
+            <th data-sort="avg_comment_upvotes">Avg comment upvotes</th><th data-sort="avg_controversiality">Avg controversiality</th>
+            <th data-sort="avg_evidence_score">Avg evidence</th><th data-sort="avg_rhetoric_score">Avg rhetoric</th>
+            <th data-sort="avg_certainty_score">Avg certainty</th><th data-sort="avg_authority_score">Avg authority</th>
+            <th data-sort="avg_hedge_score">Avg hedge</th>
+          </tr></thead>
+          <tbody id="threadTableBody"></tbody>
+        </table>
+      </div>
+      <p class="row-count" id="threadRowCount"></p>
+      <p class="caption">Thread-level unit of analysis (888,846 threads total) -- a different question from every other tab, which operates at comment level. Rolled up by linked domain (top 60 by thread count, &ge;50 threads each); a thread with no external link is grouped as "(self post)". Lexicon-average columns are per-comment scores averaged across each thread's comments -- does the kind of thing being linked predict how the discussion underneath it reads, independent of any single comment's content.</p>
+    </div>
+  </section>
+
+  <p class="foot">Private working tool, built 2026-07-24 from this session's outputs. Data: <code>topic_volume_by_month.csv</code>, <code>author_top_topic_summary.csv</code>, <code>topic_credentials_crosstab_comment_level.csv</code>, <code>topic_entity_stance_crosstab.csv</code>, and every regression CSV produced this session. Not the public thesis site.</p>
+</div>
+
+<div class="modal-overlay" id="drillOverlay">
+  <div class="modal-panel">
+    <div class="modal-head">
+      <h3 id="drillTitle"></h3>
+      <button class="modal-close" id="drillClose" aria-label="Close">&times;</button>
+    </div>
+    <div class="modal-cols" id="drillCols"></div>
+    <div class="rater-identity-container" style="display:flex; align-items:center; gap:8px; padding:0 1rem 8px 1.5rem; border-bottom:1px solid var(--grid); margin-bottom:8px; font-size:12.5px;">
+      <span style="font-weight:600; color:var(--ink-2);">Rater Identity Name:</span>
+      <input type="text" id="hitl_rater_name_input" style="background:var(--bg); color:var(--ink); border:1px solid var(--grid); border-radius:4px; padding:3px 8px; width:200px;" placeholder="e.g. nash">
+      <span id="rater_save_indicator" style="font-size:11px; color:var(--pos); display:none;">Saved!</span>
+    </div>
+    <p class="modal-caption" id="drillCaption"></p>
+    <div class="modal-body">
+      <div class="modal-split">
+        <div class="modal-split-list">
+          <table class="tabular" id="drillTable">
+            <thead><tr id="drillHeadRow"></tr></thead>
+            <tbody id="drillBody"></tbody>
+          </table>
+        </div>
+        <div class="modal-split-detail empty" id="drillDetail">Click a row for the full annotated view.</div>
+      </div>
+      <p class="row-count" id="drillRowCount"></p>
+    </div>
+  </div>
+</div>
+
+
+<!-- Floating Combine Action Bar -->
+<div id="entCombineBar" style="display: none; position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%); background: rgba(30, 28, 25, 0.9); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); border: 1px solid rgba(255, 255, 255, 0.15); border-radius: 30px; padding: 10px 24px; gap: 16px; align-items: center; justify-content: space-between; z-index: 100; box-shadow: 0 12px 32px rgba(0,0,0,0.4); color: #fff;">
+  <span id="entCombineText" style="font-weight: 500; font-size: 13px;"></span>
+  <div style="display: flex; gap: 10px;">
+    <button id="entCombineBtn" class="btn" style="background: var(--accent); color: white; border: none; border-radius: 20px; padding: 6px 16px; font-weight: 600; cursor: pointer; font-size: 12.5px; box-shadow: 0 4px 12px rgba(57, 135, 229, 0.3);">Combine Selected</button>
+    <button id="entClearSelectionBtn" class="btn" style="background: transparent; color: #aaa; border: 1px solid rgba(255,255,255,0.2); border-radius: 20px; padding: 6px 12px; cursor: pointer; font-size: 12.5px;">Cancel</button>
+  </div>
+</div>
+
+<!-- Combine Entities Dialog Modal -->
+<div class="modal-overlay" id="mergeOverlay">
+  <div class="modal-panel" style="max-width: 500px;">
+    <div class="modal-head">
+      <h3>Combine Selected Entities</h3>
+      <button class="modal-close" id="mergeClose" aria-label="Close">&times;</button>
+    </div>
+    <div class="modal-body" style="padding: 1.5rem; gap: 16px; overflow: visible;">
+      <p style="font-size: 13px; color: var(--ink-2); margin: 0; line-height: 1.5;">
+        You are combining <strong id="mergeCountText" style="color: var(--accent);"></strong> entities. Please choose or type the canonical name that will represent them:
+      </p>
+      
+      <div style="display: flex; flex-direction: column; gap: 6px;">
+        <label style="font-size: 11px; font-weight: 600; color: var(--ink-3); text-transform: uppercase; letter-spacing: 0.5px;">Choose Canonical Name</label>
+        <select id="mergeTargetSelect" style="width: 100%; padding: 8px 12px; border-radius: var(--r); background: var(--surface-2); border: 1px solid var(--border); color: var(--ink); font-size: 13px; cursor: pointer;">
+        </select>
+      </div>
+      
+      <div style="display: flex; flex-direction: column; gap: 6px;">
+        <label style="font-size: 11px; font-weight: 600; color: var(--ink-3); text-transform: uppercase; letter-spacing: 0.5px;">Or Enter Custom Name</label>
+        <input type="text" id="mergeTargetCustom" placeholder="e.g. Donald J. Trump" style="width: 100%; padding: 8px 12px; border-radius: var(--r); background: var(--surface-2); border: 1px solid var(--border); color: var(--ink); font-size: 13px;">
+      </div>
+
+      <div style="margin-top: 8px; max-height: 120px; overflow-y: auto; background: var(--surface-sunk); padding: 10px; border-radius: var(--r); border: 1px solid var(--border); display: flex; flex-direction: column; gap: 6px;">
+        <span style="font-size: 11px; font-weight: 600; color: var(--ink-3); text-transform: uppercase;">Entities to be merged:</span>
+        <div id="mergeSourcesList" style="font-size: 12px; color: var(--ink-2); display: flex; flex-direction: column; gap: 4px;"></div>
+      </div>
+      
+      <div style="display: flex; justify-content: flex-end; gap: 12px; margin-top: 12px;">
+        <button id="mergeCancelBtn" class="btn" style="background: transparent; color: var(--ink-2); border: 1px solid var(--border); border-radius: var(--r); padding: 8px 16px; cursor: pointer; font-size: 13px;">Cancel</button>
+        <button id="mergeConfirmBtn" class="btn" style="background: var(--accent); color: white; border: none; border-radius: var(--r); padding: 8px 20px; font-weight: 600; cursor: pointer; font-size: 13px;">Combine</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Manage Merges Modal -->
+<div class="modal-overlay" id="manageMergesOverlay">
+  <div class="modal-panel" style="max-width: 600px;">
+    <div class="modal-head">
+      <h3>Manage Combined Entities</h3>
+      <button class="modal-close" id="manageMergesClose" aria-label="Close">&times;</button>
+    </div>
+    <div class="modal-body" style="padding: 1.5rem; gap: 16px; overflow-y: auto;">
+      <p style="font-size: 13px; color: var(--ink-2); margin: 0; line-height: 1.5;">
+        The following entities have been combined. Uncombining an entity will restore its original individual timeline and examples.
+      </p>
+      
+      <div class="table-wrap" style="border: 1px solid var(--border); border-radius: var(--r); max-height: 300px; overflow-y: auto;">
+        <table class="tabular" style="margin:0;">
+          <thead>
+            <tr>
+              <th>Combined Canonical Name</th>
+              <th>Original Entity</th>
+              <th style="width: 100px; text-align: center;">Action</th>
+            </tr>
+          </thead>
+          <tbody id="manageMergesTableBody">
+            <!-- Populated dynamically -->
+          </tbody>
+        </table>
+      </div>
+      
+      <div style="display: flex; justify-content: flex-end; margin-top: 8px;">
+        <button id="manageMergesDoneBtn" class="btn" style="background: var(--accent); color: white; border: none; border-radius: var(--r); padding: 8px 20px; font-weight: 600; cursor: pointer; font-size: 13px;">Done</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+
+

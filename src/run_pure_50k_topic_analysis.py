@@ -194,16 +194,37 @@ def run_topic_inference(df):
 def run_robust_regression(formula, df_sub, name_label, cov_type='nonrobust', group_col=None):
     """Helper to fit OLS and Logit models while checking for sparsity issues."""
     res_dict_list = []
-    
+    dropped_vars = []
+
     # Check for has_consensus_expert sparsity to prevent separation errors
     n_consensus = int(df_sub["has_consensus_expert"].sum())
     use_formula = formula
     dropped_consensus = False
-    
+
     if n_consensus < 15:
         use_formula = formula.replace(" + has_consensus_expert", "")
         dropped_consensus = True
-        
+        dropped_vars.append(("has_consensus_expert", f"sparsity (<15 positive cases)"))
+
+    # Near-zero-variance regressors produce a degenerate/singular design matrix.
+    # Logit's MLE solver correctly raises "Singular matrix" and refuses to fit,
+    # but OLS's closed-form solver does NOT error on this -- it silently returns
+    # a numerically meaningless coefficient (found empirically: ~1e-16 magnitude
+    # coefficients with matching ~1e-18 SEs and p-values of 0.0, from hs_prob
+    # being constant/near-constant within small or niche topics, e.g. every
+    # single one of 25,202 comments in one topic had hs_prob == 0.0 exactly).
+    # Drop any regressor whose variance in this stratum is below a tiny floor,
+    # same pattern as the has_consensus_expert sparsity guard above.
+    VARIANCE_FLOOR = 1e-8
+    for var_name in ["pe_prob", "ps_prob", "hs_prob", "log_char_length",
+                      "link_mainstream_reliable", "link_mainstream_imperfect", "link_alt_media",
+                      "link_aggregator_or_platform", "link_unmatched_link",
+                      "has_maverick", "has_canonical_expert"]:
+        if f" + {var_name}" in use_formula and var_name in df_sub.columns:
+            if df_sub[var_name].var(ddof=0) < VARIANCE_FLOOR:
+                use_formula = use_formula.replace(f" + {var_name}", "")
+                dropped_vars.append((var_name, f"near-zero variance ({df_sub[var_name].var(ddof=0):.2e})"))
+
     if cov_type == 'cluster' and group_col:
         df_fit = df_sub.dropna(subset=[group_col])
         groups = df_fit[group_col].astype(str)
@@ -237,15 +258,15 @@ def run_robust_regression(formula, df_sub, name_label, cov_type='nonrobust', gro
                     "pvalue": m_logit.pvalues[var],
                     "n_obs": int(m_logit.nobs)
                 })
-        if dropped_consensus:
+        for var, reason in dropped_vars:
             res_dict_list.append({
                 "stratum": name_label,
                 "model_type": "Logit (High Traction)",
                 "cov_type": cov_type if cov_type != 'nonrobust' else 'naive',
-                "variable": "has_consensus_expert",
+                "variable": var,
                 "coef": np.nan, "se": np.nan, "pvalue": np.nan,
                 "n_obs": len(df_fit),
-                "note": "Dropped due to sparsity (<15 cases)"
+                "note": f"Dropped: {reason}"
             })
     except Exception as e:
         print(f"  Logit ({cov_type}) failed for {name_label}: {e}")
@@ -270,15 +291,15 @@ def run_robust_regression(formula, df_sub, name_label, cov_type='nonrobust', gro
                     "pvalue": m_ols.pvalues[var],
                     "n_obs": int(m_ols.nobs)
                 })
-        if dropped_consensus:
+        for var, reason in dropped_vars:
             res_dict_list.append({
                 "stratum": name_label,
                 "model_type": "OLS (Log Upvotes)",
                 "cov_type": cov_type if cov_type != 'nonrobust' else 'naive',
-                "variable": "has_consensus_expert",
+                "variable": var,
                 "coef": np.nan, "se": np.nan, "pvalue": np.nan,
                 "n_obs": len(df_fit),
-                "note": "Dropped due to sparsity (<15 cases)"
+                "note": f"Dropped: {reason}"
             })
     except Exception as e:
         print(f"  OLS ({cov_type}) failed for {name_label}: {e}")

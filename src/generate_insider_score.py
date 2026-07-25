@@ -1,10 +1,16 @@
 """Generate the composite continuous insider_score for all authors in the corpus.
 
-Combines four available dimensions:
+Combines five available dimensions:
 1. Lifetime r/conspiracy comments (volume, log-transformed)
 2. Recent activity purity (conspiracy_ratio)
 3. Snapshot lexical convergence similarity (lexical_insider_score)
 4. Temporal lexical convergence trajectory (mean_alignment_score)
+5. Off-sub conspiracy affinity (comment_count-weighted mean lift_heavy of an
+   author's non-r/conspiracy subreddits, from conspiracy_author_overlaps.csv --
+   distinguishes an author whose off-sub activity is r/conspiracy_commons/
+   r/HighStrangeness/r/UFOs from one whose off-sub activity is r/politics/
+   r/nba, which conspiracy_ratio alone cannot do since it only measures
+   volume share, not topical similarity of the off-sub footprint)
 
 Computes standardized Z-scores for each feature across the population where it is
 observed, then averages the available Z-scores per user to produce a robust,
@@ -17,9 +23,15 @@ import numpy as np
 import pandas as pd
 
 FOOTPRINTS_PATH = "data/processed/author_subreddit_footprints_async.csv"
+OVERLAPS_PATH = "data/processed/conspiracy_author_overlaps.csv"
 USERS_LIVE_PATH = "data/processed/df_users_live.csv"
 LIFECYCLE_PATH = "data/processed/lifecycle_trajectories_local.csv"
 OUT_PATH = "data/processed/author_insider_metrics.csv"
+
+# Sparsity floor for the off-sub affinity score: below this many matched
+# off-sub comments, the weighted-lift average is mostly noise (1-2 comments
+# landing in whatever subreddit they happen to have posted in once).
+MIN_OFFSUB_COMMENTS_FOR_AFFINITY = 5
 
 
 def main():

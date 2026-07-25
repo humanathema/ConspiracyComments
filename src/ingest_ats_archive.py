@@ -17,6 +17,7 @@ import re
 import json
 import time
 import argparse
+import threading
 from urllib.parse import urlparse
 import requests
 from bs4 import BeautifulSoup
@@ -29,21 +30,27 @@ DEFAULT_METADATA_FILE = "data/processed/ats_metadata.json"
 # Compile regexes for performance
 THREAD_REGEX = re.compile(r'/forum/thread(\d+)/pg(\d+|lastpost)?', re.IGNORECASE)
 PID_REGEX = re.compile(r'(?:post|pid)(\d+)', re.IGNORECASE)
+# Matches both cache filename conventions: CC downloads use "thread268679_pg1.html",
+# Wayback downloads use "thread_268679_pg1_<timestamp>.html".
+CACHE_FILENAME_REGEX = re.compile(r'^thread_?(\d+)_pg(\d+|lastpost)', re.IGNORECASE)
 
 
 def check_tor_available():
     """
-    Checks if a local SOCKS5 proxy is listening on Tor's default port 9050.
+    Checks if a local SOCKS5 proxy is listening on Tor's default port 9050 or Tor Browser port 9150.
+    Returns the port if available, otherwise None.
     """
     import socket
-    s = socket.socket()
-    try:
-        s.settimeout(1.0)
-        s.connect(('127.0.0.1', 9050))
-        s.close()
-        return True
-    except Exception:
-        return False
+    for port in [9050, 9150]:
+        s = socket.socket()
+        try:
+            s.settimeout(1.0)
+            s.connect(('127.0.0.1', port))
+            s.close()
+            return port
+        except Exception:
+            continue
+    return None
 
 
 def rotate_tor_ip(control_port=9051):
@@ -53,14 +60,20 @@ def rotate_tor_ip(control_port=9051):
     try:
         from stem import Signal
         from stem.control import Controller
-        with Controller.from_port(port=control_port) as controller:
-            controller.authenticate()  # Uses cookie auth or password
-            controller.signal(Signal.NEWNYM)
-            print("  [TOR] IP rotation triggered. Requesting new circuit exit node...")
-            time.sleep(2.5)  # Wait for circuit to establish
-            return True
+        # Support both default control port and Tor Browser control port 9151
+        for port in [control_port, 9151]:
+            try:
+                with Controller.from_port(port=port) as controller:
+                    controller.authenticate()  # Uses cookie auth or password
+                    controller.signal(Signal.NEWNYM)
+                    print(f"  [TOR] IP rotation triggered on control port {port}. Requesting new circuit exit node...")
+                    time.sleep(2.5)  # Wait for circuit to establish
+                    return True
+            except Exception:
+                continue
+        return False
     except Exception as e:
-        print(f"  [TOR WARNING] Failed to rotate IP via stem control port 9051: {e}", file=sys.stderr)
+        print(f"  [TOR WARNING] Failed to rotate IP: {e}", file=sys.stderr)
         return False
 
 
@@ -69,17 +82,21 @@ def get_http_session(use_tor_if_available=True):
     Returns a requests.Session, routing traffic through Tor if Tor is active.
     """
     session = requests.Session()
-    session.headers.update({"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"})
+    session.headers.update({
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
+        "Accept-Encoding": "identity",
+        })
     
-    if use_tor_if_available and check_tor_available():
-        print("  [TOR] Local Tor SOCKS5 proxy detected on port 9050. Enabling targeted proxy routing!")
+    tor_port = check_tor_available() if use_tor_if_available else None
+    if tor_port:
+        print(f"  [TOR] Local Tor SOCKS5 proxy detected on port {tor_port}. Enabling targeted proxy routing!")
         session.proxies = {
-            'http': 'socks5h://127.0.0.1:9050',
-            'https': 'socks5h://127.0.0.1:9050'
+            'http': f'socks5h://127.0.0.1:{tor_port}',
+            'https': f'socks5h://127.0.0.1:{tor_port}'
         }
     else:
         if use_tor_if_available:
-            print("  [INFO] No Tor proxy detected on port 9050. Proceeding with a direct connection.")
+            print("  [INFO] No Tor proxy detected on port 9050/9150. Proceeding with a direct connection.")
     return session
 
 
@@ -174,7 +191,73 @@ def fetch_metadata(limit=1000, clean_only=True, output_path=DEFAULT_METADATA_FIL
         json.dump(metadata_list, f, indent=2)
     print(f"Saved metadata to {output_path}")
     
-    return metadata_list
+class AdaptiveRateController:
+    def __init__(self, initial_concurrency=3, min_concurrency=1, max_concurrency=8,
+                 initial_delay=0.5, min_delay=0.0, max_delay=10.0):
+        self.lock = threading.Lock()
+        self.concurrency = initial_concurrency
+        self.min_concurrency = min_concurrency
+        self.max_concurrency = max_concurrency
+        self.delay = initial_delay
+        self.min_delay = min_delay
+        self.max_delay = max_delay
+        self.semaphore = threading.Semaphore(initial_concurrency)
+        self._sem_count = initial_concurrency  # tracked manually since Semaphore has no public counter
+
+        # rolling outcome tracking
+        self.recent_results = []  # True=success, False=failure(403/etc)
+        self.window_size = 40
+        self.since_last_adjust = 0
+        self.adjust_every = 20  # re-evaluate every N completions
+
+    def acquire(self):
+        self.semaphore.acquire()
+        time.sleep(self.delay)
+
+    def release(self):
+        self.semaphore.release()
+
+    def report(self, success):
+        with self.lock:
+            self.recent_results.append(success)
+            if len(self.recent_results) > self.window_size:
+                self.recent_results.pop(0)
+            self.since_last_adjust += 1
+
+            # Fast reaction: any failure immediately increases delay a bit,
+            # independent of the periodic batch adjustment below.
+            if not success:
+                self.delay = min(self.max_delay, self.delay * 1.5 + 0.1)
+
+            if self.since_last_adjust >= self.adjust_every and len(self.recent_results) >= 10:
+                self.since_last_adjust = 0
+                fail_rate = self.recent_results.count(False) / len(self.recent_results)
+
+                if fail_rate == 0:
+                    # healthy: probe upward - add concurrency, shrink delay
+                    self._change_concurrency(+1)
+                    self.delay = max(self.min_delay, self.delay * 0.85)
+                elif fail_rate > 0.15:
+                    # struggling: back off hard - cut concurrency, grow delay
+                    self._change_concurrency(-2)
+                    self.delay = min(self.max_delay, self.delay * 2.0 + 0.2)
+                # else: fail_rate between 0 and 0.15 - hold steady, let the
+                # per-failure delay bump above do the fine-tuning
+
+    def _change_concurrency(self, delta):
+        new_count = max(self.min_concurrency, min(self.max_concurrency, self._sem_count + delta))
+        diff = new_count - self._sem_count
+        if diff > 0:
+            for _ in range(diff):
+                self.semaphore.release()
+        elif diff < 0:
+            for _ in range(-diff):
+                self.semaphore.acquire(blocking=False)  # may not shrink immediately if all permits in use
+        self._sem_count = new_count
+
+    def status(self):
+        with self.lock:
+            return self._sem_count, round(self.delay, 3)
 
 
 def download_captures(metadata_list, cache_dir=DEFAULT_CACHE_DIR, delay=1.5, limit=None, threads=1):
@@ -225,6 +308,14 @@ def download_captures(metadata_list, cache_dir=DEFAULT_CACHE_DIR, delay=1.5, lim
     global_download_lock = Lock()
     last_rotation_time = [0.0]  # Use mutable list to allow updates within nested closures
 
+    # Adaptive Rate Controller setup
+    # Wayback is a replay endpoint, so we use a conservative ceiling of max(threads, 8) and default delay
+    controller = AdaptiveRateController(
+        initial_concurrency=min(3, threads),
+        max_concurrency=max(threads, 8),
+        initial_delay=delay
+    )
+
     def rotate_tor_ip_throttled():
         with global_download_lock:
             now = time.time()
@@ -250,44 +341,73 @@ def download_captures(metadata_list, cache_dir=DEFAULT_CACHE_DIR, delay=1.5, lim
             wayback_url = f"https://web.archive.org/web/{timestamp}id_/{original_url}"
             
             with global_download_lock:
-                print(f"[Thread-{thread_id_num}] [{idx+1}/{len(worker_items)}] Downloading thread {thread_id_val} page {page_num}...")
+                conc, curr_delay = controller.status()
+                print(f"[Thread-{thread_id_num}] [{idx+1}/{len(worker_items)}] Downloading thread {thread_id_val} page {page_num}... (concurrency={conc}, delay={curr_delay}s)")
                 
-            max_attempts = 3 if is_using_tor else 1
+            max_attempts = 3 
             success = False
             
-            for attempt in range(max_attempts):
-                try:
-                    if delay > 0 and idx > 0 and attempt == 0:
-                        time.sleep(delay)
-                        
-                    res = session.get(wayback_url, timeout=20)
-                    if res.status_code == 200:
-                        with open(file_path, 'w', encoding='utf-8', errors='ignore') as f:
-                            f.write(res.text)
+            controller.acquire()
+            try:
+                for attempt in range(max_attempts):
+                    try:
+                        res = session.get(wayback_url, timeout=20, stream=True)
+                        if res.status_code == 200:
+                            # Read raw content to bypass requests automatic decompression errors
+                            # when IA serves uncompressed text with a 'Content-Encoding: gzip' header.
+                            raw_bytes = res.raw.read(decode_content=False)
+                            
+                            # Detect if the payload is actually gzip-compressed (magic bytes 1f 8b)
+                            if raw_bytes.startswith(b"\x1f\x8b"):
+                                try:
+                                    import gzip
+                                    html_bytes = gzip.decompress(raw_bytes)
+                                except Exception:
+                                    html_bytes = raw_bytes # Fallback
+                            else:
+                                html_bytes = raw_bytes
+                                
+                            html_text = html_bytes.decode('utf-8', errors='ignore')
+                            
+                            with open(file_path, 'w', encoding='utf-8', errors='ignore') as f:
+                                f.write(html_text)
+                            with global_download_lock:
+                                downloaded_count += 1
+                            
+                            success = True
+                            controller.report(True)
+                            break
+                        elif res.status_code in [429, 403, 503]:
+                            with global_download_lock:
+                                print(f"  [Thread-{thread_id_num}] -> HTTP status {res.status_code} (Blocked/Throttled) on attempt {attempt+1}/{max_attempts}.", file=sys.stderr)
+                            controller.report(False)
+                            if is_using_tor:
+                                rotate_tor_ip_throttled()
+                                time.sleep(3)
+                            else:
+                                if attempt < max_attempts - 1:
+                                    time.sleep(2 * (attempt + 1))
+                                    continue
+                                break
+                        else:
+                            with global_download_lock:
+                                print(f"  [Thread-{thread_id_num}] Warning: HTTP status {res.status_code} for {wayback_url}", file=sys.stderr)
+                            controller.report(False)
+                            break
+                    except Exception as e:
                         with global_download_lock:
-                            downloaded_count += 1
-                        success = True
-                        break
-                    elif res.status_code in [429, 403, 503]:
-                        with global_download_lock:
-                            print(f"  [Thread-{thread_id_num}] -> HTTP status {res.status_code} (Blocked/Throttled) on attempt {attempt+1}/{max_attempts}.", file=sys.stderr)
+                            print(f"  [Thread-{thread_id_num}] Connection error/Timeout: {e} on attempt {attempt+1}/{max_attempts}.", file=sys.stderr)
+                        controller.report(False)
                         if is_using_tor:
                             rotate_tor_ip_throttled()
                             time.sleep(3)
                         else:
+                            if attempt < max_attempts - 1:
+                                time.sleep(2 * (attempt + 1))
+                                continue
                             break
-                    else:
-                        with global_download_lock:
-                            print(f"  [Thread-{thread_id_num}] Warning: HTTP status {res.status_code} for {wayback_url}", file=sys.stderr)
-                        break
-                except Exception as e:
-                    with global_download_lock:
-                        print(f"  [Thread-{thread_id_num}] Connection error/Timeout: {e} on attempt {attempt+1}/{max_attempts}.", file=sys.stderr)
-                    if is_using_tor:
-                        rotate_tor_ip_throttled()
-                        time.sleep(3)
-                    else:
-                        break
+            finally:
+                controller.release()
                         
     # Split the remaining targets across worker threads
     chunks = [[] for _ in range(threads)]
@@ -305,153 +425,413 @@ def download_captures(metadata_list, cache_dir=DEFAULT_CACHE_DIR, delay=1.5, lim
     return downloaded_count
 
 
+PID_NAME_REGEX = re.compile(r'^pid(\d+)$', re.IGNORECASE)
+STAR_IMG_REGEX = re.compile(r'staron\.png', re.IGNORECASE)
+# Some skins wrap each token of the "posted on <date> by <name>" line in its
+# own inline tag, so get_text('\n') injects a newline between "on", the
+# date, "by", and the name. `(?:[^\n]|\n(?!\s*\n))` tolerates those single
+# embedded newlines while still stopping at a genuine blank-line break
+# (double newline), which reliably follows the header before the body.
+_TOKEN_SPANNING_NEWLINES = r'(?:[^\n]|\n(?!\s*\n))'
+POSTED_TIMESTAMP_REGEX = re.compile(
+    r'(?:posted on|started on)\s+'
+    rf'({_TOKEN_SPANNING_NEWLINES}+?)'
+    rf'(?:\s+by\s+({_TOKEN_SPANNING_NEWLINES}+?))?'
+    r'\s*\n\s*\n',
+    re.IGNORECASE,
+)
+QUOTE_AUTHOR_REGEX = re.compile(r'originally posted by\s+([^\n]{1,60})', re.IGNORECASE)
+REPLY_TO_REGEX = re.compile(r'reply to (?:this )?post by\s+([^\n]{1,60})', re.IGNORECASE)
+PROFILE_TD_SIGNATURE_REGEX = re.compile(r'authors/|registered:|ats points|mediumtxt', re.IGNORECASE)
+
+
+def _clean_ws(s):
+    return re.sub(r'\s+', ' ', s).strip()
+
+
+def _looks_like_profile_td(td):
+    """Identifies a post's author/profile column vs. its content column.
+
+    ATS's HTML skin changed several times across ~2003-2018 archive captures;
+    none of these markers are universal, so this checks several signatures
+    accumulated by direct inspection of the actual captured HTML (class
+    names, and the 'mediumtxt' font wrapper family-A-era skins use to bold
+    the username before a plain-text member blurb).
+    """
+    cls = ' '.join(td.get('class') or [])
+    if re.search(r'postprofile|membr|miniprofile', cls, re.IGNORECASE):
+        return True
+    return bool(PROFILE_TD_SIGNATURE_REGEX.search(str(td)))
+
+
+def _is_profile_row(tr):
+    tds = tr.find_all('td', recursive=False)
+    return len(tds) >= 2 and any(_looks_like_profile_td(td) for td in tds)
+
+
+def _author_from_profile_td(td):
+    text = td.get_text('\n')
+    for line in (_clean_ws(l) for l in text.split('\n')):
+        if not line:
+            continue
+        low = line.lower()
+        if low.startswith('registered') or low.startswith('location') or low.startswith('mood') \
+                or 'ats points' in low or 'member is' in low:
+            break
+        return line
+    return None
+
+
+def _find_anchor_row(anchor, max_climb=2):
+    """Returns the <tr> that structurally 'owns' a pid anchor.
+
+    Some captures nest the anchor inside a malformed/unclosed <td> that
+    BeautifulSoup's lenient parsing turns into a 0-<td> <tr>; climb past a
+    couple of those before accepting whatever row we land on.
+    """
+    climbed = 0
+    for tr in anchor.find_parents('tr'):
+        tds = tr.find_all('td', recursive=False)
+        if len(tds) == 0:
+            climbed += 1
+            if climbed > max_climb:
+                return tr
+            continue
+        return tr
+    return None
+
+
 def parse_html_file(file_path, thread_id=None, page_num=None):
     """
     Parses a single AboveTopSecret thread HTML file, returning extracted posts.
+
+    Posts are located via their `<a name="pidNNNN">` anchor, which is the one
+    structural marker that held up across ATS's several HTML skin generations
+    (unlike fixed class names such as 'threadpost'/'membr', which only matched
+    a small fraction of the actual archive captures on inspection). Each
+    post's row is walked structurally (profile column vs. content column,
+    merging forward sibling rows for skins that split a post's header/body/
+    footer into separate <tr>s) rather than sliced by raw character offset,
+    to avoid bleeding the next post's profile blurb into this post's body.
     """
-    posts_extracted = []
-    
     try:
         with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
             html_content = f.read()
     except Exception as e:
         print(f"Error reading file {file_path}: {e}", file=sys.stderr)
         return []
-        
+
     soup = BeautifulSoup(html_content, 'html.parser')
-    
+
     # 1. Extract thread title
     title_text = "Unknown Title"
     if soup.title and soup.title.string:
         title_text = soup.title.string.strip()
-        # Clean title (e.g. remove page suffixes)
         if ', page' in title_text:
             title_text = title_text.split(', page')[0].strip()
-            
+
     # 2. Extract thread ID and page from filename if not provided
     if thread_id is None or page_num is None:
         basename = os.path.basename(file_path)
-        parts = basename.replace('.html', '').split('_')
-        for part in parts:
-            if part.startswith('thread'):
-                try:
-                    thread_id = int(part.replace('thread', ''))
-                except ValueError:
-                    pass
-            elif part.startswith('pg'):
-                page_num_val = part.replace('pg', '')
-                try:
-                    page_num = int(page_num_val)
-                except ValueError:
-                    page_num = page_num_val
-                    
-    # Default to placeholders if extraction failed
+        m = CACHE_FILENAME_REGEX.match(basename)
+        if m:
+            thread_id = int(m.group(1))
+            page_num = int(m.group(2)) if m.group(2).isdigit() else m.group(2)
+
     thread_id = thread_id or 0
     page_num = page_num or 1
-    
-    # 3. Locate all post containers
-    posts_elements = soup.find_all(class_='threadpost')
-    
-    for post in posts_elements:
-        # Filter out mid-thread advertisements
-        classes = post.get('class', [])
-        if 'midAd' in classes:
+
+    # 3. Locate all posts via their pid anchor
+    anchors = soup.find_all('a', attrs={'name': PID_NAME_REGEX})
+    rows = [_find_anchor_row(a) for a in anchors]
+
+    posts_extracted = []
+    for idx, anchor in enumerate(anchors):
+        post_id = PID_NAME_REGEX.match(anchor.get('name', '')).group(1)
+        tr = rows[idx]
+        if tr is None:
             continue
-            
-        # A. Extract Author
-        author = 'Unknown'
-        author_el = post.find(class_='membr')
-        if author_el:
-            author = author_el.text.strip()
-        else:
-            # Fallback check for unregistered guest profiles
-            miniprofile = post.find(class_='miniprofile')
-            if miniprofile:
-                author = miniprofile.text.strip()
-                # Clean up spacing/newlines
-                author = ' '.join(author.split())
-                
-        # B. Extract Post ID
-        post_id = 'Unknown'
-        post_div = post.find(class_='threadpostC')
-        if post_div and post_div.get('id'):
-            raw_id = post_div.get('id')
-            pid_match = PID_REGEX.search(raw_id)
-            if pid_match:
-                post_id = pid_match.group(1)
-        else:
-            # Fallback to pid anchor
-            anchor = post.find('a', attrs={'name': True})
-            if anchor and anchor.get('name'):
-                pid_match = PID_REGEX.search(anchor.get('name'))
-                if pid_match:
-                    post_id = pid_match.group(1)
-                    
-        # C. Extract Timestamp
-        raw_timestamp = 'Unknown'
-        time_div = post.find(class_='posttopL')
-        if time_div:
-            raw_timestamp = time_div.text.strip()
-            # Clean up spacing
-            raw_timestamp = ' '.join(raw_timestamp.split())
-            if 'posted on' in raw_timestamp.lower():
-                raw_timestamp = raw_timestamp.lower().split('posted on')[-1].strip()
-                
-        # D. Extract Post Body
-        body_text = ""
-        body_div = post.find(class_='KonaBody')
-        if not body_div:
-            body_div = post.find(class_='threadpostC')
-            
-        if body_div:
-            # Strip out inline scripts/styles if any
-            for s in body_div(['script', 'style']):
-                s.decompose()
-            body_text = body_div.text.strip()
-            # Clean up vertical space
-            body_text = re.sub(r'\n{3,}', '\n\n', body_text)
-            
+
+        tds = tr.find_all('td', recursive=False)
+        author = None
+        if len(tds) >= 2 and _is_profile_row(tr):
+            profile_td = next((td for td in tds if _looks_like_profile_td(td)), None)
+            if profile_td is not None:
+                author = _author_from_profile_td(profile_td)
+        elif len(tds) <= 1:
+            # Header-only row (skins that split header/body/footer into
+            # separate <tr>s) - the profile column, if any, is the preceding
+            # sibling row rather than a sibling <td>.
+            prev = tr.find_previous_sibling('tr')
+            if prev is not None and not prev.find('a', attrs={'name': PID_NAME_REGEX}) and _is_profile_row(prev):
+                ptd = next((td for td in prev.find_all('td', recursive=False) if _looks_like_profile_td(td)), None)
+                if ptd is not None:
+                    author = _author_from_profile_td(ptd)
+
+        # Merge forward sibling rows until the next post's row, so that
+        # skins which split one post's header/content/footer across several
+        # <tr>s are captured in full, without swallowing the next post's
+        # profile column.
+        content_parts = [tr]
+        next_tr = rows[idx + 1] if idx + 1 < len(rows) else None
+        sib = tr.find_next_sibling('tr')
+        hops = 0
+        while sib is not None and sib is not next_tr and hops < 10:
+            if sib.find('a', attrs={'name': PID_NAME_REGEX}) or _is_profile_row(sib):
+                break
+            content_parts.append(sib)
+            sib = sib.find_next_sibling('tr')
+            hops += 1
+
+        full_text = '\n'.join(part.get_text('\n') for part in content_parts)
+        starred = any(part.find('img', src=STAR_IMG_REGEX) for part in content_parts)
+
+        ts_match = POSTED_TIMESTAMP_REGEX.search(full_text)
+        raw_timestamp = _clean_ws(ts_match.group(1)) if ts_match else 'Unknown'
+        if ts_match and ts_match.group(2) and not author:
+            author = _clean_ws(ts_match.group(2))
+
+        reply_to_authors = [_clean_ws(m) for m in QUOTE_AUTHOR_REGEX.findall(full_text)]
+        reply_to_authors += [_clean_ws(m) for m in REPLY_TO_REGEX.findall(full_text)]
+
+        body_text = re.sub(r'\s*\n\s*', '\n', full_text).strip()
+        body_text = re.sub(r'\n{3,}', '\n\n', body_text)
+
+        # A handful of captures have genuinely malformed/unclosed HTML that
+        # confuses table-structure parsing regardless of skin, landing the
+        # anchor's row on the page's own nav-bar chrome instead of the real
+        # post row. That's source corruption, not a parseable template - skip
+        # rather than emit nav text as a fake comment body.
+        if 'BelowTopSecret.com' in body_text:
+            continue
+
         posts_extracted.append({
             'thread_id': thread_id,
             'thread_title': title_text,
             'page_num': page_num,
             'post_id': post_id,
-            'author': author,
+            'author': author or 'Unknown',
             'raw_timestamp': raw_timestamp,
-            'body': body_text
+            'body': body_text,
+            'starred': starred,
+            'reply_to_authors': reply_to_authors,
         })
-        
+
     return posts_extracted
+
+
+def resolve_reply_edges(posts):
+    """
+    Turns each post's `reply_to_authors` (quoted usernames, parsed from
+    "Originally posted by X" / "reply to post by X" text) into a best-effort
+    `reply_to_post_ids` list of actual post IDs.
+
+    This is necessarily a heuristic, not an exact reference: ATS's quote
+    markup only names the quoted *author*, not their specific post. Within
+    each thread (across all its pages), posts are ordered by post_id (which
+    increases monotonically with time on ATS), and each quoted name is
+    resolved to the nearest *preceding* post by that author in the same
+    thread. If an author posted more than once earlier in the thread, this
+    picks the most recent candidate, which is usually but not always the
+    one actually being quoted.
+    """
+    by_thread = {}
+    for post in posts:
+        by_thread.setdefault(post['thread_id'], []).append(post)
+
+    for thread_posts in by_thread.values():
+        thread_posts.sort(key=lambda p: int(p['post_id']) if str(p['post_id']).isdigit() else 0)
+        last_post_id_by_author = {}
+        for post in thread_posts:
+            reply_ids = []
+            for name in post.get('reply_to_authors', []):
+                key = name.strip().lower()
+                match_id = last_post_id_by_author.get(key)
+                if match_id is not None:
+                    reply_ids.append(match_id)
+            post['reply_to_post_ids'] = reply_ids
+            author_key = (post.get('author') or '').strip().lower()
+            if author_key and author_key != 'unknown':
+                last_post_id_by_author[author_key] = post['post_id']
+
+    return posts
 
 
 def parse_and_export_directory(cache_dir=DEFAULT_CACHE_DIR, output_path=DEFAULT_OUTPUT_FILE):
     """
     Parses all cached HTML files and exports them to a unified JSONLines file.
+    Utilizes multi-processing to speed up CPU-bound BeautifulSoup parsing by 4x to 8x!
+    Implements a resilient, append-only checkpoint ledger to allow instant resume.
     """
     if not os.path.exists(cache_dir):
         print(f"Cache directory {cache_dir} does not exist.")
         return
-        
-    html_files = [f for f in os.listdir(cache_dir) if f.endswith('.html')]
-    if not html_files:
+
+    all_html_files = [f for f in os.listdir(cache_dir) if f.endswith('.html')]
+    if not all_html_files:
         print(f"No cached HTML files found in {cache_dir}.")
         return
-        
-    print(f"Parsing {len(html_files):,} cached HTML files...")
-    
+
     os.makedirs(os.path.dirname(output_path), exist_ok=True)
     
-    total_posts = 0
-    with open(output_path, 'w', encoding='utf-8') as outfile:
-        for fname in sorted(html_files):
-            file_path = os.path.join(cache_dir, fname)
-            posts = parse_html_file(file_path)
+    parsed_tracker_path = os.path.join(os.path.dirname(output_path), "ats_parsed_files.txt")
+    
+    # If the main output file does not exist, reset the parsed ledger
+    if not os.path.exists(output_path) and os.path.exists(parsed_tracker_path):
+        try:
+            os.remove(parsed_tracker_path)
+        except Exception:
+            pass
+
+    parsed_files = set()
+    if os.path.exists(parsed_tracker_path):
+        try:
+            with open(parsed_tracker_path, "r", encoding="utf-8", errors="ignore") as ledger_f:
+                parsed_files = {line.strip() for line in ledger_f if line.strip()}
+        except Exception:
+            pass
+
+    # Only process files that have not been parsed yet
+    html_files_to_parse = [f for f in all_html_files if f not in parsed_files]
+    
+    total_all_files = len(all_html_files)
+    total_to_parse = len(html_files_to_parse)
+
+    if total_to_parse == 0:
+        print(f"All {total_all_files:,} cached HTML files have already been parsed!")
+        print(f"Comments are preserved in {output_path}")
+        return
+
+    if len(parsed_files) > 0:
+        print(f"Found {len(parsed_files):,} already parsed files in ledger. Resuming parser...")
+    
+    print(f"Parsing remaining {total_to_parse:,} out of {total_all_files:,} files using multi-processing...")
+
+    # Determine optimal worker count
+    import multiprocessing
+    cores = min(multiprocessing.cpu_count(), 8)
+    print(f"Spawning {cores} parallel parsing processes...")
+
+    from concurrent.futures import ProcessPoolExecutor, as_completed
+    
+    # Process files in chunks of 5,000 to periodically flush them to disk and ledger
+    chunk_size = 5000
+    parsed_files_count = 0
+    empty_files = 0
+    start_time = time.time()
+    last_print_time = start_time
+
+    # We open the files in append mode if we are resuming, otherwise write mode
+    mode = 'a' if len(parsed_files) > 0 else 'w'
+    
+    with ProcessPoolExecutor(max_workers=cores) as executor:
+        for chunk_idx in range(0, total_to_parse, chunk_size):
+            chunk_filenames = html_files_to_parse[chunk_idx:chunk_idx + chunk_size]
+            chunk_paths = [os.path.join(cache_dir, f) for f in chunk_filenames]
             
-            for post in posts:
-                outfile.write(json.dumps(post) + '\n')
-                total_posts += 1
+            # Map future to filename so we can track ledger writes
+            futures = {executor.submit(parse_html_file, fp): f for fp, f in zip(chunk_paths, chunk_filenames)}
+            
+            chunk_posts = []
+            chunk_processed_files = []
+            
+            for future in as_completed(futures):
+                filename = futures[future]
+                parsed_files_count += 1
+                chunk_processed_files.append(filename)
                 
-    print(f"Successfully exported {total_posts:,} structured comments to {output_path}")
+                try:
+                    posts = future.result()
+                    if not posts:
+                        empty_files += 1
+                    else:
+                        chunk_posts.extend(posts)
+                except Exception:
+                    empty_files += 1
+                
+                # Print real-time progress dashboard
+                now = time.time()
+                if now - last_print_time >= 1.0 or parsed_files_count == total_to_parse:
+                    last_print_time = now
+                    elapsed = now - start_time
+                    speed = parsed_files_count / elapsed if elapsed > 0 else 0
+                    percent = (parsed_files_count / total_to_parse) * 100
+                    eta_sec = (total_to_parse - parsed_files_count) / speed if speed > 0 else 0
+                    
+                    if eta_sec > 60:
+                        eta_str = f"{int(eta_sec // 60)}m {int(eta_sec % 60)}s"
+                    else:
+                        eta_str = f"{int(eta_sec)}s"
+                        
+                    print(f"  Progress: {parsed_files_count:,}/{total_to_parse:,} parsed ({percent:.1f}%) | "
+                          f"Speed: {speed:.1f} files/sec | "
+                          f"ETA: {eta_str} | "
+                          f"New Posts: {len(chunk_posts):,}", end="\r", flush=True)
+
+            # Flush this chunk to disk and update ledger!
+            if chunk_posts:
+                resolve_reply_edges(chunk_posts)
+                with open(output_path, mode, encoding='utf-8') as outfile:
+                    for post in chunk_posts:
+                        outfile.write(json.dumps(post) + '\n')
+            
+            # Write to ledger append-only
+            with open(parsed_tracker_path, "a", encoding="utf-8") as ledger_f:
+                for fn in chunk_processed_files:
+                    ledger_f.write(fn + "\n")
+                    
+            # Subsequent chunks always append
+            mode = 'a'
+
+    duration = time.time() - start_time
+    print(f"\n\nParsing completed in {duration:.1f} seconds.")
+    print(f"Chunked files parsed: {total_to_parse:,} ({empty_files:,} empty).")
+    print(f"All parsed entries have been written to {output_path} & checkpoint ledger updated.")
+
+
+
+def convert_jsonl_to_parquet(input_path, output_path):
+    """
+    Converts the JSONLines comments export to a compressed Parquet file.
+
+    Uses DuckDB rather than pandas.read_json: the comments file is several
+    GB, and pandas' line-delimited JSON reader loads and parses the whole
+    thing in Python before it can write anything, which is both slow and a
+    real OOM risk on this 8GB dev machine. DuckDB streams the read/write
+    instead. reply_to_authors / reply_to_post_ids stay as native Parquet
+    LIST columns (this project's other analysis code already reads Parquet
+    via DuckDB, which handles LIST columns natively).
+    """
+    import duckdb
+
+    if not os.path.exists(input_path):
+        print(f"Error: {input_path} does not exist. Run 'parse' first.", file=sys.stderr)
+        sys.exit(1)
+
+    os.makedirs(os.path.dirname(output_path) or '.', exist_ok=True)
+
+    print(f"Converting {input_path} -> {output_path} via DuckDB...")
+    con = duckdb.connect()
+    # A small number of source lines have malformed unicode escapes (from
+    # old forum HTML with broken/legacy encoding artifacts) that DuckDB's
+    # stricter JSON parser rejects outright, unlike Python's `json`. Skip
+    # those rather than fail the whole conversion, and report how many.
+    con.execute(f"""
+        COPY (SELECT * FROM read_json_auto('{input_path}', format='newline_delimited', ignore_errors=true))
+        TO '{output_path}' (FORMAT PARQUET, COMPRESSION ZSTD)
+    """)
+    row_count = con.execute(f"SELECT COUNT(*) FROM read_parquet('{output_path}')").fetchone()[0]
+
+    with open(input_path, 'rb') as f:
+        input_line_count = sum(1 for _ in f)
+    skipped = input_line_count - row_count
+    if skipped:
+        print(f"Skipped {skipped:,} malformed line(s) out of {input_line_count:,} during conversion.")
+
+    in_size = os.path.getsize(input_path)
+    out_size = os.path.getsize(output_path)
+    print(f"Wrote {row_count:,} rows to {output_path}")
+    print(f"{in_size/1e6:.1f} MB -> {out_size/1e6:.1f} MB ({out_size/in_size:.1%} of original)")
 
 
 def main():
@@ -470,6 +850,8 @@ def main():
     dl_parser.add_argument("--delay", type=float, default=1.5, help="Delay (seconds) between sequential downloads")
     dl_parser.add_argument("--limit", type=int, default=None, help="Limit the number of threads to download")
     dl_parser.add_argument("--threads", type=int, default=1, help="Number of concurrent worker threads")
+    dl_parser.add_argument("--shard-count", type=int, default=1, help="Total number of parallel scraper instances (shards)")
+    dl_parser.add_argument("--shard-id", type=int, default=0, help="Zero-indexed ID of this shard instance (0 to shard-count - 1)")
     
     # Subcommand: parse
     parse_parser = subparsers.add_parser("parse", help="Parse cached HTML files into structured comments")
@@ -477,6 +859,11 @@ def main():
     parse_parser.add_argument("--local-file", default=None, help="Parse a single specified HTML file instead of directory")
     parse_parser.add_argument("--output", default=DEFAULT_OUTPUT_FILE, help="Path to save structured JSONLines comments")
     
+    # Subcommand: to-parquet
+    parquet_parser = subparsers.add_parser("to-parquet", help="Convert the JSONLines comments export to Parquet")
+    parquet_parser.add_argument("--input", default=DEFAULT_OUTPUT_FILE, help="Path to the JSONLines comments file")
+    parquet_parser.add_argument("--output", default=None, help="Path to write the Parquet file (default: input with .parquet extension)")
+
     # Subcommand: run-pipeline
     pipe_parser = subparsers.add_parser("run-pipeline", help="Run end-to-end extraction for specific thread IDs")
     pipe_parser.add_argument("--threads", required=True, help="Comma-separated list of target thread IDs to extract")
@@ -495,6 +882,18 @@ def main():
             sys.exit(1)
         with open(args.metadata) as f:
             metadata_list = json.load(f)
+            
+        # Apply sharding/partitioning if specified
+        if args.shard_count > 1:
+            if args.shard_id < 0 or args.shard_id >= args.shard_count:
+                print(f"Error: --shard-id must be between 0 and {args.shard_count - 1}", file=sys.stderr)
+                sys.exit(1)
+            metadata_list = [
+                item for idx, item in enumerate(metadata_list)
+                if idx % args.shard_count == args.shard_id
+            ]
+            print(f"[SHARDING] Running as Shard {args.shard_id} of {args.shard_count}. Retained {len(metadata_list):,} targets.")
+            
         download_captures(metadata_list, cache_dir=args.cache_dir, delay=args.delay, limit=args.limit, threads=args.threads)
         
     elif args.command == "parse":
@@ -509,7 +908,11 @@ def main():
             print(f"Saved parsed test results to {args.output}")
         else:
             parse_and_export_directory(cache_dir=args.cache_dir, output_path=args.output)
-            
+
+    elif args.command == "to-parquet":
+        output_path = args.output or (os.path.splitext(args.input)[0] + '.parquet')
+        convert_jsonl_to_parquet(args.input, output_path)
+
     elif args.command == "run-pipeline":
         thread_ids = [int(t.strip()) for t in args.threads.split(',')]
         print(f"Executing prototype pipeline for thread IDs: {thread_ids}")

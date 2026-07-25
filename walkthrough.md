@@ -23,6 +23,19 @@ All changes have been strictly validated for code syntax and notebook schema com
 * **Validation**: Verified the output on live DuckDB; it generates exactly 8 well-truncated examples.
 * **Commit**: `933f918`
 
+### 3. Pre-2003 Ikonboard Legacy Parser (`src/ingest_ats_legacy.py`)
+*   **What**: Designed a custom table-based parser targeting early 1998-2002 forum topics.
+*   **Status**: Actively executing in the background (`task-1036`) and extracting the oldest, most historical era of AboveTopSecret conversations!
+
+### 4. Legacy Common Crawl Byte-Range Bypass Pipeline (`src/scan_ats_cc_indexes.py` & `src/download_ats_cc_records.py`)
+*   **What**: Designed and implemented a bulk-retrieval pipeline that extracts legacy ARC-format thread captures directly from AWS S3 (`data.commoncrawl.org`) using concurrent range requests, bypassing Tor completely.
+*   **Polite Alphanumeric Index Partitioning**: Queries the 5 legacy indexes (2008–2013) sequentially. Uses partitioned digit prefixes (`thread1` through `thread9`) to bypass the ASCII sorting bug on index.commoncrawl.org where space characters `%20` saturate the server's return buffers. This compiles a comprehensive mapping file `data/processed/ats_cc_index_complete.json`.
+*   **High-Performance CDN Downloader**: Connects directly to the public Common Crawl S3 bucket. Supports multi-threaded parallel byte-range downloads (10+ threads) with zero rate-limiting.
+*   **Double-Decompression Parsing Engine**: Handles legacy double-gzipped streams on the fly:
+    1.  Decompresses the outer ARC gzip container from S3.
+    2.  Extracts the raw HTTP headers and identifies if `Content-Encoding: gzip` was returned by AboveTopSecret's server in 2008.
+    3.  Decompresses the inner HTML body and writes clean, raw HTML markup straight to the raw cache (`data/raw/ats_raw_html`), completely ready for parsing.
+
 ### 2. Piece 2: Sub-section dividers in Section 9
 * **Goal**: Add structural separation between the 11 sub-analyses in Section 9 (9.2 BERTopic through 9.12 fuzzy near-duplicates) so they don't blend together.
 * **Changes**:

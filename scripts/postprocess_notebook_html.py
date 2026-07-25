@@ -266,6 +266,13 @@ document.querySelectorAll('a[href^="#"]').forEach(function (a) {
 """
 soup.append(script_tag)
 
+# --- 6. Programmatically position Named Entities Plot at the top of Section 11 ---
+plot_cell = soup.find(id="cell-id=56afc3d4066f")
+summary_cell = soup.find(id="cell-id=680e8771e24a")
+if plot_cell and summary_cell:
+    summary_cell.insert_before(plot_cell)
+    print("Programmatically swapped plot and summary cells in compiled HTML.")
+
 with open(DST, "w", encoding="utf-8") as f:
     f.write(str(soup))
 

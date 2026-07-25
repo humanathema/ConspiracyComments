@@ -1,0 +1,579 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AboveTopSecret (ATS) Historical Archive</title>
+    <!-- Fonts (Clean, modern sans-serif and monospace) -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+    <!-- Tailwind CSS (via CDN) -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    fontFamily: {
+                        sans: ['Inter', 'sans-serif'],
+                        mono: ['JetBrains Mono', 'monospace'],
+                    }
+                }
+            }
+        }
+    </script>
+    <style>
+        body {
+            background-color: #0d0f12;
+            color: #d1d5db;
+        }
+        
+        .panel-matte {
+            background: #13161a;
+            border: 1px solid #1e2329;
+        }
+
+        .custom-scrollbar::-webkit-scrollbar {
+            width: 5px;
+            height: 5px;
+        }
+        .custom-scrollbar::-webkit-scrollbar-track {
+            background: rgba(0, 0, 0, 0.2);
+        }
+        .custom-scrollbar::-webkit-scrollbar-thumb {
+            background: #23282f;
+            border-radius: 4px;
+        }
+        .custom-scrollbar::-webkit-scrollbar-thumb:hover {
+            background: #2d343f;
+        }
+
+        .post-body p {
+            margin-bottom: 0.75rem;
+            line-height: 1.6;
+        }
+        .post-body {
+            word-break: break-word;
+        }
+
+        /* Post highlighting with a clean slate border */
+        .highlight-post {
+            border-color: #64748b !important;
+            background: #181d24 !important;
+            transition: all 0.4s ease-in-out;
+        }
+    </style>
+</head>
+<body class="h-screen flex flex-col font-sans overflow-hidden custom-scrollbar">
+
+    <!-- Header (Understated, clean border-b) -->
+    <header class="h-14 shrink-0 flex items-center justify-between px-6 border-b border-[#1e2329] bg-[#13161a] z-10">
+        <div class="flex items-center space-x-3">
+            <div class="w-6 h-6 rounded bg-[#23282f] border border-[#2d343f] flex items-center justify-center font-bold text-slate-300 text-xs">
+                A
+            </div>
+            <div>
+                <h1 class="font-bold text-sm tracking-tight text-slate-100 uppercase">AboveTopSecret</h1>
+                <p class="text-[9px] text-slate-500 font-mono tracking-widest leading-none mt-0.5">Historical Recovery Terminal</p>
+            </div>
+        </div>
+
+        <!-- Database stats badge -->
+        <div class="flex items-center space-x-5">
+            <div class="hidden sm:flex items-center space-x-4 text-[11px] font-mono text-slate-400">
+                <div class="flex flex-col items-end">
+                    <span id="stat-comments-count" class="text-slate-300 font-semibold">--- comments</span>
+                </div>
+                <div class="h-5 w-px bg-[#1e2329]"></div>
+                <div class="flex flex-col items-end">
+                    <span id="stat-threads-count" class="text-slate-300 font-semibold">--- threads</span>
+                </div>
+                <div class="h-5 w-px bg-[#1e2329]"></div>
+                <div class="flex flex-col items-end">
+                    <span id="stat-size-count" class="text-slate-300 font-semibold">--- MB</span>
+                </div>
+            </div>
+            <div class="flex items-center space-x-1.5 bg-[#181d24] px-2.5 py-1 rounded border border-[#23282f]">
+                <span class="inline-block rounded-full h-1.5 w-1.5 bg-emerald-500"></span>
+                <span id="conn-status" class="text-[10px] font-mono font-medium text-slate-400">Online</span>
+            </div>
+        </div>
+    </header>
+
+    <!-- Main Workspace -->
+    <div class="flex-1 flex overflow-hidden bg-[#0d0f12]">
+
+        <!-- Sidebar (Thread list) -->
+        <aside class="w-80 md:w-96 border-r border-[#1e2329] bg-[#13161a] flex flex-col shrink-0">
+            <div class="p-3 border-b border-[#1e2329] flex flex-col space-y-3 shrink-0">
+                <!-- Search Threads Input -->
+                <div class="relative">
+                    <input type="text" id="thread-search" placeholder="Filter thread titles or IDs..." 
+                           class="w-full bg-[#0a0b0d] border border-[#1e2329] rounded py-1.5 pl-8 pr-3 text-xs text-slate-200 placeholder-slate-500 focus:outline-none focus:border-slate-500 transition-all font-sans">
+                    <svg class="absolute left-2.5 top-2.5 h-3.5 w-3.5 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path>
+                    </svg>
+                </div>
+            </div>
+
+            <!-- Thread scroll section -->
+            <div id="thread-list" class="flex-1 overflow-y-auto custom-scrollbar p-2 space-y-0.5">
+                <!-- Thread cards populated dynamically -->
+                <div class="flex justify-center items-center h-32">
+                    <div class="animate-spin rounded-full h-4 w-4 border-b-2 border-slate-500"></div>
+                </div>
+            </div>
+
+            <!-- Sidebar pagination -->
+            <div id="sidebar-pagination" class="p-2 border-t border-[#1e2329] flex items-center justify-between text-[11px] shrink-0 bg-[#0d0f12]">
+                <button id="prev-threads-btn" class="px-2 py-1 rounded bg-[#13161a] border border-[#1e2329] hover:border-slate-600 text-slate-300 disabled:opacity-40 disabled:pointer-events-none transition-all">Prev</button>
+                <span id="threads-page-indicator" class="font-mono text-slate-500">Page 1 / --</span>
+                <button id="next-threads-btn" class="px-2 py-1 rounded bg-[#13161a] border border-[#1e2329] hover:border-slate-600 text-slate-300 disabled:opacity-40 disabled:pointer-events-none transition-all">Next</button>
+            </div>
+        </aside>
+
+        <!-- Main Content Area -->
+        <main class="flex-1 flex flex-col overflow-hidden relative">
+
+            <!-- Global Search bar (full text) -->
+            <div class="p-3 border-b border-[#1e2329] bg-[#13161a] flex items-center justify-between z-10 shrink-0">
+                <div class="relative flex-1 max-w-xl">
+                    <input type="text" id="global-fts-input" placeholder="Search comments..." 
+                           class="w-full bg-[#0a0b0d] border border-[#1e2329] rounded py-1.5 pl-8 pr-3 text-xs text-slate-200 placeholder-slate-500 focus:outline-none focus:border-slate-500 transition-all font-sans">
+                    <svg class="absolute left-2.5 top-2.5 h-3.5 w-3.5 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path>
+                    </svg>
+                </div>
+                <div class="ml-3 flex items-center space-x-2">
+                    <button id="search-btn" class="px-3.5 py-1.5 rounded bg-slate-700 hover:bg-slate-600 text-xs font-semibold text-white transition-all">Search</button>
+                    <button id="clear-search-btn" class="hidden px-2.5 py-1.5 rounded bg-[#13161a] border border-[#1e2329] hover:bg-slate-800 text-xs font-medium text-slate-400 transition-all">Clear</button>
+                </div>
+            </div>
+
+            <!-- Welcome / Hero State -->
+            <div id="welcome-hero-panel" class="flex-1 overflow-y-auto custom-scrollbar p-8 flex flex-col items-center justify-center text-center space-y-4">
+                <div class="max-w-md bg-[#13161a] border border-[#1e2329] rounded-lg p-8 space-y-4">
+                    <div class="text-slate-400 text-2xl">🏛️</div>
+                    <div class="space-y-1.5">
+                        <h2 class="text-base font-bold text-slate-200">AboveTopSecret Archive Terminal</h2>
+                        <p class="text-slate-500 text-xs leading-relaxed">Browse threads in the sidebar or execute a full-text search against the database. Simple, offline-first, and highly structured.</p>
+                    </div>
+
+                    <div class="grid grid-cols-2 gap-3 text-left font-mono text-[10px]">
+                        <div class="p-2.5 bg-[#0d0f12] rounded border border-[#1e2329]">
+                            <span class="text-slate-500 uppercase block">Engine</span>
+                            <div class="font-semibold text-slate-300 mt-0.5">Streaming SQLite3</div>
+                        </div>
+                        <div class="p-2.5 bg-[#0d0f12] rounded border border-[#1e2329]">
+                            <span class="text-slate-500 uppercase block">Indexer</span>
+                            <div class="font-semibold text-slate-300 mt-0.5">FTS5 Search</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Global Search Results Panel -->
+            <div id="global-search-results-panel" class="hidden flex-1 overflow-y-auto custom-scrollbar p-5 space-y-4">
+                <div class="flex items-center justify-between pb-2 border-b border-[#1e2329]">
+                    <div>
+                        <h2 class="text-sm font-bold text-slate-200 flex items-center space-x-2">
+                            <span>🔍 Search Results</span>
+                            <span id="search-query-badge" class="px-2 py-0.5 rounded bg-slate-800 text-slate-300 font-mono text-[10px]"></span>
+                        </h2>
+                        <p id="search-total-count" class="text-[11px] text-slate-500 mt-0.5 font-mono">Found 0 matching posts</p>
+                    </div>
+                </div>
+
+                <div id="search-results-list" class="space-y-3">
+                    <!-- Search result card lists -->
+                </div>
+
+                <!-- Search Pagination -->
+                <div id="search-pagination" class="flex items-center justify-between text-xs py-3 shrink-0">
+                    <button id="prev-search-btn" class="px-2.5 py-1.5 rounded bg-[#13161a] border border-[#1e2329] hover:border-slate-600 text-slate-300 transition-all">Prev</button>
+                    <span id="search-page-indicator" class="font-mono text-slate-500">Page 1 / 1</span>
+                    <button id="next-search-btn" class="px-2.5 py-1.5 rounded bg-[#13161a] border border-[#1e2329] hover:border-slate-600 text-slate-300 transition-all">Next</button>
+                </div>
+            </div>
+
+            <!-- Thread Reader View -->
+            <div id="thread-reader-panel" class="hidden flex-1 flex flex-col overflow-hidden">
+                <!-- Thread header -->
+                <div class="p-4 border-b border-[#1e2329] bg-[#13161a] flex items-center justify-between shrink-0">
+                    <div class="flex-1 min-w-0 pr-4">
+                        <div class="flex items-center space-x-2">
+                            <span id="reader-thread-id" class="px-1.5 py-0.5 rounded bg-[#1d2128] text-slate-400 border border-[#2d333f] text-[9px] font-mono">Thread #---</span>
+                            <span class="h-1 w-1 rounded-full bg-slate-600"></span>
+                            <span id="reader-post-count" class="text-[11px] text-slate-500 font-mono">--- comments</span>
+                        </div>
+                        <h2 id="reader-thread-title" class="text-sm font-bold text-slate-200 tracking-tight mt-1 truncate">Thread Title Placeholder</h2>
+                    </div>
+                    <button id="close-reader-btn" class="px-2 py-1 rounded bg-[#1d2128] border border-[#2d333f] hover:border-slate-600 text-slate-400 hover:text-slate-200 text-[11px] font-medium transition-all">Back</button>
+                </div>
+
+                <!-- Post reader list -->
+                <div id="post-list" class="flex-1 overflow-y-auto custom-scrollbar p-5 space-y-4">
+                    <!-- Post cards loaded dynamically -->
+                </div>
+            </div>
+
+        </main>
+    </div>
+
+    <!-- Script logic -->
+    <script>
+        const BASE_URL = window.location.origin;
+
+        // Application State
+        let threadsPage = 1;
+        let threadsPerPage = 50;
+        let searchPage = 1;
+        let searchPerPage = 20;
+        let activeThreadId = null;
+
+        // Classy, muted flat colors for avatars (no bright neon gradients)
+        const avatarColors = [
+            'bg-slate-800 border-slate-700 text-slate-300',
+            'bg-zinc-800 border-zinc-700 text-zinc-300',
+            'bg-neutral-800 border-neutral-700 text-neutral-300',
+            'bg-stone-800 border-stone-700 text-stone-300',
+            'bg-slate-700 border-slate-600 text-slate-200',
+            'bg-zinc-700 border-zinc-600 text-zinc-200',
+            'bg-neutral-700 border-neutral-600 text-neutral-200',
+            'bg-stone-700 border-stone-600 text-stone-200'
+        ];
+
+        function getAvatarClasses(username) {
+            let hash = 0;
+            for (let i = 0; i < username.length; i++) {
+                hash = username.charCodeAt(i) + ((hash << 5) - hash);
+            }
+            const index = Math.abs(hash) % avatarColors.length;
+            return avatarColors[index];
+        }
+
+        // Initialize and fetch database statistics
+        async function fetchStats() {
+            try {
+                const res = await fetch(`${BASE_URL}/api/stats`);
+                const data = await res.json();
+                
+                if (data.status === 'online') {
+                    document.getElementById('stat-comments-count').textContent = `${data.total_comments.toLocaleString()} comments`;
+                    document.getElementById('stat-threads-count').textContent = `${data.total_threads.toLocaleString()} threads`;
+                    document.getElementById('stat-size-count').textContent = `${data.db_size_mb} MB`;
+                    document.getElementById('conn-status').textContent = 'Online';
+                    document.getElementById('conn-status').className = 'text-[10px] font-mono font-medium text-emerald-500';
+                }
+            } catch (err) {
+                console.error("Stats fetching failed:", err);
+                document.getElementById('conn-status').textContent = 'Offline';
+                document.getElementById('conn-status').className = 'text-[10px] font-mono font-medium text-rose-500';
+            }
+        }
+
+        // Load threads sidebar
+        async function loadThreads(page = 1, search = '') {
+            threadsPage = page;
+            const threadList = document.getElementById('thread-list');
+            threadList.innerHTML = `
+                <div class="flex justify-center items-center h-32">
+                    <div class="animate-spin rounded-full h-4 w-4 border-b-2 border-slate-500"></div>
+                </div>`;
+
+            try {
+                const url = new URL(`${BASE_URL}/api/threads`);
+                url.searchParams.append('page', page);
+                url.searchParams.append('per_page', threadsPerPage);
+                if (search) url.searchParams.append('search', search);
+
+                const res = await fetch(url);
+                const data = await res.json();
+
+                threadList.innerHTML = '';
+                if (!data.threads || data.threads.length === 0) {
+                    threadList.innerHTML = `<div class="text-center text-slate-500 text-xs py-8">No threads found</div>`;
+                    document.getElementById('threads-page-indicator').textContent = 'Page 1 / 1';
+                    return;
+                }
+
+                data.threads.forEach(t => {
+                    const card = document.createElement('button');
+                    const isActive = activeThreadId === t.thread_id;
+                    card.className = `w-full text-left p-3 rounded border transition-all duration-150 flex flex-col space-y-1 ${
+                        isActive
+                            ? 'bg-[#1e2329] border-slate-500 text-slate-100 border-l-2 border-l-slate-300'
+                            : 'bg-transparent border-transparent hover:bg-[#181c21] text-slate-400 hover:text-slate-200'
+                    }`;
+                    card.onclick = () => selectThread(t.thread_id);
+
+                    card.innerHTML = `
+                        <div class="flex items-center justify-between space-x-2 w-full text-[10px] font-mono">
+                            <span class="text-slate-500">#${t.thread_id}</span>
+                            <span class="text-slate-400 font-medium">${t.post_count} posts</span>
+                        </div>
+                        <h3 class="text-xs font-medium leading-snug line-clamp-2">${t.thread_title || 'Untitled Thread'}</h3>
+                    `;
+                    threadList.appendChild(card);
+                });
+
+                document.getElementById('threads-page-indicator').textContent = `Page ${data.page} / ${data.total_pages}`;
+                document.getElementById('prev-threads-btn').disabled = data.page <= 1;
+                document.getElementById('next-threads-btn').disabled = data.page >= data.total_pages;
+
+            } catch (err) {
+                console.error("Failed to load threads:", err);
+                threadList.innerHTML = `<div class="text-center text-rose-500 text-xs py-8">Failed to load threads</div>`;
+            }
+        }
+
+        // Search execution
+        async function executeSearch(page = 1) {
+            const query = document.getElementById('global-fts-input').value.trim();
+            if (!query) return;
+
+            searchPage = page;
+            
+            document.getElementById('welcome-hero-panel').classList.add('hidden');
+            document.getElementById('thread-reader-panel').classList.add('hidden');
+            document.getElementById('global-search-results-panel').classList.remove('hidden');
+            document.getElementById('clear-search-btn').classList.remove('hidden');
+
+            const resultsList = document.getElementById('search-results-list');
+            resultsList.innerHTML = `
+                <div class="flex justify-center items-center h-32">
+                    <div class="animate-spin rounded-full h-4 w-4 border-b-2 border-slate-500"></div>
+                </div>`;
+
+            try {
+                const url = new URL(`${BASE_URL}/api/search`);
+                url.searchParams.append('q', query);
+                url.searchParams.append('page', page);
+                url.searchParams.append('per_page', searchPerPage);
+
+                const res = await fetch(url);
+                const data = await res.json();
+
+                resultsList.innerHTML = '';
+                document.getElementById('search-query-badge').textContent = `"${query}"`;
+                document.getElementById('search-total-count').textContent = `Found ${data.total_results.toLocaleString()} matching comments`;
+
+                if (!data.results || data.results.length === 0) {
+                    resultsList.innerHTML = `<div class="text-center text-slate-500 py-12">No matching comments found</div>`;
+                    document.getElementById('search-page-indicator').textContent = 'Page 1 / 1';
+                    return;
+                }
+
+                data.results.forEach(item => {
+                    const avatarStyle = getAvatarClasses(item.author);
+                    const card = document.createElement('div');
+                    card.className = "p-4 rounded border border-[#1e2329] bg-[#13161a] hover:border-slate-500 transition-all flex flex-col space-y-2 cursor-pointer";
+                    card.onclick = () => selectThread(item.thread_id, item.post_id);
+
+                    card.innerHTML = `
+                        <div class="flex items-center justify-between text-xs">
+                            <div class="flex items-center space-x-2.5">
+                                <div class="w-6 h-6 rounded border flex items-center justify-center font-bold text-[10px] ${avatarStyle}">${item.author.charAt(0).toUpperCase()}</div>
+                                <span class="font-bold text-slate-200">${item.author}</span>
+                                <span class="text-[10px] text-slate-500 font-mono">${item.raw_timestamp}</span>
+                            </div>
+                            <div class="flex items-center space-x-2 font-mono text-[10px] text-slate-500">
+                                <span class="text-slate-400 font-semibold hover:underline">Thread #${item.thread_id}</span>
+                                <span>•</span>
+                                <span>Post ${item.post_id}</span>
+                            </div>
+                        </div>
+                        <h4 class="text-xs font-bold text-slate-300 truncate">${item.thread_title || 'Untitled Thread'}</h4>
+                        <div class="p-2.5 rounded bg-[#0d0f12] border border-[#1e2329] text-[11px] text-slate-400 font-mono leading-relaxed post-body">${item.snippet_text}</div>
+                    `;
+                    resultsList.appendChild(card);
+                });
+
+                document.getElementById('search-page-indicator').textContent = `Page ${data.page} / ${data.total_pages}`;
+                document.getElementById('prev-search-btn').disabled = data.page <= 1;
+                document.getElementById('next-search-btn').disabled = data.page >= data.total_pages;
+
+            } catch (err) {
+                console.error("Search failed:", err);
+                resultsList.innerHTML = `<div class="text-center text-rose-500 py-12">Search encountered an error</div>`;
+            }
+        }
+
+        // Thread selection
+        async function selectThread(threadId, targetPostId = null) {
+            activeThreadId = threadId;
+            
+            const threadSearchQuery = document.getElementById('thread-search').value.trim();
+            loadThreads(threadsPage, threadSearchQuery);
+
+            document.getElementById('welcome-hero-panel').classList.add('hidden');
+            document.getElementById('global-search-results-panel').classList.add('hidden');
+            document.getElementById('thread-reader-panel').classList.remove('hidden');
+
+            const postList = document.getElementById('post-list');
+            postList.innerHTML = `
+                <div class="flex justify-center items-center h-48">
+                    <div class="animate-spin rounded-full h-5 w-5 border-b-2 border-slate-500"></div>
+                </div>`;
+
+            try {
+                const res = await fetch(`${BASE_URL}/api/thread/${threadId}`);
+                const data = await res.json();
+
+                if (data.error) {
+                    postList.innerHTML = `<div class="text-center text-rose-500 py-12">Thread loading error: ${data.error}</div>`;
+                    return;
+                }
+
+                document.getElementById('reader-thread-id').textContent = `Thread #${data.thread_id}`;
+                document.getElementById('reader-post-count').textContent = `${data.posts.length.toLocaleString()} comments`;
+                document.getElementById('reader-thread-title').textContent = data.thread_title || 'Untitled Thread';
+
+                postList.innerHTML = '';
+                data.posts.forEach((post, idx) => {
+                    const avatarStyle = getAvatarClasses(post.author);
+                    const card = document.createElement('div');
+                    card.id = `post-${post.post_id}`;
+                    card.className = `p-5 rounded border border-[#1e2329] bg-[#13161a] flex flex-col space-y-3 hover:border-slate-700 transition-all ${
+                        post.starred ? 'border-amber-700/40 bg-[#161410]/20' : ''
+                    }`;
+
+                    let bodyHtml = '';
+                    post.body.split('\n\n').forEach(para => {
+                        if (para.trim()) {
+                            bodyHtml += `<p>${escapeHtml(para)}</p>`;
+                        }
+                    });
+
+                    let replyHtml = '';
+                    if (post.reply_to_post_ids && post.reply_to_post_ids.length > 0) {
+                        replyHtml += `<div class="flex flex-wrap gap-1 text-[9px] font-mono mb-2">`;
+                        post.reply_to_post_ids.forEach((rid, rIdx) => {
+                            const quotedAuthor = post.reply_to_authors[rIdx] || 'Member';
+                            replyHtml += `
+                                <button onclick="scrollToPost('${rid}')" class="px-2 py-0.5 rounded bg-[#1d2128] border border-[#2d333f] text-slate-400 hover:text-slate-200 hover:border-slate-500 transition-all">
+                                    ↩ reply to ${quotedAuthor} (Post #${rid})
+                                </button>`;
+                        });
+                        replyHtml += `</div>`;
+                    }
+
+                    card.innerHTML = `
+                        <div class="flex items-start justify-between pb-2 border-b border-[#1e2329]">
+                            <div class="flex items-center space-x-3">
+                                <div class="w-8 h-8 rounded border flex items-center justify-center font-bold text-xs ${avatarStyle}">${post.author.charAt(0).toUpperCase()}</div>
+                                <div>
+                                    <div class="flex items-center space-x-2">
+                                        <span class="text-xs font-bold text-slate-200">${post.author}</span>
+                                        ${post.starred ? '<span class="text-amber-500 font-semibold text-[9px] tracking-wider uppercase">⭐ STARRED</span>' : ''}
+                                    </div>
+                                    <span class="text-[10px] text-slate-500 block leading-none mt-1 font-mono">${post.raw_timestamp}</span>
+                                </div>
+                            </div>
+                            <div class="text-right font-mono text-[9px] text-slate-500 leading-tight">
+                                <span class="block">Post #${post.post_id}</span>
+                                <span class="block mt-0.5">Page ${post.page_num}</span>
+                            </div>
+                        </div>
+                        <div class="flex flex-col">
+                            ${replyHtml}
+                            <div class="text-slate-300 text-[13px] leading-relaxed post-body">${bodyHtml}</div>
+                        </div>
+                    `;
+                    postList.appendChild(card);
+                });
+
+                if (targetPostId) {
+                    setTimeout(() => {
+                        scrollToPost(targetPostId);
+                    }, 300);
+                }
+
+            } catch (err) {
+                console.error("Thread load failed:", err);
+                postList.innerHTML = `<div class="text-center text-rose-500 py-12">Failed to load thread comments</div>`;
+            }
+        }
+
+        function scrollToPost(postId) {
+            const target = document.getElementById(`post-${postId}`);
+            if (target) {
+                target.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                target.classList.add('highlight-post');
+                setTimeout(() => {
+                    target.classList.remove('highlight-post');
+                }, 2000);
+            } else {
+                alert(`Post #${postId} is located on another page or not currently loaded.`);
+            }
+        }
+
+        function escapeHtml(text) {
+            return text
+                .replace(/&/g, "&amp;")
+                .replace(/</g, "&lt;")
+                .replace(/>/g, "&gt;")
+                .replace(/"/g, "&quot;")
+                .replace(/'/g, "&#039;");
+        }
+
+        window.addEventListener('DOMContentLoaded', () => {
+            fetchStats();
+            loadThreads(1);
+
+            document.getElementById('search-btn').onclick = () => executeSearch(1);
+            document.getElementById('global-fts-input').onkeydown = (e) => {
+                if (e.key === 'Enter') executeSearch(1);
+            };
+
+            document.getElementById('clear-search-btn').onclick = () => {
+                document.getElementById('global-fts-input').value = '';
+                document.getElementById('clear-search-btn').classList.add('hidden');
+                document.getElementById('global-search-results-panel').classList.add('hidden');
+                
+                if (activeThreadId) {
+                    document.getElementById('thread-reader-panel').classList.remove('hidden');
+                } else {
+                    document.getElementById('welcome-hero-panel').classList.remove('hidden');
+                }
+            };
+
+            document.getElementById('close-reader-btn').onclick = () => {
+                activeThreadId = null;
+                document.getElementById('thread-reader-panel').classList.add('hidden');
+                document.getElementById('welcome-hero-panel').classList.remove('hidden');
+                const threadSearchQuery = document.getElementById('thread-search').value.trim();
+                loadThreads(threadsPage, threadSearchQuery);
+            };
+
+            let searchTimeout = null;
+            document.getElementById('thread-search').oninput = (e) => {
+                clearTimeout(searchTimeout);
+                const query = e.target.value.trim();
+                searchTimeout = setTimeout(() => {
+                    loadThreads(1, query);
+                }, 300);
+            };
+
+            document.getElementById('prev-threads-btn').onclick = () => {
+                if (threadsPage > 1) {
+                    const query = document.getElementById('thread-search').value.trim();
+                    loadThreads(threadsPage - 1, query);
+                }
+            };
+            document.getElementById('next-threads-btn').onclick = () => {
+                const query = document.getElementById('thread-search').value.trim();
+                loadThreads(threadsPage + 1, query);
+            };
+
+            document.getElementById('prev-search-btn').onclick = () => {
+                if (searchPage > 1) executeSearch(searchPage - 1);
+            };
+            document.getElementById('next-search-btn').onclick = () => {
+                executeSearch(searchPage + 1);
+            };
+        });
+    </script>
+</body>
+</html>
