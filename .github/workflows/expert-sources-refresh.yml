@@ -23,10 +23,14 @@ jobs:
       - name: Query Wikipedia/PetScan experts
         run: python src/query_petscan_experts.py
 
+      - name: Merge into historical officeholders superset
+        run: python src/build_historical_officeholders.py
+
       - uses: actions/upload-artifact@v4
         with:
           name: expert-sources-${{ github.run_id }}
           path: |
             data/processed/openalex_experts.csv
             data/processed/petscan_experts.csv
+            data/processed/mainstream_expert_augmented_superset_temp.csv
           retention-days: 14
