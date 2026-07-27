@@ -1,0 +1,32 @@
+name: Expert sources refresh
+
+on:
+  workflow_dispatch: {}
+
+jobs:
+  query-experts:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install deps
+        run: pip install requests pandas
+
+      - name: Query OpenAlex experts
+        run: python src/query_openalex_experts.py
+
+      - name: Query Wikipedia/PetScan experts
+        run: python src/query_petscan_experts.py
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: expert-sources-${{ github.run_id }}
+          path: |
+            data/processed/openalex_experts.csv
+            data/processed/petscan_experts.csv
+          retention-days: 14
