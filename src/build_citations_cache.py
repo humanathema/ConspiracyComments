@@ -19,7 +19,7 @@ sys.path.insert(0, os.path.dirname(__file__))
 CURATION_PATH = 'handoff/cited_content_curation_step2.md'
 DOMAIN_LOOKUP_PATH = 'data/processed/domain_classification_lookup.csv'
 STAGED_PATH = 'data/processed/research_corpus_staged_scores_full21m.parquet'
-EMPATH_PATH = 'data/processed/empath_scores_full.parquet'
+EMPATH_PATH = 'data/processed/empath_scores_full_mapped.parquet'
 POLITICS_PATH = 'data/processed/comparison_politics_staged_scored.parquet'
 ASKREDDIT_PATH = 'data/processed/comparison_askreddit_staged_scored.parquet'
 

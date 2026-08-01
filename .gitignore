@@ -3,15 +3,25 @@ data/
 # secrets
 key.pem
 *.pem
+.gemini_key
+.geminikey
+.gemini*key*
+.freekey
+.deepseekkey
+*.key
 # environments & caches
 .venv/
 __pycache__/
 .ipynb_checkpoints/
+.virtual_documents/
 .DS_Store
+.tmp/
+repomix-output.xml
 # archived notebook history stays on disk, out of the repo
 notebooks/archive/
 notebooks/scratchpads/
 scratch/
 *.backup.ipynb
+*.ipynb.bak
 .secrets/
 *.log

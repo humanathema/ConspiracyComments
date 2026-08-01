@@ -1,6 +1,6 @@
 """build_entity_mentions_cache_short.py
 
-Performs one full, consolidated corpus scan over conspiracy_comments_short_lte100chars.parquet
+Performs one full, consolidated corpus scan over conspiracy_comments_short_lte100chars_mapped.parquet
 to extract, score, and materialize all entity mentions (at individual-entity, merged-construct,
 and merged-subgroup granularities) with exact schema parity with the long cache.
 
@@ -29,7 +29,7 @@ from combined_maverick_detector import load_maverick_disambiguation_lookup, VALI
 from consensus_disambiguation_lookup import load_consensus_disambiguation_lookup, VALID_CONSENSUS_CANDIDATES, CANDIDATE_TO_BARES as CONSENSUS_CANDIDATE_TO_BARES
 from stance_window_utils import extract_entity_window, compute_spans_for_row, is_list_or_link_dump_window, filter_quoted_spans
 
-SHORT_COMMENTS_PATH = 'data/processed/conspiracy_comments_short_lte100chars.parquet'
+SHORT_COMMENTS_PATH = 'data/processed/conspiracy_comments_short_lte100chars_mapped.parquet'
 STANCE_MODEL_PATH = 'data/processed/stance_classifier_2stage_pooled.joblib'
 LOOKUP_PATH = 'data/processed/entity_categories_lookup.csv'
 OUT_PARQUET = 'data/processed/entity_mentions_cache_short.parquet'

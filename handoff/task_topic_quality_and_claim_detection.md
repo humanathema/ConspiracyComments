@@ -1,10 +1,24 @@
 # Task: Topic quality audit -> topic "central claim" detection -> topic stance
 
-**Status: IN PROGRESS, started 2026-07-25, session ended on usage limits
-mid-run. Not committed** (`src/audit_topic_quality.py` is a new untracked
-file; no other files touched). Read this fully before continuing --
-picking this up mid-calibration without reading the "what to check first"
-section below will waste a rerun.
+**Status as of 2026-07-26: audit calibration and claim extraction are
+DONE** (a follow-on session finished the corrected rerun and built
+`src/extract_topic_claims.py` -- see its own walkthrough in
+`~/.gemini/antigravity/brain/` if you want the detail, or just trust the
+CSVs on disk, verified directly on 2026-07-26). **What's still open from
+this file: step 3 (claim-bearing classification) was deliberately NOT
+built as an auto-classifier** -- see
+`handoff/task_topic_quality_explorer_integration.md` instead, which
+supersedes this file's explorer-facing remaining steps and covers why
+(short version: some topics are a genuine mix with no coherent claim,
+and that's Nash's call per-topic, not a threshold to guess). **Step 4
+(resuming `build_topic_stance_queue.py` labeling) is still open and not
+covered by the new doc** -- that one's still just "needs more human
+labeling," nothing new to design there.
+
+The section below is kept for the original design rationale (why the
+three signals are shaped the way they are) and the calibration history --
+useful context, not a live task list anymore for the explorer-integration
+half.
 
 ## Why (Nash's framing, 2026-07-25)
 

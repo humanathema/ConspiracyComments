@@ -30,7 +30,7 @@ from rerun_refined_regressions_v2 import load_entities_split_corrected
 MODELS_PATH = 'data/processed/staged_pipeline_models.joblib'
 POLITICS_PATH = 'data/processed/comparison_politics_scored.parquet'
 STAGED_PATH = 'data/processed/research_corpus_staged_scores_full21m.parquet'
-EMPATH_PATH = 'data/processed/empath_scores_full.parquet'
+EMPATH_PATH = 'data/processed/empath_scores_full_mapped.parquet'
 THREAD_PATH = 'data/processed/thread_quality_metrics.csv'
 PRESENCE_PATH = 'data/processed/thread_insider_presence.csv'
 BRIGADE_PATH = 'data/processed/comment_brigade_flags.csv'

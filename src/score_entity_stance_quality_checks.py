@@ -1,17 +1,15 @@
 """score_entity_stance_quality_checks.py
 
-Scores the hand-labeled quality check queues (e.g. data/hitl/queue_wikileaks_stance_quality_check.csv)
-against the 3-class stance classifier's separate predictions (e.g. data/processed/wikileaks_stance_quality_check_predictions.csv).
+Scores the hand-labeled quality check queues (Reddit or AboveTopSecret)
+against the two-stage cascade stance classifier's separate predictions.
 
-Normalizes freeform hand-labels into the three-class scheme {hostile, endorsement, other}
-and computes:
-- Raw and Normalized human label distributions
-- List/link-dump proportions
-- 3-class classification report (precision, recall, f1-score)
-- Multi-class Cohen's Kappa score
-- 3x3 confusion matrix
-- Stratum-level accuracies
-- Full reviewable files with worst model misses first.
+For AboveTopSecret (--platform ats), it implements a 4-way label normalization scheme:
+  - hostile / endorsement / neutral / ambiguous
+And computes binary Cohen's Kappa & Accuracy strictly on the hostile/endorsement subset.
+It also reports a temporal drift audit (Early Era <= 2011 vs Late Era >= 2012).
+
+Outputs:
+  data/hitl/queue_{entity_or_platform}_stance_quality_check_REVIEW.csv
 """
 import os
 import sys
@@ -32,8 +30,10 @@ def normalize_label(raw):
         return 'hostile', is_list
     if s.startswith('endorse') or 'endorse' in s:
         return 'endorsement', is_list
-    if s.startswith('neutral') or s.startswith('ambiguous') or s.startswith('unclear') or 'neutral' in s or 'ambiguous' in s or 'unclear' in s:
-        return 'other', is_list
+    if s.startswith('neutral') or 'neutral' in s:
+        return 'neutral', is_list
+    if s.startswith('ambiguous') or s.startswith('unclear') or 'ambiguous' in s or 'unclear' in s:
+        return 'ambiguous', is_list
     return 'other', is_list
 
 
@@ -67,7 +67,8 @@ def score_for_entity(entity):
         return
 
     normalized = labeled_df['human_stance'].apply(normalize_label)
-    labeled_df['human_norm'] = normalized.apply(lambda t: t[0])
+    # Map back to 3-class for standard evaluation (neutral/ambiguous mapped to 'other')
+    labeled_df['human_norm'] = normalized.apply(lambda t: 'other' if t[0] in ['neutral', 'ambiguous', 'other'] else t[0])
     labeled_df['is_list_mention'] = normalized.apply(lambda t: t[1])
 
     print("\n=== Raw human label distribution ===")
@@ -104,14 +105,7 @@ def score_for_entity(entity):
             count = sum(sub['human_norm'] == c)
             print(f"    human_norm='{c}': {count}")
 
-    print("\n=== List/link-dump mentions (failure mode check) ===")
-    list_rows = labeled_df[labeled_df['is_list_mention']]
-    if len(list_rows):
-        print(list_rows[['id', 'human_norm', 'predicted_label', 'p_endorsement']].to_string(index=False))
-    else:
-        print("  None flagged.")
-
-    # Calculate miss magnitude. For 3-class we can define miss magnitude as 1.0 - p_true_class
+    # Miss magnitude check
     def get_miss_magnitude(row):
         true_cls = row['human_norm']
         prob_col = f'p_{true_cls}'
@@ -127,7 +121,6 @@ def score_for_entity(entity):
     print(worst[['id', 'human_norm', 'predicted_label', 'miss_magnitude']].to_string(index=False))
 
     # Save full review file
-    # We sort worst misses first for the labeled rows, and append unlabeled rows at the bottom
     unlabeled_df = df[~(df['id'].isin(labeled_df['id']))].copy()
     unlabeled_df['human_norm'] = np.nan
     unlabeled_df['is_list_mention'] = np.nan
@@ -149,16 +142,122 @@ def score_for_entity(entity):
     print(f"\nSaved full reviewable results to {review_out_path}")
 
 
+def score_ats():
+    print(f"\n=================================================================")
+    print(f"=== Scoring Stance Quality Check for AboveTopSecret (ATS) ===")
+    print(f"=================================================================")
+
+    queue_path = 'data/hitl/queue_ats_stance_quality_check.csv'
+    pred_path = 'data/processed/ats_stance_quality_check_predictions.csv'
+    review_out_path = 'data/hitl/queue_ats_stance_quality_check_REVIEW.csv'
+
+    if not os.path.exists(queue_path):
+        print(f"Error: Queue file not found at {queue_path}")
+        return
+    if not os.path.exists(pred_path):
+        print(f"Error: Prediction file not found at {pred_path}")
+        return
+
+    q = pd.read_csv(queue_path)
+    p = pd.read_csv(pred_path)
+    df = q.merge(p, on=['id', 'entity_key'], how='inner')
+    assert len(df) == len(q), "Queue/predictions ID/entity_key mismatch!"
+
+    # Filter for labeled comments
+    labeled_df = df[df['human_stance'].notna() & (df['human_stance'].astype(str).str.strip() != '')].copy()
+    print(f"Loaded {len(df)} total comments in queue. Labeled: {len(labeled_df)}")
+    
+    if len(labeled_df) == 0:
+        print("\nNo human labels found yet. Please open the queue file and label the 'human_stance' column:")
+        print(f"  {queue_path}")
+        print("\nValid labels (case-insensitive):")
+        print("  - hostile / lean hostile")
+        print("  - endorsement / endorse / lean endorsement")
+        print("  - neutral")
+        print("  - ambiguous / unclear")
+        print("\nYou can append 'list' to any label (e.g. 'hostile list') to flag list-dumps.")
+        return
+
+    normalized = labeled_df['human_stance'].apply(normalize_label)
+    labeled_df['human_norm'] = normalized.apply(lambda t: t[0])
+    labeled_df['is_list_mention'] = normalized.apply(lambda t: t[1])
+
+    print("\n=== Raw human label distribution ===")
+    print(labeled_df['human_stance'].value_counts())
+    print("\n=== Normalized 4-class human label distribution ===")
+    print(labeled_df['human_norm'].value_counts())
+    print(f"\nList/link-dump flagged mentions: {labeled_df['is_list_mention'].sum()} / {len(labeled_df)} ({labeled_df['is_list_mention'].mean():.1%})")
+
+    neutral_ambig_mask = labeled_df['human_norm'].isin(['neutral', 'ambiguous', 'other'])
+    print(f"\nNeutral/ambiguous/other share: {neutral_ambig_mask.mean():.1%}")
+    print("  (The classifier was never trained to have an opinion on these; a high share")
+    print("  is a construct-validity signal separate from classification accuracy below.)")
+
+    # Binary hostile-vs-endorsement stance scoring
+    binary = labeled_df[labeled_df['human_norm'].isin(['hostile', 'endorsement'])].copy()
+    if len(binary) == 0:
+        print("\nWARNING: No clear stance labels ('hostile' or 'endorsement') found in labeled subset. Cannot run binary scoring.")
+        return
+
+    # Use max prob between hostile and endorsement as binary classification
+    binary['y_true'] = binary['human_norm']
+    binary['y_pred'] = np.where(binary['p_endorsement'] >= binary['p_hostile'], 'endorsement', 'hostile')
+
+    print(f"\n=== Binary Stance Scoring (n={len(binary)}, excludes neutral/ambiguous/other) ===")
+    print(classification_report(binary['y_true'], binary['y_pred'], labels=['hostile', 'endorsement']))
+
+    kappa = cohen_kappa_score(binary['y_true'], binary['y_pred'], labels=['hostile', 'endorsement'])
+    acc = (binary['y_true'] == binary['y_pred']).mean()
+    print(f"Stance Accuracy: {acc:.3f}")
+    print(f"Cohen's Kappa (vs. Reddit CV kappa=0.370 for context): {kappa:.3f}")
+
+    # Per-era breakdown to audit temporal drift
+    if 'year' in binary.columns:
+        binary['era'] = np.where(binary['year'] <= 2011, 'early (pre-2012)', 'late (post-2011)')
+        print("\n=== Temporal Drift Analysis (Accuracy & Kappa by Era) ===")
+        for era in sorted(binary['era'].unique()):
+            era_sub = binary[binary['era'] == era]
+            if len(era_sub) == 0:
+                continue
+            era_acc = (era_sub['y_true'] == era_sub['y_pred']).mean()
+            # Cohen's Kappa requires at least one prediction and one true label of each class
+            if len(era_sub['y_true'].unique()) > 1:
+                era_kappa = cohen_kappa_score(era_sub['y_true'], era_sub['y_pred'], labels=['hostile', 'endorsement'])
+                era_kappa_str = f"{era_kappa:.3f}"
+            else:
+                era_kappa_str = "N/A (monoclass)"
+            print(f"  * {era}: n={len(era_sub)}, accuracy={era_acc:.3f}, kappa={era_kappa_str}")
+
+    print("\nConfusion matrix (rows=true, cols=predicted; hostile vs. endorsement):")
+    print(confusion_matrix(binary['y_true'], binary['y_pred'], labels=['hostile', 'endorsement']))
+
+    # Write review file
+    labeled_df['correct'] = labeled_df['human_norm'] == labeled_df['predicted_label']
+    unlabeled_df = df[~(df['id'].isin(labeled_df['id']))].copy()
+    unlabeled_df['human_norm'] = np.nan
+    unlabeled_df['is_list_mention'] = np.nan
+    unlabeled_df['correct'] = np.nan
+
+    review_df = pd.concat([labeled_df, unlabeled_df], ignore_index=True)
+    review_df.to_csv(review_out_path, index=False)
+    print(f"\nSaved full reviewable results to {review_out_path}")
+
+
 def main():
     parser = argparse.ArgumentParser()
+    parser.add_argument('--platform', default='reddit', choices=['reddit', 'ats'],
+                        help="Platform target: 'reddit' or 'ats'.")
     parser.add_argument('--entity', default='all',
                         choices=['all', 'wikileaks', 'assange', 'snowden', 'greenwald', 'jones_short'],
-                        help="Score quality check queue for a specific entity or all of them.")
+                        help="Score quality check queue for a specific entity or all of them (Reddit-only).")
     args = parser.parse_args()
 
-    entities = ['wikileaks', 'assange', 'snowden', 'greenwald'] if args.entity == 'all' else [args.entity]
-    for entity in entities:
-        score_for_entity(entity)
+    if args.platform == 'ats':
+        score_ats()
+    else:
+        entities = ['wikileaks', 'assange', 'snowden', 'greenwald'] if args.entity == 'all' else [args.entity]
+        for entity in entities:
+            score_for_entity(entity)
 
 
 if __name__ == "__main__":

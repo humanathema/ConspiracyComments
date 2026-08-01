@@ -55,9 +55,35 @@ QUEUES = {
     "snowden_short_quality_check": _abs("data/hitl/queue_short_snowden_stance_quality_check.csv"),
     "greenwald_short_quality_check": _abs("data/hitl/queue_short_greenwald_stance_quality_check.csv"),
     "irr_stance_shared": _abs("data/hitl/queue_irr_stance_shared.csv"),
+    "domain_citation_tier": _abs("data/hitl/queue_domain_citation_tier.csv"),
+    "active_learning_requeue": _abs("data/hitl/queue_active_learning_requeue.csv"),
+    "escalation_human_review": _abs("data/hitl/queue_escalation_human_review.csv"),
+    "frontier_disagreement_qc": _abs("data/hitl/queue_frontier_disagreement_qc.csv"),
+    "qwen_escalation_review": _abs("data/hitl/queue_qwen_escalation_review.csv"),
 }
 
-EMPATH_PATH = _abs("data/processed/empath_scores_full.parquet")
+EMPATH_PATH = _abs("data/processed/empath_scores_full_mapped.parquet")
+
+# AI-silver rows only ever stored a +-15-word entity window, not the full
+# comment (found 2026-08-02 reviewing frontier-judge disagreements) -- 64%
+# (506/792) recovered via ai_silver_fulltext_recovery.py's reproduced
+# sampling + the ATS pipeline's own already-intact full text. Injected at
+# serve-time only (never rewrites a queue CSV in place, since queues may
+# have live in-progress ratings) -- matched by (target_entity, full_text)
+# since a recovered row's window text is exactly what queues currently
+# store as full_text for ai_silver rows.
+AI_SILVER_RECOVERED_PATH = _abs("data/processed/ai_silver_fulltext_recovered_combined.csv")
+AI_SILVER_RECOVERED = {}
+if os.path.exists(AI_SILVER_RECOVERED_PATH):
+    try:
+        import csv as _csv
+        with open(AI_SILVER_RECOVERED_PATH, "r", encoding="utf-8") as f:
+            for r in _csv.DictReader(f):
+                if r.get("full_text_recovered"):
+                    AI_SILVER_RECOVERED[(r.get("target_entity", ""), r.get("text", ""))] = r["full_text_recovered"]
+        print(f"Loaded {len(AI_SILVER_RECOVERED)} recovered AI-silver full texts.")
+    except Exception as e:
+        print(f"Failed to load AI-silver recovered text: {e}")
 
 # IRR (inter-rater-reliability) support, added 2026-07-21.
 IRR_QUEUES = {"irr_stance_shared"}
@@ -116,6 +142,8 @@ PAGE = """<!doctype html>
 <div class="nav" id="nav"></div>
 <button id="context_btn" style="display:none">Load surrounding context (parent + sibling replies)</button>
 <div id="context"></div>
+<div id="comment_id_display" style="display:none; margin-bottom:8px; font-size:12px; color:#888;"></div>
+<div id="frontier_hint" style="display:none; margin-bottom:8px; padding:10px 12px; background:#1a1a24; border:1px solid #335; border-radius:8px; font-size:13px; color:#bcd;"></div>
 <div id="target_entity" style="display:none; margin-bottom:8px; font-weight:bold; color:#9c6;"></div>
 <div id="text"></div>
 <div class="labels" id="labels"></div>
@@ -200,12 +228,22 @@ function renderLabelButtons(selected) {
     'maverick_stance_round2', 'maverick_stance_round3', 'maverick_stance_round4', 'maverick_stance_round5',
     'maverick_stance_round6', 'maverick_stance_round7', 'maverick_stance_round8', 'consensus_stance_round8',
     'wikileaks_quality_check', 'assange_quality_check', 'snowden_quality_check', 'greenwald_quality_check',
-    'jones_short_quality_check', 'wikileaks_short_quality_check', 'assange_short_quality_check', 'snowden_short_quality_check', 'greenwald_short_quality_check', 'irr_stance_shared'];
+    'jones_short_quality_check', 'wikileaks_short_quality_check', 'assange_short_quality_check', 'snowden_short_quality_check', 'greenwald_short_quality_check', 'irr_stance_shared',
+    'active_learning_requeue', 'escalation_human_review', 'frontier_disagreement_qc', 'qwen_escalation_review'];
   if (STANCE_QUEUES.includes(current)) {
     opts = [
       ['endorsement', 'kp', '1'], ['hostile', 'kn', '2'],
       ['neutral', '', '3'], ['ambiguous', '', '4'],
       ['wrong_match', 'kn', '5']
+    ];
+  } else if (current === 'domain_citation_tier') {
+    // Matches the 5-tier link_source_tier taxonomy used everywhere else in
+    // the pipeline (run_link_source_tier_regressions.py) minus no_link
+    // (not applicable here -- every row already has a real citation).
+    opts = [
+      ['mainstream_reliable', 'kp', '1'], ['mixed_or_low_reliability', '', '2'],
+      ['aggregator_or_platform', '', '3'], ['unmatched_link', 'kn', '4'],
+      ['skip_unclear', 'kn', '5']
     ];
   } else {
     opts = [
@@ -281,7 +319,37 @@ function showCurrent() {
   document.getElementById('text').style.display = 'block';
   document.getElementById('labels').style.display = 'block';
   document.getElementById('done').style.display = 'none';
-  document.getElementById('text').innerHTML = highlightSpans(row.full_text, row.entity_spans);
+  if (row.recovered_full_text) {
+    // AI-silver rows only ever stored a +-15-word window as full_text --
+    // entity_spans were computed against that window, not the recovered
+    // full comment, so highlighting would misalign here. Show the
+    // recovered full text plain, with the original window (what was
+    // actually scored/labeled) underneath for reference.
+    document.getElementById('text').innerHTML =
+      '<div style="font-size:11px; color:#9c6; margin-bottom:6px; text-transform:uppercase; letter-spacing:0.04em;">recovered full comment (AI-silver row -- originally only a short window)</div>' +
+      escapeHtml(row.recovered_full_text) +
+      '<div style="font-size:11px; color:#888; margin-top:12px; padding-top:8px; border-top:1px solid #333;">original window used for scoring/labeling: <em>' + escapeHtml(row.full_text) + '</em></div>';
+  } else {
+    document.getElementById('text').innerHTML = highlightSpans(row.full_text, row.entity_spans);
+  }
+  const cidEl = document.getElementById('comment_id_display');
+  const cid = row.comment_id || row.id;
+  if (cid) {
+    cidEl.textContent = 'comment id: ' + cid;
+    cidEl.style.display = 'block';
+  } else {
+    cidEl.style.display = 'none';
+  }
+  const hintEl = document.getElementById('frontier_hint');
+  if (row.frontier_score !== undefined && row.frontier_score !== null) {
+    const src = row.source_kind ? ` (${row.source_kind})` : '';
+    hintEl.innerHTML = `<strong>Current label: ${row.label}</strong>${src} — frontier judge score <strong>${Number(row.frontier_score).toFixed(2)}</strong> ` +
+      `(-1 hostile … +1 endorsement), disagreement magnitude ${row.disagreement !== undefined ? Number(row.disagreement).toFixed(2) : '?'}<br>` +
+      `<em>"${row.frontier_reason || ''}"</em>`;
+    hintEl.style.display = 'block';
+  } else {
+    hintEl.style.display = 'none';
+  }
   const targetEl = document.getElementById('target_entity');
   if (row.target_entity) {
     targetEl.textContent = 'This comment mentions multiple entities -- rate stance toward: ' + row.target_entity;
@@ -366,7 +434,8 @@ document.addEventListener('keydown', (e) => {
     'maverick_stance_round2', 'maverick_stance_round3', 'maverick_stance_round4', 'maverick_stance_round5',
     'maverick_stance_round6', 'maverick_stance_round7', 'maverick_stance_round8', 'consensus_stance_round8',
     'wikileaks_quality_check', 'assange_quality_check', 'snowden_quality_check', 'greenwald_quality_check',
-    'jones_short_quality_check', 'wikileaks_short_quality_check', 'assange_short_quality_check', 'snowden_short_quality_check', 'greenwald_short_quality_check', 'irr_stance_shared'];
+    'jones_short_quality_check', 'wikileaks_short_quality_check', 'assange_short_quality_check', 'snowden_short_quality_check', 'greenwald_short_quality_check', 'irr_stance_shared',
+    'active_learning_requeue', 'escalation_human_review', 'frontier_disagreement_qc', 'qwen_escalation_review'];
   if (STANCE_QUEUES.includes(current)) {
     map = {'1': 'endorsement', '2': 'hostile', '3': 'neutral', '4': 'ambiguous', '5': 'wrong_match'};
   } else {
@@ -504,7 +573,13 @@ class Handler(BaseHTTPRequestHandler):
                             df.at[i, col] = lbl
                             df.at[i, "notes"] = nts
             df = df.astype(object).where(pd.notna(df), None)
-            self._json({"rows": df.to_dict(orient="records"), "label_col": col})
+            rows = df.to_dict(orient="records")
+            if AI_SILVER_RECOVERED and "target_entity" in df.columns and "full_text" in df.columns:
+                for r in rows:
+                    hit = AI_SILVER_RECOVERED.get((r.get("target_entity"), r.get("full_text")))
+                    if hit:
+                        r["recovered_full_text"] = hit
+            self._json({"rows": rows, "label_col": col})
 
         elif parsed.path == "/api/context":
             qs = parse_qs(parsed.query)

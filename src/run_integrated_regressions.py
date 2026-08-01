@@ -54,7 +54,7 @@ STAGED_PATH = "data/processed/research_corpus_staged_scores_full21m.parquet"
 # Kept as a separate parquet + LEFT JOIN rather than merged into STAGED_PATH so
 # the already-computed pe/ps output stays untouched.
 HEDGED_SUSPICION_PATH = "data/processed/hedged_suspicion_scores_full21m.parquet"
-EMPATH_PATH = "data/processed/empath_scores_full.parquet"
+EMPATH_PATH = "data/processed/empath_scores_full_mapped.parquet"
 INSIDER_PATH = "data/processed/author_insider_metrics.csv"
 THREAD_PATH = "data/processed/thread_quality_metrics.csv"
 ENTITY_PATH = "data/processed/entity_final_review.csv"

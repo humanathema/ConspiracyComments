@@ -96,8 +96,260 @@ document.querySelectorAll('nav.tabs button').forEach(btn => {
     document.querySelectorAll('section.tab').forEach(s => s.classList.remove('active'));
     btn.classList.add('active');
     document.getElementById('tab-' + btn.dataset.tab).classList.add('active');
+    
+    if (btn.dataset.tab === 'topicquality') {
+      loadTopicQualityTab();
+    }
+    if (btn.dataset.tab === 'ats' && !window._atsLoaded) {
+      window._atsLoaded = true;
+      loadAtsTab();
+    }
   });
 });
+
+// ---------- AboveTopSecret tab ----------
+// Browsing (the "Browse threads" index below) is the primary way in --
+// a real forum index over all 339k threads, sorted/paginated/filterable.
+// Keyword search further down is an adjunct for finding one specific
+// comment by text, not the main navigation mode -- it starts empty and
+// never auto-loads an unfiltered dump of arbitrary comments.
+async function loadAtsTab() {
+  loadAtsThreadIndex(true);
+  document.getElementById('atsThreadIndexFilter')?.addEventListener('input', () => loadAtsThreadIndex(true));
+  document.getElementById('atsThreadIndexSort')?.addEventListener('change', () => loadAtsThreadIndex(true));
+  document.getElementById('atsThreadIndexLoadMore')?.addEventListener('click', () => loadAtsThreadIndex(false));
+
+  try {
+    const resp = await fetch(drillApiUrl('ats_domains'));
+    const data = await resp.json();
+    document.getElementById('atsDomainsBody').innerHTML = (data.rows || []).slice(0, 100).map(r =>
+      `<tr class="clickable" data-domain="${r.domain}"><td>${(r.domain || '').replace(/</g,'&lt;')}</td><td class="num">${fmtN(r.mentions)}</td></tr>`
+    ).join('');
+
+    // Add click listener to domains
+    document.querySelectorAll('#atsDomainsBody tr').forEach(tr => {
+      tr.addEventListener('click', () => {
+        const domain = tr.dataset.domain;
+        const input = document.getElementById('atsSearchInput');
+        if (input) {
+          input.value = domain;
+          atsSearch(domain);
+          input.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        }
+      });
+    });
+  } catch (err) { console.warn('ats_domains failed:', err.message); }
+}
+
+let atsThreadIndexState = { offset: 0, total: 0, rows: [] };
+let atsThreadIndexDebounce = null;
+function loadAtsThreadIndex(reset) {
+  clearTimeout(atsThreadIndexDebounce);
+  atsThreadIndexDebounce = setTimeout(async () => {
+    if (reset) { atsThreadIndexState = { offset: 0, total: 0, rows: [] }; }
+    const q = document.getElementById('atsThreadIndexFilter')?.value || '';
+    const sort = document.getElementById('atsThreadIndexSort')?.value || 'total_comments';
+    const dir = sort === 'thread_title' ? 'asc' : 'desc';
+    try {
+      const resp = await fetch(drillApiUrl('ats_thread_index', { q, sort, dir, offset: atsThreadIndexState.offset, limit: 50 }));
+      const data = await resp.json();
+      atsThreadIndexState.rows = atsThreadIndexState.rows.concat(data.rows || []);
+      atsThreadIndexState.total = data.total || 0;
+      atsThreadIndexState.offset = atsThreadIndexState.rows.length;
+
+      document.getElementById('atsThreadIndexBody').innerHTML = atsThreadIndexState.rows.map((r, i) =>
+        `<tr class="clickable" data-idx="${i}"><td>${(r.thread_title || '').replace(/</g,'&lt;')}</td><td class="num">${fmtN(r.total_comments)}</td><td class="num">${fmtN(r.starred_comments)}</td></tr>`
+      ).join('');
+      document.querySelectorAll('#atsThreadIndexBody tr').forEach(tr => {
+        tr.addEventListener('click', () => {
+          const idx = parseInt(tr.dataset.idx);
+          const r = atsThreadIndexState.rows[idx];
+          if (r) openAtsThreadView(r.thread_id, null, r.thread_title);
+        });
+      });
+
+      const shown = atsThreadIndexState.rows.length;
+      document.getElementById('atsThreadIndexCount').textContent = fmtN(shown) + ' of ' + fmtN(atsThreadIndexState.total) + ' threads shown';
+      document.getElementById('atsThreadIndexLoadMore').style.display = shown < atsThreadIndexState.total ? '' : 'none';
+    } catch (err) { console.warn('ats_thread_index failed:', err.message); }
+  }, reset ? 250 : 0);
+}
+
+let atsSearchDebounce = null;
+function atsSearch(q) {
+  clearTimeout(atsSearchDebounce);
+  const q_str = (q || '').trim();
+  if (!q_str) {
+    document.getElementById('atsSearchBody').innerHTML = '';
+    document.getElementById('atsSearchCount').textContent = '';
+    return;
+  }
+  atsSearchDebounce = setTimeout(async () => {
+    try {
+      const resp = await fetch(drillApiUrl('ats_search', { q, limit: 50 }));
+      const data = await resp.json();
+      window._atsComments = data.rows || [];
+      document.getElementById('atsSearchBody').innerHTML = (data.rows || []).map((r, i) =>
+        `<tr class="clickable" data-idx="${i}"><td>${(r.thread_title || '').replace(/</g,'&lt;')}</td><td>${(r.author || '').replace(/</g,'&lt;')}</td>` +
+        `<td style="white-space:nowrap;">${(r.raw_timestamp || '').replace(/</g,'&lt;')}</td>` +
+        `<td>${(r.text || '').slice(0, 220).replace(/</g,'&lt;')}${(r.text||'').length > 220 ? '&hellip;' : ''}</td>` +
+        `<td style="text-align:center;">${r.starred ? '&#9733;' : ''}</td></tr>`
+      ).join('');
+
+      // Add click listener to comment rows
+      document.querySelectorAll('#atsSearchBody tr').forEach(tr => {
+        tr.addEventListener('click', () => {
+          const idx = parseInt(tr.dataset.idx);
+          const r = window._atsComments[idx];
+          if (r) openAtsThreadView(r.thread_id, r.comment_id, r.thread_title);
+        });
+      });
+
+      document.getElementById('atsSearchCount').textContent = fmtN(data.total) + ' matching comments' + (data.total > 50 ? ' (showing first 50)' : '');
+    } catch (err) { console.warn('ats_search failed:', err.message); }
+  }, 300);
+}
+document.getElementById('atsSearchInput')?.addEventListener('input', (e) => atsSearch(e.target.value));
+
+// ---------- ATS threaded forum view ----------
+// Full thread scrolled as a sequential forum discussion (page/post order),
+// loaded in chunks around the entry post since threads run up to ~10k
+// posts. Only ~7% of posts have a detected reply-to (parsed from quoted
+// text) -- those are visually indented under their parent when the parent
+// is in the currently-loaded window; everything else renders inline in
+// chronological order, same as reading the archived thread itself.
+const ATS_THREAD_CHUNK = 70;
+let atsThread = null; // { threadId, threadTitle, anchorCommentId, rows: [], total, minOffset, maxOffset, loading }
+
+async function openAtsThreadView(threadId, anchorCommentId, threadTitle) {
+  const pane = document.getElementById('drillDetail');
+  pane.classList.remove('empty');
+  pane.innerHTML = '<div class="thread-view"><div class="thread-scroll" style="display:flex; align-items:center; justify-content:center; color:var(--ink-3); font-size:13px;">Loading thread&hellip;</div></div>';
+
+  document.getElementById('drillTitle').textContent = "AboveTopSecret Thread";
+  document.getElementById('drillCaption').textContent = "Scroll to read the discussion in order; replies detected from quoted text are indented under their parent post.";
+
+  const splitList = document.querySelector('.modal-split-list');
+  const splitDetail = document.querySelector('.modal-split-detail');
+  if (splitList) splitList.style.display = 'none';
+  if (splitDetail) {
+    splitDetail.style.width = '100%';
+    splitDetail.style.maxWidth = '100%';
+  }
+  document.getElementById('drillOverlay').classList.add('open');
+
+  atsThread = { threadId, threadTitle, anchorCommentId, rows: [], total: 0, minOffset: 0, maxOffset: 0, loading: false };
+
+  try {
+    const params = { thread_id: threadId, limit: ATS_THREAD_CHUNK };
+    if (anchorCommentId) params.center_post_id = anchorCommentId; else params.offset = 0;
+    const url = drillApiUrl('ats_thread_posts', params);
+    const resp = await fetch(url);
+    const data = await resp.json();
+    atsThread.rows = data.rows || [];
+    atsThread.total = data.total || 0;
+    atsThread.minOffset = data.offset || 0;
+    atsThread.maxOffset = (data.offset || 0) + atsThread.rows.length;
+    renderAtsThreadView();
+  } catch (err) {
+    pane.innerHTML = '<div class="thread-view"><div class="thread-scroll" style="color:var(--neg); font-size:13px;">Could not load thread (' + err.message + ').</div></div>';
+  }
+}
+
+function renderAtsThreadView() {
+  const pane = document.getElementById('drillDetail');
+  const t = atsThread;
+  const loadedByCommentId = new Map(t.rows.map(r => [String(r.comment_id), r]));
+
+  const postsHtml = t.rows.map(r => {
+    const isAnchor = String(r.comment_id) === String(t.anchorCommentId);
+    const parent = r.reply_to_post_ids ? loadedByCommentId.get(String(r.reply_to_post_ids)) : null;
+    const isReply = !!parent;
+
+    const { html: lexHtml } = highlightLexicon(escapeHtml(r.text || ''));
+    const metaBits = [];
+    metaBits.push('<span class="thread-post-author">' + escapeHtml(r.author || 'unknown') + '</span>');
+    if (r.raw_timestamp) metaBits.push(escapeHtml(r.raw_timestamp));
+    if (r.starred) metaBits.push('<span class="thread-post-star">&#9733; starred</span>');
+    if (r.hs_prob != null) metaBits.push('hedged suspicion ' + Number(r.hs_prob).toFixed(3));
+
+    return (
+      '<div class="thread-post' + (isReply ? ' thread-post-reply' : '') + (isAnchor ? ' thread-post-anchor' : '') + '" ' +
+      'id="ats-post-' + r.comment_id + '" data-comment-id="' + r.comment_id + '">' +
+      '<div class="thread-post-meta">' + metaBits.join(' &nbsp;&middot;&nbsp; ') + '</div>' +
+      (isReply ? '<div class="thread-post-replyto">&#8618; replying to ' + escapeHtml(parent.author || 'earlier post') + '</div>' : '') +
+      '<div class="thread-post-text">' + lexHtml + '</div>' +
+      '</div>'
+    );
+  }).join('');
+
+  const topSentinel = t.minOffset > 0
+    ? '<div class="thread-load-sentinel" id="atsThreadLoadOlder">Loading earlier posts&hellip;</div>'
+    : '<div class="thread-load-sentinel">&mdash; start of thread &mdash;</div>';
+  const bottomSentinel = t.maxOffset < t.total
+    ? '<div class="thread-load-sentinel" id="atsThreadLoadNewer">Loading later posts&hellip;</div>'
+    : '<div class="thread-load-sentinel">&mdash; end of thread &mdash;</div>';
+
+  pane.innerHTML =
+    '<div class="thread-view">' +
+    '<div class="thread-view-head"><span class="label">Thread</span> ' + escapeHtml(t.threadTitle || 'AboveTopSecret Thread') +
+    ' &nbsp;&middot;&nbsp; ' + fmtN(t.total) + ' posts</div>' +
+    '<div class="thread-scroll" id="atsThreadScroll">' + topSentinel + postsHtml + bottomSentinel + '</div>' +
+    '</div>';
+
+  const scrollEl = document.getElementById('atsThreadScroll');
+  const anchorEl = document.getElementById('ats-post-' + t.anchorCommentId);
+  if (anchorEl) anchorEl.scrollIntoView({ block: 'center' });
+  scrollEl.addEventListener('scroll', onAtsThreadScroll);
+}
+
+function onAtsThreadScroll(e) {
+  const el = e.target;
+  const t = atsThread;
+  if (!t || t.loading) return;
+  if (el.scrollTop < 200 && t.minOffset > 0) {
+    loadMoreAtsThreadPosts('before');
+  } else if (el.scrollHeight - el.scrollTop - el.clientHeight < 200 && t.maxOffset < t.total) {
+    loadMoreAtsThreadPosts('after');
+  }
+}
+
+async function loadMoreAtsThreadPosts(direction) {
+  const t = atsThread;
+  t.loading = true;
+  const scrollEl = document.getElementById('atsThreadScroll');
+  const prevScrollHeight = scrollEl ? scrollEl.scrollHeight : 0;
+  const prevScrollTop = scrollEl ? scrollEl.scrollTop : 0;
+
+  const fetchOffset = direction === 'before' ? Math.max(0, t.minOffset - ATS_THREAD_CHUNK) : t.maxOffset;
+  const fetchLimit = direction === 'before' ? (t.minOffset - fetchOffset) : ATS_THREAD_CHUNK;
+
+  try {
+    const url = drillApiUrl('ats_thread_posts', { thread_id: t.threadId, offset: fetchOffset, limit: fetchLimit });
+    const resp = await fetch(url);
+    const data = await resp.json();
+    const newRows = data.rows || [];
+    if (direction === 'before') {
+      t.rows = newRows.concat(t.rows);
+      t.minOffset = fetchOffset;
+    } else {
+      t.rows = t.rows.concat(newRows);
+      t.maxOffset = fetchOffset + newRows.length;
+    }
+    renderAtsThreadView();
+    // Preserve scroll position relative to content rather than jumping to top/anchor
+    const newScrollEl = document.getElementById('atsThreadScroll');
+    if (newScrollEl && direction === 'before') {
+      newScrollEl.scrollTop = newScrollEl.scrollHeight - prevScrollHeight + prevScrollTop;
+    } else if (newScrollEl && direction === 'after') {
+      newScrollEl.scrollTop = prevScrollTop;
+    }
+  } catch (err) {
+    console.warn('loadMoreAtsThreadPosts failed:', err.message);
+  } finally {
+    t.loading = false;
+  }
+}
 
 // ---------- Drill-down modal (live comment examples per topic / entity / domain / URL) ----------
 // Backed by a live API (full text, no truncation, real pagination) rather
@@ -162,6 +414,7 @@ function drillApiUrl(path, params = {}) {
   url.searchParams.set('token', API_TOKEN);
   const rater = localStorage.getItem('hitl_rater_name') || 'nash';
   url.searchParams.set('rater', rater);
+  url.searchParams.set('_cb', Date.now()); // Prevent browser and CDN caching
   return url.toString();
 }
 
@@ -533,7 +786,17 @@ function openDrill(kind, key) {
   document.getElementById('drillOverlay').classList.add('open');
   fetchDrillPage(true);
 }
-function closeDrill() { document.getElementById('drillOverlay').classList.remove('open'); }
+function closeDrill() {
+  document.getElementById('drillOverlay').classList.remove('open');
+  // Restore split layout if modified by single comment previewer
+  const splitList = document.querySelector('.modal-split-list');
+  const splitDetail = document.querySelector('.modal-split-detail');
+  if (splitList) splitList.style.display = '';
+  if (splitDetail) {
+    splitDetail.style.width = '';
+    splitDetail.style.maxWidth = '';
+  }
+}
 document.getElementById('drillClose').addEventListener('click', closeDrill);
 document.getElementById('drillOverlay').addEventListener('click', (e) => { if (e.target.id === 'drillOverlay') closeDrill(); });
 document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeDrill(); });
@@ -1272,9 +1535,14 @@ function applyMergesToEntities() {
     return e;
   });
 
-  // Re-build entTsNames
+  // Re-build entTsNames and update entAllCounts in-place
   const entAllCountsNew = {};
   DATA.entities.forEach(r => { entAllCountsNew[r.entity] = Math.max(entAllCountsNew[r.entity] || 0, r.mention_count || 0); });
+  
+  // Clear old keys in entAllCounts and copy new ones
+  for (const k in entAllCounts) { delete entAllCounts[k]; }
+  Object.assign(entAllCounts, entAllCountsNew);
+  
   entTsNames.length = 0;
   entTsNames.push(...Object.keys(entAllCountsNew));
 }
@@ -1473,6 +1741,45 @@ renderOverview();
 tsRenderPicker(''); tsBuildChart(); tsRenderLegend();
 renderAllTopicsTable();
 renderAuthorChart();
+
+// Pre-warm Cloud Run services (read API and NLP seed-probe API) in the background to mitigate cold starts
+(async function preWarmCloudRun() {
+  console.log("Pre-warming Cloud Run services in the background...");
+  try {
+    fetch(drillApiUrl('ats_domains', { limit: 1 }));
+    fetch(drillApiUrl('probe_health'));
+  } catch (e) {
+    console.warn("Pre-warming background requests failed (non-fatal):", e.message);
+  }
+})();
+
+
+// Extend NON_SUBSTANTIVE_TOPICS with any topic a rater has flagged 'noise_meaningless'
+// in the Topic Quality tab -- generalizes the old hardcoded 2-topic exclusion list into
+// a reviewable, human-driven one. Fetched once at load (independent of whether the
+// Topic Quality tab is ever opened) so pickers/plots elsewhere on the page respect it
+// from the start; re-renders anything that already drew before this resolved.
+(async function loadNoiseTopicExclusions() {
+  try {
+    const resp = await fetch(drillApiUrl('topic_claims', { rater: getRater() }));
+    const data = await resp.json();
+    const noiseNames = (data.claims || [])
+      .filter(c => c.has_claim === 'noise_meaningless')
+      .map(c => c.topic_name);
+    if (noiseNames.length === 0) return;
+    let changed = false;
+    noiseNames.forEach(n => { if (!NON_SUBSTANTIVE_TOPICS.has(n)) { NON_SUBSTANTIVE_TOPICS.add(n); changed = true; } });
+    if (changed) {
+      tsRenderPicker(document.getElementById('tsSearch')?.value || '');
+      tsBuildChart(); tsRenderLegend();
+      renderAllTopicsTable();
+      renderAuthorChart();
+    }
+  } catch (err) {
+    // Non-fatal -- falls back to the static exclusion list if this fetch fails.
+    console.warn('Could not load noise-topic exclusions:', err.message);
+  }
+})();
 renderCredGapChart();
 renderStanceChart();
 renderEntTable();
@@ -1488,6 +1795,584 @@ renderCorporaTable();
 renderKeyTable();
 renderThreadTable();
 renderTurnoverChart();
+
+// ============================================================================
+// ==================== TOPIC QUALITY EXPLORER INTEGRATION ====================
+// ============================================================================
+
+let residualsLimit = 20;
+let residualsOffset = 0;
+let claimsSearchQuery = '';
+let claimsFilterState = 'all';
+let cachedClaimsData = [];
+let isLocalServerActive = false;
+
+async function loadTopicQualityTab() {
+  console.log("Initializing Topic Quality Tab...");
+  await checkLocalServerStatus();
+  loadNearDuplicates();
+  loadTopicClaims();
+  loadResidualComments();
+}
+
+function getRater() {
+  return (document.getElementById('hitl_rater_name_input')?.value || 'nash').trim() || 'nash';
+}
+
+// --- Piece 1: Near-Duplicate Merges ---
+async function loadNearDuplicates() {
+  const container = document.getElementById('topicNearDuplicatesBody');
+  if (!container) return;
+  container.innerHTML = '<tr><td colspan="5" style="text-align:center; padding:1rem; color:var(--ink-3);">Loading near-duplicate pairs...</td></tr>';
+  
+  try {
+    const url = drillApiUrl('topic_near_duplicates', { rater: getRater() });
+    const resp = await fetch(url);
+    const data = await resp.json();
+    
+    if (!data.pairs || data.pairs.length === 0) {
+      container.innerHTML = '<tr><td colspan="5" style="text-align:center; padding:1rem; color:var(--ink-3);">No near-duplicate pairs found.</td></tr>';
+      return;
+    }
+    
+    container.innerHTML = '';
+    data.pairs.forEach(p => {
+      const tr = document.createElement('tr');
+      
+      const colA = `<td><strong>${p.topic_a}</strong>: ${shortTopic(p.topic_a_name)}</td>`;
+      const colB = `<td><strong>${p.topic_b}</strong>: ${shortTopic(p.topic_b_name)}</td>`;
+      const colSim = `<td style="text-align:right;">${p.centroid_cosine_sim.toFixed(3)}</td>`;
+      const colOverlap = `<td style="text-align:right;">${(p.keyword_jaccard * 100).toFixed(1)}%</td>`;
+      
+      let actionHtml = '';
+      if (p.decision === 'merge') {
+        actionHtml = `<td style="text-align:center;"><span style="color:var(--pos); font-weight:600; font-size:12px; margin-right:8px;">Merged</span><button class="btn" style="padding:2px 8px; font-size:11px; cursor:pointer; border:1px solid var(--border); border-radius:4px; background:transparent; color:var(--ink);" onclick="unmergeTopicPair('${p.topic_a_name}', '${p.topic_b_name}')">Undo</button></td>`;
+      } else if (p.decision === 'keep_separate') {
+        actionHtml = `<td style="text-align:center;"><span style="color:var(--ink-3); font-size:12px; margin-right:8px;">Separated</span><button class="btn" style="padding:2px 8px; font-size:11px; cursor:pointer; border:1px solid var(--border); border-radius:4px; background:transparent; color:var(--ink);" onclick="unmergeTopicPair('${p.topic_a_name}', '${p.topic_b_name}')">Undo</button></td>`;
+      } else {
+        actionHtml = `
+          <td style="text-align:center; display:flex; gap:6px; justify-content:center;">
+            <button class="btn" style="padding:3px 8px; font-size:11px; background:var(--accent); color:white; border:none; border-radius:4px; cursor:pointer; font-weight:600;" onclick="rateTopicMerge('${p.topic_a_name}', '${p.topic_b_name}', 'merge')">Merge</button>
+            <button class="btn" style="padding:3px 8px; font-size:11px; border:1px solid var(--border); border-radius:4px; cursor:pointer; background:transparent; color:var(--ink);" onclick="rateTopicMerge('${p.topic_a_name}', '${p.topic_b_name}', 'keep_separate')">Keep Separate</button>
+          </td>
+        `;
+      }
+      
+      tr.innerHTML = colA + colB + colSim + colOverlap + actionHtml;
+      container.appendChild(tr);
+    });
+  } catch (err) {
+    container.innerHTML = `<tr><td colspan="5" style="text-align:center; padding:1rem; color:var(--neg);">Error loading duplicates: ${err.message}</td></tr>`;
+  }
+}
+
+async function rateTopicMerge(source, target, decision) {
+  try {
+    const resp = await fetch(drillApiUrl('rate_topic_merge'), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        source_topic: source,
+        target_topic: target,
+        decision: decision,
+        rater: getRater()
+      })
+    });
+    if (resp.ok) {
+      loadNearDuplicates();
+    } else {
+      alert("Failed to submit decision");
+    }
+  } catch (err) {
+    alert("Error: " + err.message);
+  }
+}
+
+async function unmergeTopicPair(source, target) {
+  try {
+    const resp = await fetch(drillApiUrl('unmerge_topic'), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        source_topic: source,
+        target_topic: target,
+        rater: getRater()
+      })
+    });
+    if (resp.ok) {
+      loadNearDuplicates();
+    } else {
+      alert("Failed to undo decision");
+    }
+  } catch (err) {
+    alert("Error: " + err.message);
+  }
+}
+
+// --- Piece 2: Topic Claims & Classification Review ---
+async function loadTopicClaims() {
+  try {
+    const resp = await fetch(drillApiUrl('topic_claims', { rater: getRater() }));
+    const data = await resp.json();
+    cachedClaimsData = data.claims || [];
+    
+    // Populate dropdown
+    const select = document.getElementById('probeTopicSelect');
+    if (select && select.children.length <= 1) {
+      select.innerHTML = '<option value="">-- Select a topic --</option>';
+      cachedClaimsData.forEach(item => {
+        const opt = document.createElement('option');
+        opt.value = item.topic_name;
+        opt.textContent = `${item.topic_id}: ${shortTopic(item.topic_name)} (${item.n_comments} comments)`;
+        select.appendChild(opt);
+      });
+    }
+    
+    renderTopicClaims();
+  } catch (err) {
+    document.getElementById('topicClaimsBody').innerHTML = `<tr><td colspan="3" style="text-align:center; padding:1rem; color:var(--neg);">Error loading claims: ${err.message}</td></tr>`;
+  }
+}
+
+function renderTopicClaims() {
+  const container = document.getElementById('topicClaimsBody');
+  if (!container) return;
+  
+  const query = claimsSearchQuery.toLowerCase().trim();
+  const filter = claimsFilterState;
+  
+  const filtered = cachedClaimsData.filter(item => {
+    const matchesSearch = item.topic_name.toLowerCase().includes(query) || 
+                          item.top_signature_claims.toLowerCase().includes(query);
+    const matchesFilter = (filter === 'all') || (item.has_claim === filter);
+    return matchesSearch && matchesFilter;
+  });
+  
+  if (filtered.length === 0) {
+    container.innerHTML = '<tr><td colspan="3" style="text-align:center; padding:1rem; color:var(--ink-3);">No matching topics found.</td></tr>';
+    return;
+  }
+  
+  container.innerHTML = '';
+  filtered.forEach(item => {
+    const tr = document.createElement('tr');
+    
+    const colTopic = `<td><strong>${item.topic_id}</strong>: ${shortTopic(item.topic_name)}<br><small style="color:var(--ink-2);">${item.n_comments} comments</small></td>`;
+    
+    const sigHtml = `
+      <div style="font-size:12px; display:flex; flex-direction:column; gap:4px;">
+        <span style="color:var(--ink);"><strong>Top Phrase:</strong> ${item.top_claim_1} <small style="color:var(--accent); font-weight:600;">(local ratio: ${item.top_claim_1_local_ratio.toFixed(1)}x)</small></span>
+        <span style="color:var(--ink-2);">2. ${item.top_claim_2} <small style="color:var(--ink-3);">(ratio: ${item.top_claim_2_local_ratio.toFixed(1)}x)</small></span>
+        <span style="color:var(--ink-2);">3. ${item.top_claim_3} <small style="color:var(--ink-3);">(ratio: ${item.top_claim_3_local_ratio.toFixed(1)}x)</small></span>
+      </div>
+    `;
+    
+    const activeClassStyle = "padding:3px 6px; font-size:10.5px; font-weight:600; border-radius:4px; cursor:pointer;";
+    const normalClassStyle = "padding:3px 6px; font-size:10.5px; border-radius:4px; cursor:pointer; background:transparent; color:var(--ink-2); border:1px solid var(--border);";
+    
+    const isHasClaim = item.has_claim === 'has_claim';
+    const isNoClaim = item.has_claim === 'no_coherent_claim';
+    const isNoise = item.has_claim === 'noise_meaningless';
+    const isUnreviewed = item.has_claim === 'unreviewed';
+
+    const colActions = `
+      <td style="text-align:center; vertical-align:middle;">
+        <div style="display:inline-flex; gap:4px; border:1px solid var(--border); padding:3px; border-radius:6px; background:var(--bg-panel); flex-wrap:wrap;">
+          <button style="${isHasClaim ? activeClassStyle + ' background:var(--pos); color:white; border:none;' : normalClassStyle}" onclick="rateTopicClaim(${item.topic_id}, 'has_claim')">Has Claim</button>
+          <button style="${isNoClaim ? activeClassStyle + ' background:var(--ink-2); color:white; border:none;' : normalClassStyle}" onclick="rateTopicClaim(${item.topic_id}, 'no_coherent_claim')" title="Diffuse mix of real content, just no single crisp claim -- still substantive, still shown in plots/pickers">Diffuse discussion</button>
+          <button style="${isNoise ? activeClassStyle + ' background:var(--neg); color:white; border:none;' : normalClassStyle}" onclick="rateTopicClaim(${item.topic_id}, 'noise_meaningless')" title="Junk/meta/reddit-noise, not real conspiracy content -- excluded from topic pickers, plots, and central-claim display everywhere on this page">Noise / Meaningless</button>
+          <button style="${isUnreviewed ? activeClassStyle + ' background:var(--accent-bg); color:var(--accent); border:1px solid var(--accent);' : normalClassStyle}" onclick="rateTopicClaim(${item.topic_id}, 'unreviewed')">Unreviewed</button>
+        </div>
+      </td>
+    `;
+    
+    tr.innerHTML = colTopic + `<td>${sigHtml}</td>` + colActions;
+    container.appendChild(tr);
+  });
+}
+
+async function rateTopicClaim(topicId, hasClaim) {
+  try {
+    const resp = await fetch(drillApiUrl('rate_topic_claim'), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        topic_id: topicId,
+        has_claim: hasClaim,
+        rater: getRater()
+      })
+    });
+    if (resp.ok) {
+      const idx = cachedClaimsData.findIndex(item => item.topic_id === topicId);
+      if (idx !== -1) {
+        cachedClaimsData[idx].has_claim = hasClaim;
+        renderTopicClaims();
+      }
+    } else {
+      alert("Failed to rate topic claim");
+    }
+  } catch (err) {
+    alert("Error: " + err.message);
+  }
+}
+
+// Bind search and filter events
+document.getElementById('claimsSearch')?.addEventListener('input', (e) => {
+  claimsSearchQuery = e.target.value;
+  renderTopicClaims();
+});
+document.getElementById('claimsFilterSelect')?.addEventListener('change', (e) => {
+  claimsFilterState = e.target.value;
+  renderTopicClaims();
+});
+
+
+// --- Piece 4: Noise-Topic Residual Reassignments ---
+async function loadResidualComments() {
+  const container = document.getElementById('topicResidualsBody');
+  if (!container) return;
+  container.innerHTML = '<tr><td colspan="5" style="text-align:center; padding:1rem; color:var(--ink-3);">Loading residual comments queue...</td></tr>';
+  
+  try {
+    const resp = await fetch(drillApiUrl('topic_residual_comments', { limit: residualsLimit, offset: residualsOffset }));
+    const data = await resp.json();
+    
+    if (!data.rows || data.rows.length === 0) {
+      container.innerHTML = '<tr><td colspan="5" style="text-align:center; padding:1rem; color:var(--ink-3);">No residual comments in the queue.</td></tr>';
+      return;
+    }
+    
+    container.innerHTML = '';
+    data.rows.forEach(r => {
+      const tr = document.createElement('tr');
+      
+      // Make text click-expandable
+      const shortText = r.text.length > 120 ? r.text.slice(0, 115) + '...' : r.text;
+      const fullTextEscaped = r.text.replace(/"/g, '&quot;');
+      const colText = `
+        <td style="font-size:12px; line-height:1.4; max-width:300px; cursor:help;" title="Click to view full text" onclick="alert(this.dataset.full)" data-full="${fullTextEscaped}">
+          ${shortText}
+        </td>
+      `;
+      
+      const colAssigned = `<td><span style="font-size:11px; background:var(--accent-bg); color:var(--accent); padding:2px 5px; border-radius:4px; font-weight:600;">${r.assigned_topic}</span><br><small style="color:var(--ink-3);">sim: ${r.assigned_sim.toFixed(3)}</small></td>`;
+      const colBestOther = `<td><span style="font-size:11px; background:var(--pos-bg); color:var(--pos); padding:2px 5px; border-radius:4px; font-weight:600;">${r.best_other_topic}</span><br><small style="color:var(--ink-3);">sim: ${r.best_other_sim.toFixed(3)}</small></td>`;
+      const colGap = `<td style="text-align:right; font-weight:bold; font-size:12px; color:${r.gap <= 0 ? 'var(--pos)' : 'var(--ink)'};">${r.gap.toFixed(3)}</td>`;
+      
+      const colAction = `
+        <td style="text-align:center; vertical-align:middle;">
+          <button class="btn" style="padding:4px 10px; font-size:11.5px; font-weight:600; background:var(--pos); color:white; border:none; border-radius:4px; cursor:pointer;" onclick="reassignResidualComment('${r.comment_id}', '${r.assigned_topic}', '${r.best_other_topic}')">
+            Reassign
+          </button>
+        </td>
+      `;
+      
+      tr.innerHTML = colText + colAssigned + colBestOther + colGap + colAction;
+      container.appendChild(tr);
+    });
+    
+    // Pagination labels
+    const totalPages = Math.ceil(data.total / residualsLimit);
+    const currPage = Math.floor(residualsOffset / residualsLimit) + 1;
+    document.getElementById('residualsPageLabel').textContent = `Page ${currPage} of ${totalPages || 1} (Total: ${data.total})`;
+    
+    document.getElementById('residualsPrevBtn').disabled = (residualsOffset === 0);
+    document.getElementById('residualsNextBtn').disabled = (residualsOffset + residualsLimit >= data.total);
+  } catch (err) {
+    container.innerHTML = `<tr><td colspan="5" style="text-align:center; padding:1rem; color:var(--neg);">Error loading residual comments: ${err.message}</td></tr>`;
+  }
+}
+
+async function reassignResidualComment(commentId, originalTopic, bestOtherTopic) {
+  try {
+    const resp = await fetch(drillApiUrl('assign_outlier_topic'), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        comment_id: commentId,
+        original_topic_name: originalTopic,
+        assigned_topic_name: bestOtherTopic,
+        rater: getRater()
+      })
+    });
+    if (resp.ok) {
+      loadResidualComments();
+    } else {
+      alert("Failed to reassign comment");
+    }
+  } catch (err) {
+    alert("Error reassigning comment: " + err.message);
+  }
+}
+
+document.getElementById('residualsPrevBtn')?.addEventListener('click', () => {
+  if (residualsOffset >= residualsLimit) {
+    residualsOffset -= residualsLimit;
+    loadResidualComments();
+  }
+});
+document.getElementById('residualsNextBtn')?.addEventListener('click', () => {
+  residualsOffset += residualsLimit;
+  loadResidualComments();
+});
+
+
+// --- Piece 3: Local Server Status & Seed Probing ---
+async function checkLocalServerStatus() {
+  const statusIndicator = document.getElementById('localServerStatus');
+  const badge = document.getElementById('microMatchMethodBadge');
+  try {
+    const resp = await fetch(drillApiUrl('probe_health'), { method: 'GET' });
+    const data = await resp.json();
+    if (data.status === 'ok') {
+      isLocalServerActive = true;
+      if (statusIndicator) {
+        statusIndicator.innerHTML = '<span style="color:var(--pos); font-weight:bold; font-size:12px;">● Cloud Embedding Server Active (ONNX neural matching)</span>';
+      }
+      if (badge) {
+        badge.textContent = "SentenceTransformer vectors";
+        badge.style.background = "var(--pos-bg)";
+        badge.style.color = "var(--pos)";
+      }
+    } else {
+      throw new Error();
+    }
+  } catch (err) {
+    isLocalServerActive = false;
+    if (statusIndicator) {
+      statusIndicator.innerHTML = '<span style="color:var(--neg); font-size:12px;">○ Cloud Embedding Server Disconnected (lightweight TF-IDF baseline active)</span>';
+    }
+    if (badge) {
+      badge.textContent = "TF-IDF keyword overlap";
+      badge.style.background = "var(--accent-bg)";
+      badge.style.color = "var(--accent)";
+    }
+  }
+}
+
+// Add/Remove probe seed inputs dynamically
+document.getElementById('probeAddSeedBtn')?.addEventListener('click', () => {
+  const container = document.getElementById('probeSeedsContainer');
+  if (!container) return;
+  
+  const div = document.createElement('div');
+  div.style.display = 'flex';
+  div.style.gap = '8px';
+  
+  const input = document.createElement('input');
+  input.type = 'text';
+  input.className = 'probe-seed-input';
+  input.placeholder = 'Type another candidate seed claim...';
+  input.style.flex = '1';
+  input.style.padding = '6px 9px';
+  input.style.fontSize = '12.5px';
+  input.style.borderRadius = '6px';
+  input.style.border = '1px solid var(--border)';
+  input.style.background = 'var(--bg)';
+  input.style.color = 'var(--ink)';
+  
+  const removeBtn = document.createElement('button');
+  removeBtn.className = 'btn';
+  removeBtn.textContent = '×';
+  removeBtn.style.padding = '2px 8px';
+  removeBtn.style.fontSize = '14px';
+  removeBtn.style.cursor = 'pointer';
+  removeBtn.style.borderRadius = '6px';
+  removeBtn.style.border = '1px solid var(--border)';
+  removeBtn.style.background = 'transparent';
+  removeBtn.style.color = 'var(--neg)';
+  
+  removeBtn.addEventListener('click', () => {
+    div.remove();
+  });
+  
+  div.appendChild(input);
+  div.appendChild(removeBtn);
+  container.appendChild(div);
+});
+
+// Run claim probe
+document.getElementById('probeSubmitBtn')?.addEventListener('click', async () => {
+  const topicSelect = document.getElementById('probeTopicSelect');
+  const topicName = topicSelect.value;
+  if (!topicName) {
+    alert("Please select a topic to probe.");
+    return;
+  }
+  
+  const inputs = document.querySelectorAll('.probe-seed-input');
+  const seeds = [];
+  inputs.forEach(inp => {
+    const val = inp.value.trim();
+    if (val) seeds.push(val);
+  });
+  
+  if (seeds.length === 0) {
+    alert("Please enter at least one seed claim phrase.");
+    return;
+  }
+  
+  const resultsArea = document.getElementById('probeResultsArea');
+  const macroDiv = document.getElementById('probeMacroResults');
+  const microDiv = document.getElementById('probeMicroResults');
+  
+  resultsArea.style.display = 'block';
+  macroDiv.innerHTML = '<div style="color:var(--ink-3); font-size:12px;">Computing macro alignments...</div>';
+  microDiv.innerHTML = '<div style="color:var(--ink-3); font-size:12px;">Computing micro clusters...</div>';
+  
+  try {
+    if (isLocalServerActive) {
+      // Stage 2: Heavyweight Neural embeddings comparison via Cloud Embedding Server
+      console.log("Routing seed probe to Cloud Embedding Server...");
+      const resp = await fetch(drillApiUrl('probe_local'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          topic_id: topicName,
+          seeds: seeds
+        })
+      });
+      if (!resp.ok) {
+        throw new Error("Cloud Embedding Server probe failed.");
+      }
+      const data = await resp.json();
+      
+      // Render local neural macro alignments
+      macroDiv.innerHTML = '';
+      data.macro_alignment.forEach(m => {
+        const percent = Math.max(0, Math.min(100, Math.round(m.cosine_sim * 100)));
+        macroDiv.innerHTML += `
+          <div style="font-size:12px; display:flex; flex-direction:column; gap:4px; border:1px solid var(--border); padding:8px; border-radius:6px; background:var(--bg-panel);">
+            <div style="display:flex; justify-content:space-between; font-weight:600;">
+              <span style="color:var(--ink); max-width:75%; word-wrap:break-word;">&ldquo;${m.seed}&rdquo;</span>
+              <span style="color:var(--pos);">${m.cosine_sim.toFixed(4)} similarity</span>
+            </div>
+            <div style="background:var(--border); height:6px; border-radius:3px; overflow:hidden;">
+              <div style="background:var(--pos); width:${percent}%; height:100%;"></div>
+            </div>
+          </div>
+        `;
+      });
+      
+      // Render local neural micro clusters
+      microDiv.innerHTML = '';
+      data.micro_clusters.forEach((cluster, cIdx) => {
+        const div = document.createElement('div');
+        div.style.border = '1px solid var(--border)';
+        div.style.borderRadius = '6px';
+        div.style.padding = '8px';
+        div.style.background = 'var(--bg-panel)';
+        div.style.display = 'flex';
+        div.style.flexDirection = 'column';
+        div.style.gap = '6px';
+        
+        div.innerHTML = `
+          <div style="display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid var(--border); padding-bottom:6px; margin-bottom:4px;">
+            <strong style="font-size:12px; color:var(--ink); max-width:65%; word-wrap:break-word;">Seed: &ldquo;${cluster.seed}&rdquo;</strong>
+            <span style="font-size:11px; background:var(--pos-bg); color:var(--pos); padding:2px 6px; border-radius:4px; font-weight:600;">
+              ${cluster.size} comments (mean sim: ${cluster.mean_sim.toFixed(3)})
+            </span>
+          </div>
+        `;
+        
+        const commContainer = document.createElement('div');
+        commContainer.style.display = 'flex';
+        commContainer.style.flexDirection = 'column';
+        commContainer.style.gap = '6px';
+        commContainer.style.maxHeight = '150px';
+        commContainer.style.overflowY = 'auto';
+        commContainer.style.paddingRight = '4px';
+        
+        if (cluster.comments.length === 0) {
+          commContainer.innerHTML = '<div style="color:var(--ink-3); font-size:11px; text-align:center; padding:4px;">No comments assigned.</div>';
+        } else {
+          cluster.comments.forEach(c => {
+            commContainer.innerHTML += `
+              <div style="font-size:11px; line-height:1.4; border-bottom:1px dashed var(--border); padding-bottom:4px; margin-bottom:2px;">
+                <div style="display:flex; justify-content:space-between; margin-bottom:2px; font-weight:600; color:var(--ink-2);">
+                  <span>Comment ${c.comment_id} (${c.upvotes} upvotes)</span>
+                  <span style="color:var(--pos);">sim: ${c.similarity.toFixed(4)}</span>
+                </div>
+                <div style="color:var(--ink); font-style:italic;">&ldquo;${c.text.slice(0, 150)}${c.text.length > 150 ? '...' : ''}&rdquo;</div>
+              </div>
+            `;
+          });
+        }
+        
+        div.appendChild(commContainer);
+        microDiv.appendChild(div);
+      });
+      
+    } else {
+      // Stage 1: Lightweight TF-IDF overlap comparison via VM (standard fallback)
+      console.log("Routing seed probe to Live VM (TF-IDF overlap)...");
+      const url = drillApiUrl('probe_seed_claims_stage1', {
+        topic: topicName,
+        seeds: JSON.stringify(seeds)
+      });
+      const resp = await fetch(url);
+      const data = await resp.json();
+      
+      // Render Stage 1 macro info
+      macroDiv.innerHTML = `
+        <div style="font-size:12px; border:1px solid var(--border); padding:8px; border-radius:6px; background:var(--bg-panel); color:var(--ink-2); line-height:1.4;">
+          <strong>Stage 1 (TF-IDF keyword overlap mode):</strong> Showing up to 100 sample comments matching keywords from the seed phrases: <br>
+          <ul style="margin:5px 0 0 15px; padding:0;">
+            ${seeds.map(s => `<li>&ldquo;${s}&rdquo;</li>`).join('')}
+          </ul>
+        </div>
+      `;
+      
+      // Render Stage 1 matching comments
+      microDiv.innerHTML = '';
+      if (!data.results || data.results.length === 0) {
+        microDiv.innerHTML = '<div style="color:var(--ink-3); font-size:11px; text-align:center; padding:10px;">No overlap comments found matching any seed keywords.</div>';
+        return;
+      }
+      
+      const div = document.createElement('div');
+      div.style.border = '1px solid var(--border)';
+      div.style.borderRadius = '6px';
+      div.style.padding = '8px';
+      div.style.background = 'var(--bg-panel)';
+      div.style.display = 'flex';
+      div.style.flexDirection = 'column';
+      div.style.gap = '6px';
+      
+      div.innerHTML = `
+        <div style="border-bottom:1px solid var(--border); padding-bottom:6px; margin-bottom:4px; font-weight:600; font-size:12px; color:var(--ink);">
+          Top Comments Matching Keyword Seeds (sorted by overlap score)
+        </div>
+      `;
+      
+      const commContainer = document.createElement('div');
+      commContainer.style.display = 'flex';
+      commContainer.style.flexDirection = 'column';
+      commContainer.style.gap = '6px';
+      commContainer.style.maxHeight = '250px';
+      commContainer.style.overflowY = 'auto';
+      
+      data.results.forEach(c => {
+        commContainer.innerHTML += `
+          <div style="font-size:11px; line-height:1.4; border-bottom:1px dashed var(--border); padding-bottom:4px; margin-bottom:2px;">
+            <div style="display:flex; justify-content:space-between; margin-bottom:2px; font-weight:600; color:var(--ink-2);">
+              <span>Comment ${c.comment_id} (${c.upvotes} upvotes)</span>
+              <span style="color:var(--accent);">score: ${c.overlap_score} words</span>
+            </div>
+            <div style="color:var(--ink); margin-bottom:2px; font-style:italic;">&ldquo;${c.text.slice(0, 150)}${c.text.length > 150 ? '...' : ''}&rdquo;</div>
+            <div style="color:var(--accent); font-size:10px;">Matched keywords in: &ldquo;${c.matched_seed}&rdquo; &rarr; [${c.overlap_words.join(', ')}]</div>
+          </div>
+        `;
+      });
+      
+      div.appendChild(commContainer);
+      microDiv.appendChild(div);
+    }
+  } catch (err) {
+    macroDiv.innerHTML = `<div style="color:var(--neg); font-size:12px;">Error: ${err.message}</div>`;
+    microDiv.innerHTML = `<div style="color:var(--neg); font-size:12px;">Error: ${err.message}</div>`;
+  }
+});
 
 function rerenderAll() {
   document.getElementById('overviewStats').innerHTML = '';

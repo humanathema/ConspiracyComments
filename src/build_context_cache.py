@@ -1,6 +1,6 @@
 """Script to pre-compile a context cache for all comments in active rating queues.
 
-Queries the heavy local parquet file `data/processed/empath_scores_full.parquet`
+Queries the heavy local parquet file `data/processed/empath_scores_full_mapped.parquet`
 using a highly optimized batched-query approach (performing only two database scans
 instead of individual row lookups).
 """
@@ -20,7 +20,7 @@ QUEUES = {
     "consensus_stance_round8": _abs("data/hitl/queue_consensus_stance_round8.csv"),
 }
 
-EMPATH_PATH = _abs("data/processed/empath_scores_full.parquet")
+EMPATH_PATH = _abs("data/processed/empath_scores_full_mapped.parquet")
 OUTPUT_CACHE_PATH = _abs("data/hitl/context_cache.json")
 
 def main():

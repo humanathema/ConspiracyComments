@@ -12,7 +12,7 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 STAGED_PATH = str(REPO_ROOT / "data/processed/research_corpus_staged_scores_full21m.parquet")
-EMPATH_PATH = str(REPO_ROOT / "data/processed/empath_scores_full.parquet")
+EMPATH_PATH = str(REPO_ROOT / "data/processed/empath_scores_full_mapped.parquet")
 OUT_PATH = str(REPO_ROOT / "data/processed/construct_correlation_matrix.csv")
 
 

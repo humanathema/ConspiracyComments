@@ -29,15 +29,18 @@ Output:
     data/processed/stage_b_credential_pattern_hits.csv
 """
 import json
+import os
+import pickle
 import re
 import time
 from collections import defaultdict
 import argparse
 
+import ahocorasick
 import pandas as pd
 import pyarrow.parquet as pq
 
-CORPUS_PATH = "data/processed/empath_scores_full.parquet"
+CORPUS_PATH = "data/processed/empath_scores_full_mapped.parquet"
 WORDBAGS_OUT = "data/processed/stage_b_word_bags.json"
 CREDENTIAL_OUT = "data/processed/stage_b_credential_pattern_hits.csv"
 
@@ -248,6 +251,71 @@ def extract_word_bag(text, match_start, match_end, exclude_words):
     return [w for w in words if w and w not in STOPWORDS and w not in exclude_words and len(w) > 2]
 
 
+_WORD_CHAR_RE = re.compile(r"[a-z0-9]")
+
+
+def build_automaton(alias_to_candidate, bare_to_cluster):
+    """Single Aho-Corasick automaton over every alias and bare form, so each
+    comment's text is scanned ONCE (O(text length) total) regardless of how
+    many patterns exist, instead of the previous per-row nested loop over
+    every alias/bare string (O(rows x patterns)) -- this is what the
+    module's own docstring always claimed the design was, but the actual
+    code underneath had drifted to naive `.find()` loops instead. Bare-form
+    entries get a boundary check at match time (cheap -- one char lookup on
+    each side of an actual hit) rather than baking boundary markers into the
+    automaton itself."""
+    A = ahocorasick.Automaton()
+    for alias, payload in alias_to_candidate.items():
+        A.add_word(alias, ("alias", alias, payload))
+    for bare, cluster_key in bare_to_cluster.items():
+        A.add_word(bare, ("bare", bare, cluster_key))
+    A.make_automaton()
+    return A
+
+
+def scan_row(text_l, automaton, cluster_dict, sample_counts, word_bags, row_id, priority_ids):
+    """Runs the automaton once over this row's text, then applies the same
+    labeled/bare-form bookkeeping the old nested-loop version did (sample
+    caps, skip-bare-if-full-form-present), just without re-scanning the text
+    once per pattern to get there."""
+    alias_hits = []   # (end_idx, alias, cluster_key, cand_name)
+    bare_hits = []    # (end_idx, bare, cluster_key)
+    clusters_with_full_form = set()
+
+    for end_idx, (kind, pattern, payload) in automaton.iter(text_l):
+        start_idx = end_idx - len(pattern) + 1
+        if kind == "alias":
+            cluster_key, cand_name = payload
+            alias_hits.append((start_idx, end_idx, pattern, cluster_key, cand_name))
+            clusters_with_full_form.add(cluster_key)
+        else:
+            # boundary check: bare form must not be part of a longer word
+            before_ok = start_idx == 0 or not _WORD_CHAR_RE.match(text_l[start_idx - 1])
+            after_ok = end_idx + 1 >= len(text_l) or not _WORD_CHAR_RE.match(text_l[end_idx + 1])
+            if before_ok and after_ok:
+                bare_hits.append((start_idx, end_idx, pattern, payload))
+
+    for start_idx, end_idx, alias, cluster_key, cand_name in alias_hits:
+        sample_key = (cluster_key, cand_name)
+        if sample_counts[sample_key] >= MAX_SAMPLES_PER_CANDIDATE:
+            continue
+        bag = extract_word_bag(text_l, start_idx, end_idx + 1, {alias})
+        if bag:
+            word_bags[cluster_key][cand_name].append(bag)
+            sample_counts[sample_key] += 1
+
+    for start_idx, end_idx, bare, cluster_key in bare_hits:
+        if cluster_key in clusters_with_full_form:
+            continue
+        sample_key = (cluster_key, "__bare__")
+        if sample_counts[sample_key] >= MAX_SAMPLES_PER_CANDIDATE and str(row_id) not in priority_ids:
+            continue
+        bag = extract_word_bag(text_l, start_idx, end_idx + 1, {bare})
+        if bag:
+            word_bags[cluster_key]["__bare__"].append({"id": row_id, "bag": bag})
+            sample_counts[sample_key] += 1
+
+
 def find_credential_pattern_names(text):
     hits = []
     for m in CREDENTIAL_PATTERN.finditer(text):
@@ -263,30 +331,51 @@ def main():
     parser = argparse.ArgumentParser(description="Stage B consolidated corpus pass")
     parser.add_argument("--maverick", action="store_true", help="Run maverick disambiguation mode")
     parser.add_argument("--mainstream", action="store_true", help="Run mainstream expert mode")
+    parser.add_argument("--ats", action="store_true", help="Run on AboveTopSecret (ATS) corpus")
+    parser.add_argument("--fresh", action="store_true", help="Ignore any existing checkpoint and start over")
     args = parser.parse_args()
 
-    if args.maverick:
-        cluster_dict = MAVERICK_AMBIGUOUS_CLUSTERS
-        wordbags_out = "data/processed/stage_b_maverick_word_bags.json"
-        credential_out = "data/processed/stage_b_maverick_credential_hits.csv"
-        mode_name = "Maverick Expert"
+    if args.ats:
+        corpus_path = "data/processed/ats_comments_final.parquet"
+        id_col = "post_id"
+        text_col = "body"
+        if args.maverick:
+            cluster_dict = MAVERICK_AMBIGUOUS_CLUSTERS
+            wordbags_out = "data/processed/stage_b_ats_maverick_word_bags.json"
+            credential_out = "data/processed/stage_b_ats_maverick_credential_hits.csv"
+            mode_name = "ATS Maverick Expert"
+        else:
+            cluster_dict = AMBIGUOUS_CLUSTERS
+            wordbags_out = "data/processed/stage_b_ats_word_bags.json"
+            credential_out = "data/processed/stage_b_ats_credential_hits.csv"
+            mode_name = "ATS Mainstream Expert"
     else:
-        cluster_dict = AMBIGUOUS_CLUSTERS
-        wordbags_out = WORDBAGS_OUT
-        credential_out = CREDENTIAL_OUT
-        mode_name = "Mainstream Expert"
+        corpus_path = CORPUS_PATH
+        id_col = "id"
+        text_col = "text"
+        if args.maverick:
+            cluster_dict = MAVERICK_AMBIGUOUS_CLUSTERS
+            wordbags_out = "data/processed/stage_b_maverick_word_bags.json"
+            credential_out = "data/processed/stage_b_maverick_credential_hits.csv"
+            mode_name = "Maverick Expert"
+        else:
+            cluster_dict = AMBIGUOUS_CLUSTERS
+            wordbags_out = WORDBAGS_OUT
+            credential_out = CREDENTIAL_OUT
+            mode_name = "Mainstream Expert"
 
     print(f"Running in {mode_name} mode...")
 
     # Load validation queue comment IDs to bypass max-sample capping for bare instances
     priority_ids = set()
-    try:
-        val_df = pd.read_csv("data/hitl/queue_maverick_authority.csv")
-        if "id" in val_df.columns:
-            priority_ids = set(val_df["id"].dropna().astype(str))
-            print(f"Loaded {len(priority_ids)} priority comment IDs from validation queue")
-    except Exception as e:
-        print(f"Warning: could not load validation queue: {e}")
+    if not args.ats:
+        try:
+            val_df = pd.read_csv("data/hitl/queue_maverick_authority.csv")
+            if "id" in val_df.columns:
+                priority_ids = set(val_df["id"].dropna().astype(str))
+                print(f"Loaded {len(priority_ids)} priority comment IDs from validation queue")
+        except Exception as e:
+            print(f"Warning: could not load validation queue: {e}")
 
     # Build a simple lowercase substring search structure: for each cluster,
     # bare form(s) and every candidate alias, so a single lowercase scan of
@@ -300,28 +389,44 @@ def main():
             for a in aliases:
                 alias_to_candidate[a] = (cluster_key, cand_name)
 
-    # word bags: cluster -> {"__bare__": [...], candidate_name: [...]}
+    automaton = build_automaton(alias_to_candidate, bare_to_cluster)
+
+    # Checkpoint: resume from the last fully-completed chunk rather than
+    # restart from scratch if this run gets killed/interrupted (real risk on
+    # a run this long, and the exact scenario that motivated adding this --
+    # a mid-run kill earlier today lost everything since the old version
+    # only wrote output at the very end).
+    checkpoint_path = wordbags_out + ".checkpoint.pkl"
+    start_chunk = 0
     word_bags = {c: {"__bare__": []} for c in cluster_dict}
     for c, spec in cluster_dict.items():
         for cand in spec["candidates"]:
             word_bags[c][cand] = []
     sample_counts = defaultdict(int)
-
     credential_hits = []
 
-    # sort all substrings longest-first so e.g. "bill clinton" is checked
-    # before bare "bill" at the same position
-    all_aliases_sorted = sorted(alias_to_candidate.keys(), key=len, reverse=True)
-    all_bare_sorted = sorted(bare_to_cluster.keys(), key=len, reverse=True)
+    if not args.fresh and os.path.exists(checkpoint_path):
+        with open(checkpoint_path, "rb") as f:
+            ckpt = pickle.load(f)
+        word_bags = ckpt["word_bags"]
+        sample_counts = defaultdict(int, ckpt["sample_counts"])
+        credential_hits = ckpt["credential_hits"]
+        start_chunk = ckpt["next_chunk"]
+        print(f"Resuming from checkpoint: {start_chunk} chunk(s) already done "
+              f"({ckpt['total_rows']:,} rows), {len(credential_hits):,} credential hits so far.")
 
-    pf = pq.ParquetFile(CORPUS_PATH)
-    total = 0
+    pf = pq.ParquetFile(corpus_path)
+    total = start_chunk * 1_000_000
     start = time.time()
-    for i, batch in enumerate(pf.iter_batches(batch_size=1_000_000, columns=["id", "text"])):
+    for i, batch in enumerate(pf.iter_batches(batch_size=1_000_000, columns=[id_col, text_col])):
+        if i < start_chunk:
+            continue
         chunk = batch.to_pandas()
         total += len(chunk)
-        for _, row in chunk.iterrows():
-            text = row["text"]
+
+        ids = chunk[id_col].tolist()
+        texts = chunk[text_col].tolist()
+        for row_id, text in zip(ids, texts):
             if not isinstance(text, str) or len(text) < 5:
                 continue
             text_l = text.lower()
@@ -330,47 +435,24 @@ def main():
             if "former" in text_l or "ex-" in text_l or "retired" in text_l:
                 for name, trigger, window in find_credential_pattern_names(text):
                     credential_hits.append({"name": name, "trigger": trigger,
-                                             "context": window, "id": row["id"]})
+                                             "context": window, "id": row_id})
 
-            # full-candidate-alias scan (labeled examples)
-            for alias in all_aliases_sorted:
-                idx = text_l.find(alias)
-                if idx == -1:
-                    continue
-                cluster_key, cand_name = alias_to_candidate[alias]
-                sample_key = (cluster_key, cand_name)
-                if sample_counts[sample_key] >= MAX_SAMPLES_PER_CANDIDATE:
-                    continue
-                bag = extract_word_bag(text_l, idx, idx + len(alias), {alias})
-                if bag:
-                    word_bags[cluster_key][cand_name].append(bag)
-                    sample_counts[sample_key] += 1
+            scan_row(text_l, automaton, cluster_dict, sample_counts, word_bags, row_id, priority_ids)
 
-            # bare-form scan (unlabeled instances to classify later) --
-            # skip if a full alias from the SAME cluster was already found
-            # in this text (avoid double-counting an instance as both
-            # labeled and unlabeled within the same comment)
-            for bare in all_bare_sorted:
-                idx = text_l.find(f" {bare} ")
-                if idx == -1:
-                    idx = text_l.find(f" {bare}.")
-                if idx == -1:
-                    continue
-                cluster_key = bare_to_cluster[bare]
-                any_full_in_text = any(a in text_l for a in cluster_dict[cluster_key]["candidates"])
-                if any_full_in_text:
-                    continue
-                sample_key = (cluster_key, "__bare__")
-                if sample_counts[sample_key] >= MAX_SAMPLES_PER_CANDIDATE and str(row["id"]) not in priority_ids:
-                    continue
-                bag = extract_word_bag(text_l, idx + 1, idx + 1 + len(bare), {bare})
-                if bag:
-                    word_bags[cluster_key]["__bare__"].append({"id": row["id"], "bag": bag})
-                    sample_counts[sample_key] += 1
-
+        elapsed_min = (time.time() - start) / 60
+        rate = (total - start_chunk * 1_000_000) / max(elapsed_min, 1e-6)
         print(f"  chunk {i+1}: {total:,} rows scanned, "
               f"{len(credential_hits):,} credential-pattern hits so far "
-              f"({(time.time()-start)/60:.1f} min elapsed)", flush=True)
+              f"({elapsed_min:.1f} min elapsed, ~{rate:,.0f} rows/min)", flush=True)
+
+        with open(checkpoint_path, "wb") as f:
+            pickle.dump({
+                "word_bags": word_bags,
+                "sample_counts": dict(sample_counts),
+                "credential_hits": credential_hits,
+                "next_chunk": i + 1,
+                "total_rows": total,
+            }, f)
 
     with open(wordbags_out, "w") as f:
         json.dump(word_bags, f)
@@ -384,6 +466,10 @@ def main():
     print(f"\nSaved {len(cred_df)} credential-pattern hits to {credential_out}")
     if len(cred_df):
         print(cred_df["name"].value_counts().head(20).to_string())
+
+    if os.path.exists(checkpoint_path):
+        os.remove(checkpoint_path)
+        print(f"Removed checkpoint file (run completed successfully).")
 
 
 if __name__ == "__main__":

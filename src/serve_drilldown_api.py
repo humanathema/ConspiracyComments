@@ -16,10 +16,12 @@ memory-safe TF-IDF keyword representation overlap + live kNN boost.
 Stdlib only (sqlite3 + http.server).
 """
 import argparse
+import csv
 import json
 import os
 import re
 import sqlite3
+import duckdb
 from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse, parse_qs
@@ -106,6 +108,136 @@ def query_examples(table, key_col, key_val, sort, direction, offset, limit, rate
         conn.close()
 
 
+def query_ats_search(q, offset, limit):
+    # DuckDB reading the parquet directly, not sqlite -- the same 7.15M-row comment
+    # table stored raw in sqlite balloons to ~7GB (uncompressed row storage) vs 1.8GB
+    # as zstd parquet; querying the parquet in place avoids importing it at all.
+    # Path computed at call time (not module load) since DB_PATH is reassigned from
+    # --db after this module's top-level code has already run once.
+    ats_parquet_path = os.path.join(os.path.dirname(DB_PATH), "ats_comments_browse.parquet")
+    con = duckdb.connect()
+    con.execute("PRAGMA memory_limit='450MB'")
+    con.execute("PRAGMA threads=1")
+    con.execute("PRAGMA preserve_insertion_order=false")
+    
+    q_str = q.strip() if q else ""
+    if q_str.startswith("thread_id:"):
+        try:
+            thread_id = int(q_str.split(":")[1].strip())
+            total = con.execute(
+                f"SELECT COUNT(*) FROM read_parquet('{ats_parquet_path}') WHERE thread_id = ?",
+                [thread_id]
+            ).fetchone()[0]
+            rows = con.execute(
+                f"SELECT * FROM read_parquet('{ats_parquet_path}') WHERE thread_id = ? "
+                f"ORDER BY starred DESC, hs_prob DESC LIMIT ? OFFSET ?",
+                [thread_id, limit, offset]
+            ).fetchall()
+        except Exception as e:
+            print(f"⚠️ Error querying thread_id: {e}")
+            total = 0
+            rows = []
+    elif not q_str:
+        # Empty browse query: avoid scanning text entirely, return instant row stream
+        total = 7147196
+        rows = con.execute(
+            f"SELECT * FROM read_parquet('{ats_parquet_path}') LIMIT ? OFFSET ?",
+            [limit, offset]
+        ).fetchall()
+    else:
+        like = f"%{q_str}%"
+        total = con.execute(
+            f"SELECT COUNT(*) FROM read_parquet('{ats_parquet_path}') WHERE text LIKE ? OR thread_title LIKE ?",
+            [like, like],
+        ).fetchone()[0]
+        rows = con.execute(
+            f"SELECT * FROM read_parquet('{ats_parquet_path}') WHERE text LIKE ? OR thread_title LIKE ? "
+            f"ORDER BY starred DESC, hs_prob DESC LIMIT ? OFFSET ?",
+            [like, like, limit, offset],
+        ).fetchall()
+        
+    cols = [d[0] for d in con.description]
+    con.close()
+    return {"total": total, "rows": [dict(zip(cols, r)) for r in rows]}
+
+
+def query_ats_thread_posts(thread_id, center_post_id, offset, limit):
+    # Backs the threaded forum view: a scrollable window of a thread's posts
+    # in original page/post order (thread_seq), loaded in chunks so a
+    # ~10k-post thread never has to be fetched in one shot. Pass either
+    # center_post_id (first load -- centers the window on that post) or
+    # offset (subsequent scroll-more calls in either direction).
+    thread_view_path = os.path.join(os.path.dirname(DB_PATH), "ats_comments_thread_view.parquet")
+    con = duckdb.connect()
+    con.execute("PRAGMA memory_limit='450MB'")
+    con.execute("PRAGMA threads=1")
+    con.execute("PRAGMA preserve_insertion_order=false")
+
+    total = con.execute(
+        f"SELECT COUNT(*) FROM read_parquet('{thread_view_path}') WHERE thread_id = ?",
+        [thread_id],
+    ).fetchone()[0]
+
+    if center_post_id is not None:
+        center_row = con.execute(
+            f"SELECT thread_seq FROM read_parquet('{thread_view_path}') WHERE thread_id = ? AND comment_id = ?",
+            [thread_id, center_post_id],
+        ).fetchone()
+        center_seq = center_row[0] if center_row else 0
+        offset = max(0, center_seq - limit // 2)
+
+    rows = con.execute(
+        f"SELECT * FROM read_parquet('{thread_view_path}') WHERE thread_id = ? "
+        f"ORDER BY thread_seq LIMIT ? OFFSET ?",
+        [thread_id, limit, offset],
+    ).fetchall()
+    cols = [d[0] for d in con.description]
+    con.close()
+    return {"total": total, "offset": offset, "rows": [dict(zip(cols, r)) for r in rows]}
+
+
+ATS_THREAD_INDEX_SORT = {"total_comments", "thread_title"}
+
+
+def query_ats_thread_index(q, sort, direction, offset, limit):
+    # Backs the ATS forum index -- browse all 339k threads (not just the
+    # top 50 by engagement), sortable/paginated, so navigation starts from
+    # a real thread list rather than a flat unfiltered comment dump.
+    conn = get_conn()
+    try:
+        sort = sort if sort in ATS_THREAD_INDEX_SORT else "total_comments"
+        direction = "ASC" if direction == "asc" else "DESC"
+        q_str = (q or "").strip()
+        if q_str:
+            like = f"%{q_str}%"
+            total = conn.execute(
+                "SELECT COUNT(*) FROM ats_thread_index WHERE thread_title LIKE ?", (like,)
+            ).fetchone()[0]
+            rows = conn.execute(
+                f"SELECT * FROM ats_thread_index WHERE thread_title LIKE ? "
+                f"ORDER BY {sort} {direction} LIMIT ? OFFSET ?",
+                (like, limit, offset),
+            ).fetchall()
+        else:
+            total = conn.execute("SELECT COUNT(*) FROM ats_thread_index").fetchone()[0]
+            rows = conn.execute(
+                f"SELECT * FROM ats_thread_index ORDER BY {sort} {direction} LIMIT ? OFFSET ?",
+                (limit, offset),
+            ).fetchall()
+        return {"total": total, "rows": [dict(r) for r in rows]}
+    finally:
+        conn.close()
+
+
+def query_ats_static_table(table_name, limit=1000):
+    conn = get_conn()
+    try:
+        rows = conn.execute(f"SELECT * FROM {table_name} LIMIT ?", (limit,)).fetchall()
+        return {"rows": [dict(r) for r in rows]}
+    finally:
+        conn.close()
+
+
 def query_topic_rating_summary(topic_name):
     conn = get_conn()
     try:
@@ -146,6 +278,280 @@ def upsert_outlier_assignment(comment_id, original_topic, assigned_topic, rater)
         conn.commit()
     finally:
         conn.close()
+
+
+def initialize_topic_quality_tables(db_path):
+    print("=== Initializing/Migrating Topic Quality Tables ===")
+    conn = sqlite3.connect(db_path, timeout=5.0)
+    try:
+        # 1. Create topic_merges
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS topic_merges (
+                source_topic TEXT,
+                target_topic TEXT,
+                decision TEXT DEFAULT 'merge',
+                rater TEXT DEFAULT 'nash',
+                merged_at TEXT,
+                PRIMARY KEY (source_topic, target_topic, rater)
+            );
+        """)
+
+        # 2. Create topic_near_duplicate_pairs
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS topic_near_duplicate_pairs (
+                topic_a INTEGER,
+                topic_a_name TEXT,
+                topic_b INTEGER,
+                topic_b_name TEXT,
+                centroid_cosine_sim REAL,
+                keyword_jaccard REAL
+            );
+        """)
+        
+        # Seed topic_near_duplicate_pairs if empty
+        row = conn.execute("SELECT COUNT(*) FROM topic_near_duplicate_pairs").fetchone()
+        if row[0] == 0:
+            csv_path = 'data/processed/topic_near_duplicate_pairs.csv'
+            if os.path.exists(csv_path):
+                print(f"  Seeding topic_near_duplicate_pairs from {csv_path}...")
+                with open(csv_path, 'r', encoding='utf-8') as f:
+                    reader = csv.DictReader(f)
+                    for r in reader:
+                        conn.execute("""
+                            INSERT INTO topic_near_duplicate_pairs 
+                            (topic_a, topic_a_name, topic_b, topic_b_name, centroid_cosine_sim, keyword_jaccard)
+                            VALUES (?, ?, ?, ?, ?, ?)
+                        """, (int(r['topic_a']), r['topic_a_name'], int(r['topic_b']), r['topic_b_name'],
+                              float(r['centroid_cosine_sim']), float(r['keyword_jaccard'])))
+                print("  Seeded topic_near_duplicate_pairs!")
+
+        # 3. Create topic_central_claims
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS topic_central_claims (
+                topic_id INTEGER PRIMARY KEY,
+                topic_name TEXT,
+                n_comments INTEGER,
+                top_signature_claims TEXT,
+                top_claim_1 TEXT,
+                top_claim_1_local_ratio REAL,
+                top_claim_2 TEXT,
+                top_claim_2_local_ratio REAL,
+                top_claim_3 TEXT,
+                top_claim_3_local_ratio REAL
+            );
+        """)
+        
+        # Seed topic_central_claims if empty
+        row = conn.execute("SELECT COUNT(*) FROM topic_central_claims").fetchone()
+        if row[0] == 0:
+            csv_path = 'data/processed/topic_central_claims.csv'
+            if os.path.exists(csv_path):
+                print(f"  Seeding topic_central_claims from {csv_path}...")
+                with open(csv_path, 'r', encoding='utf-8') as f:
+                    reader = csv.DictReader(f)
+                    for r in reader:
+                        conn.execute("""
+                            INSERT INTO topic_central_claims 
+                            (topic_id, topic_name, n_comments, top_signature_claims, top_claim_1, top_claim_1_local_ratio, 
+                             top_claim_2, top_claim_2_local_ratio, top_claim_3, top_claim_3_local_ratio)
+                            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        """, (int(r['topic_id']), r['topic_name'], int(r['n_comments']), r['top_signature_claims'],
+                              r['top_claim_1'], float(r['top_claim_1_local_ratio'] or 0.0),
+                              r['top_claim_2'], float(r['top_claim_2_local_ratio'] or 0.0),
+                              r['top_claim_3'], float(r['top_claim_3_local_ratio'] or 0.0)))
+                print("  Seeded topic_central_claims!")
+
+        # 4. Create topic_claim_review
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS topic_claim_review (
+                topic_id INTEGER,
+                has_claim TEXT, -- 'has_claim' | 'no_coherent_claim' | 'noise_meaningless' | 'unreviewed'
+                rater TEXT DEFAULT 'nash',
+                reviewed_at TEXT,
+                PRIMARY KEY (topic_id, rater)
+            );
+        """)
+
+        # 5. Create topic_residual_comments
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS topic_residual_comments (
+                comment_id TEXT PRIMARY KEY,
+                text TEXT,
+                assigned_topic TEXT,
+                assigned_sim REAL,
+                best_other_topic TEXT,
+                best_other_sim REAL,
+                gap REAL
+            );
+        """)
+        
+        # Seed topic_residual_comments if empty
+        row = conn.execute("SELECT COUNT(*) FROM topic_residual_comments").fetchone()
+        if row[0] == 0:
+            csv_path = 'data/processed/topic_residual_comments.csv'
+            if os.path.exists(csv_path):
+                print(f"  Seeding topic_residual_comments from {csv_path}...")
+                with open(csv_path, 'r', encoding='utf-8') as f:
+                    reader = csv.DictReader(f)
+                    for r in reader:
+                        conn.execute("""
+                            INSERT INTO topic_residual_comments 
+                            (comment_id, text, assigned_topic, assigned_sim, best_other_topic, best_other_sim, gap)
+                            VALUES (?, ?, ?, ?, ?, ?, ?)
+                        """, (r['comment_id'], r['text'], r['assigned_topic'], float(r['assigned_sim']),
+                              r['best_other_topic'], float(r['best_other_sim']), float(r['gap'])))
+                print("  Seeded topic_residual_comments!")
+
+        conn.commit()
+    except Exception as e:
+        print(f"⚠️ Error initializing topic quality tables: {e}")
+    finally:
+        conn.close()
+
+
+def query_topic_near_duplicates(rater="nash"):
+    rater = rater or "nash"
+    conn = get_conn()
+    try:
+        rows = conn.execute("""
+            SELECT p.*, m.decision, m.rater, m.merged_at
+            FROM topic_near_duplicate_pairs p
+            LEFT JOIN topic_merges m ON 
+              ((m.source_topic = p.topic_a_name AND m.target_topic = p.topic_b_name AND m.rater = ?) OR
+               (m.source_topic = p.topic_b_name AND m.target_topic = p.topic_a_name AND m.rater = ?))
+        """, (rater, rater)).fetchall()
+        return {"pairs": [dict(r) for r in rows]}
+    finally:
+        conn.close()
+
+
+def upsert_topic_merge(source_topic, target_topic, decision, rater="nash"):
+    rater = rater or "nash"
+    if decision not in ["merge", "keep_separate"]:
+        raise ValueError("decision must be 'merge' or 'keep_separate'")
+    conn = get_conn()
+    try:
+        conn.execute("""
+            INSERT INTO topic_merges (source_topic, target_topic, decision, rater, merged_at)
+            VALUES (?, ?, ?, ?, ?)
+            ON CONFLICT(source_topic, target_topic, rater) DO UPDATE SET 
+              decision=excluded.decision, merged_at=excluded.merged_at
+        """, (source_topic, target_topic, decision, rater, datetime.now(timezone.utc).isoformat()))
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def delete_topic_merge(source_topic, target_topic, rater="nash"):
+    rater = rater or "nash"
+    conn = get_conn()
+    try:
+        conn.execute("""
+            DELETE FROM topic_merges 
+            WHERE (source_topic = ? AND target_topic = ? AND rater = ?)
+               OR (source_topic = ? AND target_topic = ? AND rater = ?)
+        """, (source_topic, target_topic, rater, target_topic, source_topic, rater))
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def query_topic_claims(rater="nash"):
+    rater = rater or "nash"
+    conn = get_conn()
+    try:
+        rows = conn.execute("""
+            SELECT c.*, COALESCE(r.has_claim, 'unreviewed') AS has_claim, r.reviewed_at
+            FROM topic_central_claims c
+            LEFT JOIN topic_claim_review r ON r.topic_id = c.topic_id AND r.rater = ?
+            ORDER BY c.topic_id
+        """, (rater,)).fetchall()
+        return {"claims": [dict(r) for r in rows]}
+    finally:
+        conn.close()
+
+
+def upsert_topic_claim_review(topic_id, has_claim, rater="nash"):
+    rater = rater or "nash"
+    if has_claim not in ["has_claim", "no_coherent_claim", "noise_meaningless", "unreviewed"]:
+        raise ValueError("has_claim must be 'has_claim', 'no_coherent_claim', 'noise_meaningless', or 'unreviewed'")
+    conn = get_conn()
+    try:
+        conn.execute("""
+            INSERT INTO topic_claim_review (topic_id, has_claim, rater, reviewed_at)
+            VALUES (?, ?, ?, ?)
+            ON CONFLICT(topic_id, rater) DO UPDATE SET 
+              has_claim=excluded.has_claim, reviewed_at=excluded.reviewed_at
+        """, (topic_id, has_claim, rater, datetime.now(timezone.utc).isoformat()))
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def query_topic_residual_comments(offset=0, limit=20):
+    conn = get_conn()
+    try:
+        total = conn.execute("SELECT COUNT(*) FROM topic_residual_comments").fetchone()[0]
+        rows = conn.execute("""
+            SELECT * FROM topic_residual_comments
+            ORDER BY gap ASC
+            LIMIT ? OFFSET ?
+        """, (limit, offset)).fetchall()
+        return {"total": total, "rows": [dict(r) for r in rows]}
+    finally:
+        conn.close()
+
+
+def probe_seed_claims_stage1(topic_name, seeds):
+    if not topic_name:
+        return {"results": []}
+    conn = get_conn()
+    try:
+        rows = conn.execute("""
+            SELECT comment_id, text, upvotes, char_length, date
+            FROM topic_examples
+            WHERE topic_name = ?
+        """, (topic_name,)).fetchall()
+        comments = [dict(r) for r in rows]
+    finally:
+        conn.close()
+
+    if not comments or not seeds:
+        return {"results": []}
+
+    results = []
+    for comment in comments:
+        text_words = tokenize(comment["text"])
+        if not text_words:
+            continue
+        
+        best_seed = ""
+        best_score = 0
+        overlap_words = []
+        
+        for seed in seeds:
+            seed_words = tokenize(seed)
+            overlap = text_words & seed_words
+            score = len(overlap)
+            if score > best_score:
+                best_score = score
+                best_seed = seed
+                overlap_words = list(overlap)
+        
+        if best_score > 0:
+            results.append({
+                "comment_id": comment["comment_id"],
+                "text": comment["text"],
+                "upvotes": comment["upvotes"],
+                "char_length": comment["char_length"],
+                "date": comment["date"],
+                "matched_seed": best_seed,
+                "overlap_score": best_score,
+                "overlap_words": overlap_words
+            })
+    
+    results.sort(key=lambda x: (-x["overlap_score"], -x["upvotes"]))
+    return {"results": results[:100]}
 
 
 def query_entity_monthly(entity_key):
@@ -316,6 +722,31 @@ class Handler(BaseHTTPRequestHandler):
             self.send_json({"status": "ok"})
             return
 
+        if parsed.path in {"/explorer", "/explorer/", "/explorer/index.html"}:
+            try:
+                paths_to_try = [
+                    "/home/nash/www/explorer/index.html",
+                    "index.html",
+                    "./index.html"
+                ]
+                content = None
+                for p in paths_to_try:
+                    if os.path.exists(p):
+                        with open(p, "rb") as f:
+                            content = f.read()
+                        break
+                if content is not None:
+                    self.send_response(200)
+                    self.send_header("Content-Type", "text/html; charset=utf-8")
+                    self.send_header("Content-Length", str(len(content)))
+                    self.end_headers()
+                    self.wfile.write(content)
+                else:
+                    self.send_json({"error": "could not find index.html locally"}, status=404)
+            except Exception as e:
+                self.send_json({"error": "could not load explorer interface", "detail": str(e)}, status=500)
+            return
+
         if parsed.path == "/api/entity_merges":
             conn = get_conn()
             try:
@@ -411,6 +842,45 @@ class Handler(BaseHTTPRequestHandler):
                     self.send_json(ctx)
                 else:
                     self.send_json({"error": "comment not found in context mapping"}, status=404)
+            elif parsed.path == "/api/topic_near_duplicates":
+                self.send_json(query_topic_near_duplicates(rater))
+            elif parsed.path == "/api/topic_claims":
+                self.send_json(query_topic_claims(rater))
+            elif parsed.path == "/api/topic_residual_comments":
+                self.send_json(query_topic_residual_comments(offset, limit))
+            elif parsed.path == "/api/ats_search":
+                q = q1("q") or ""
+                self.send_json(query_ats_search(q, offset, limit))
+            elif parsed.path == "/api/ats_thread_posts":
+                thread_id = q1("thread_id")
+                if not thread_id:
+                    self.send_json({"error": "missing thread_id"}, status=400)
+                    return
+                center_post_id = q1("center_post_id")
+                self.send_json(query_ats_thread_posts(
+                    int(thread_id),
+                    int(center_post_id) if center_post_id else None,
+                    offset, limit,
+                ))
+            elif parsed.path == "/api/ats_top_threads":
+                self.send_json(query_ats_static_table("ats_top_threads"))
+            elif parsed.path == "/api/ats_thread_index":
+                q = q1("q") or ""
+                sort = q1("sort") or "total_comments"
+                direction = q1("dir") or "desc"
+                self.send_json(query_ats_thread_index(q, sort, direction, offset, limit))
+            elif parsed.path == "/api/ats_domains":
+                self.send_json(query_ats_static_table("ats_domains"))
+            elif parsed.path == "/api/ats_known_entities":
+                self.send_json(query_ats_static_table("ats_known_entities"))
+            elif parsed.path == "/api/probe_seed_claims_stage1":
+                topic_name = q1("topic")
+                seeds_json = q1("seeds")
+                try:
+                    seeds = json.loads(seeds_json) if seeds_json else []
+                except ValueError:
+                    seeds = []
+                self.send_json(probe_seed_claims_stage1(topic_name, seeds))
             else:
                 self.send_json({"error": "not found"}, status=404)
         except sqlite3.Error as e:
@@ -503,6 +973,37 @@ class Handler(BaseHTTPRequestHandler):
                 finally:
                     conn.close()
                 
+            elif parsed.path == "/api/rate_topic_merge":
+                source_topic = body.get("source_topic")
+                target_topic = body.get("target_topic")
+                decision = body.get("decision")
+                rater = body.get("rater", "nash")
+                if not source_topic or not target_topic or not decision:
+                    self.send_json({"error": "source_topic, target_topic, and decision are required"}, status=400)
+                    return
+                upsert_topic_merge(source_topic, target_topic, decision, rater)
+                self.send_json({"status": "ok"})
+                
+            elif parsed.path == "/api/unmerge_topic":
+                source_topic = body.get("source_topic")
+                target_topic = body.get("target_topic")
+                rater = body.get("rater", "nash")
+                if not source_topic or not target_topic:
+                    self.send_json({"error": "source_topic and target_topic are required"}, status=400)
+                    return
+                delete_topic_merge(source_topic, target_topic, rater)
+                self.send_json({"status": "ok"})
+                
+            elif parsed.path == "/api/rate_topic_claim":
+                topic_id = body.get("topic_id")
+                has_claim = body.get("has_claim")
+                rater = body.get("rater", "nash")
+                if topic_id is None or not has_claim:
+                    self.send_json({"error": "topic_id and has_claim are required"}, status=400)
+                    return
+                upsert_topic_claim_review(int(topic_id), has_claim, rater)
+                self.send_json({"status": "ok"})
+                
             else:
                 self.send_json({"error": "not found"}, status=404)
         except ValueError as e:
@@ -561,6 +1062,8 @@ def main():
         print(f"⚠️ Error initializing/migrating entity_merges: {e}")
     finally:
         conn.close()
+
+    initialize_topic_quality_tables(DB_PATH)
 
     load_topics_summary()
 

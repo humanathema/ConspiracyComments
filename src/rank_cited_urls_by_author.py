@@ -39,7 +39,7 @@ import pandas as pd
 import duckdb
 
 ENRICHED_PATH = 'data/processed/research_corpus_enriched.parquet'
-EMPATH_PATH = 'data/processed/empath_scores_full.parquet'
+EMPATH_PATH = 'data/processed/empath_scores_full_mapped.parquet'
 OUT_PATH = 'data/processed/cited_urls_ranked.csv'
 
 URL_PATTERN = r'https?://[^\s\]\>"\']+'
@@ -62,6 +62,9 @@ def strip_unbalanced_trailing_paren(u):
     return u
 
 
+DOI_PATH_RE = re.compile(r'(/10\.\d{4,9}/[^\s?#]+)', re.IGNORECASE)
+
+
 def normalize_url(u):
     """FIX (Nash's feedback): the first version ranked http:// and https://
     variants of the same URL as separate rows (ae911truth.org split
@@ -69,15 +72,25 @@ def normalize_url(u):
     trailing slash on an otherwise-identical URL. Normalizes: force
     https, strip a bare trailing slash (but not slashes that are part of
     a real path), lowercase the domain only (not the path -- paths can be
-    legitimately case-sensitive)."""
+    legitimately case-sensitive).
+
+    FIX 2026-08-02: DOI paths are a documented, narrow exception -- DOI
+    suffixes are formally case-insensitive per the DOI spec (crossref.org),
+    but publisher-specific casing conventions (NEJM's "NEJMoa2034577" vs
+    the same paper cited as "nejmoa2034577") were splitting identical
+    papers into separate rows, undercounting real citation reach. Fixed
+    by case-folding ONLY a matched DOI-shaped path segment (/10.<prefix>/<suffix>),
+    not the path generally -- the general no-lowercase rule stays for
+    everything else (that's what protects the Lancet PII-code case above)."""
     u = re.sub(r'^http://', 'https://', u)
     m = re.match(r'^(https://[^/]+)(/.*)?$', u)
     if m:
         domain, path = m.group(1).lower(), m.group(2) or ''
         if path == '/':
             path = ''
+        path = DOI_PATH_RE.sub(lambda m2: m2.group(1).lower(), path)
         u = domain + path
-        
+
     # Standardize documentcloud.org URLs (extract ID and slug, strip subdomains/S3 paths)
     if 'documentcloud.org' in u.lower():
         u_clean = u.split('#')[0].split('?')[0]

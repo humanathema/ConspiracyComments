@@ -34,7 +34,7 @@ nav.tabs button.active { background: var(--accent-bg); color: var(--accent); bor
 section.tab { display: none; }
 section.tab.active { display: block; }
 h2.section-title { font-family: var(--serif); font-weight: 400; font-size: 17px; margin: 0 0 0.9rem; }
-.panel { background: var(--surface); border: 1px solid var(--border); border-radius: var(--r); }
+.panel { background: var(--surface); border: 1px solid var(--border); border-radius: var(--r); min-width: 0; }
 .stat-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; margin-bottom: 1.5rem; }
 .stat-tile { background: var(--surface-sunk); border-radius: var(--r); padding: 0.9rem 1rem; }
 .stat-label { font-size: 11.5px; color: var(--ink-3); text-transform: uppercase; letter-spacing: 0.03em; margin: 0 0 4px; }
@@ -184,6 +184,20 @@ tr.drill-row.selected td { background: var(--accent-bg); }
 :root[data-theme="light"] .detail-text mark.hl-demand { background: #f4dfc7; color: #5c3a13; }
 :root[data-theme="light"] .detail-text mark.hl-anecdotal { background: #e3e6f6; color: #2a2f5c; }
 :root[data-theme="light"] .detail-text mark.hl-quantitative { background: #cdece6; color: #17453a; }
+
+.thread-view { display: flex; flex-direction: column; height: 100%; min-height: 0; }
+.thread-view-head { font-size: 12px; color: var(--ink-2); padding-bottom: 0.7rem; border-bottom: 1px solid var(--border); margin-bottom: 0.6rem; flex-shrink: 0; }
+.thread-view-head .label { color: var(--ink-3); text-transform: uppercase; font-size: 10px; letter-spacing: 0.03em; }
+.thread-scroll { overflow-y: auto; flex: 1; min-height: 0; padding-right: 4px; }
+.thread-load-sentinel { text-align: center; font-size: 11px; color: var(--ink-3); padding: 10px 0; }
+.thread-post { border: 1px solid var(--border); border-radius: 6px; padding: 0.7rem 0.9rem; margin-bottom: 0.6rem; background: var(--surface-sunk); }
+.thread-post.thread-post-reply { margin-left: 2rem; border-left: 3px solid var(--accent); }
+.thread-post.thread-post-anchor { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-bg); }
+.thread-post-meta { display: flex; flex-wrap: wrap; gap: 0.5rem 0.8rem; align-items: baseline; font-size: 11.5px; color: var(--ink-2); margin-bottom: 0.45rem; }
+.thread-post-author { font-weight: 700; color: var(--ink); }
+.thread-post-replyto { font-size: 11px; color: var(--ink-3); font-style: italic; margin-bottom: 0.4rem; }
+.thread-post-text { font-family: var(--serif); line-height: 1.65; white-space: pre-wrap; font-size: 13px; }
+.thread-post-star { color: #c99a1f; }
 </style>
 
 <div class="wrap">
@@ -205,6 +219,8 @@ tr.drill-row.selected td { background: var(--accent-bg); }
     <button data-tab="comparisons">Comparison corpora</button>
     <button data-tab="keyness">Semantic keyness</button>
     <button data-tab="threads">Threads</button>
+    <button data-tab="topicquality">Topic Quality</button>
+    <button data-tab="ats">AboveTopSecret</button>
   </nav>
 
   <section class="tab active" id="tab-overview">
@@ -528,6 +544,200 @@ tr.drill-row.selected td { background: var(--accent-bg); }
       </div>
       <p class="row-count" id="threadRowCount"></p>
       <p class="caption">Thread-level unit of analysis (888,846 threads total) -- a different question from every other tab, which operates at comment level. Rolled up by linked domain (top 60 by thread count, &ge;50 threads each); a thread with no external link is grouped as "(self post)". Lexicon-average columns are per-comment scores averaged across each thread's comments -- does the kind of thing being linked predict how the discussion underneath it reads, independent of any single comment's content.</p>
+    </div>
+  </section>
+  <section class="tab" id="tab-topicquality">
+    <h2 class="section-title">Topic Quality Audit &amp; human-in-the-loop controls</h2>
+    
+    <div class="two-col" style="display: grid; grid-template-columns: 1fr 1fr; gap: 1.5rem; margin-bottom: 1.5rem;">
+      <!-- Column 1: Near-Duplicate Merges -->
+      <div class="panel">
+        <h3 style="margin-top: 0; margin-bottom: 0.5rem; display: flex; align-items: center; justify-content: space-between; font-size: 14px;">
+          <span>Topic Near-Duplicates (8 Pairs)</span>
+          <span style="font-size: 11px; font-weight: normal; background: var(--accent-bg); color: var(--accent); padding: 2px 6px; border-radius: 4px;">Piece 1</span>
+        </h3>
+        <p style="font-size: 12px; color: var(--ink-2); line-height: 1.4; margin-bottom: 1rem;">
+          These topics were flagged as near-duplicates because of high centroid cosine similarity and significant keyword Jaccard overlap. Review each pair to merge or keep separate.
+        </p>
+        <div class="table-wrap">
+          <table class="tabular">
+            <thead>
+              <tr>
+                <th>Topic A</th>
+                <th>Topic B</th>
+                <th style="text-align: right;">Sim</th>
+                <th style="text-align: right;">Overlap</th>
+                <th style="text-align: center;">Decision / Action</th>
+              </tr>
+            </thead>
+            <tbody id="topicNearDuplicatesBody">
+              <!-- Populated dynamically -->
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- Column 2: Seed-Claim Probing Tool -->
+      <div class="panel">
+        <h3 style="margin-top: 0; margin-bottom: 0.5rem; display: flex; align-items: center; justify-content: space-between; font-size: 14px;">
+          <span>Interactive Seed-Claim Probing Tool</span>
+          <span style="font-size: 11px; font-weight: normal; background: var(--accent-bg); color: var(--accent); padding: 2px 6px; border-radius: 4px;">Piece 3</span>
+        </h3>
+        <p style="font-size: 12px; color: var(--ink-2); line-height: 1.4; margin-bottom: 1rem;">
+          Type seed claims to see if they align macro-semantically with a topic's centroid, or micro-align with individual comments (reassigning matching comments with nearest-seed routing).
+        </p>
+        
+        <div style="display: flex; gap: 10px; margin-bottom: 0.8rem; align-items: center;">
+          <select id="probeTopicSelect" style="flex: 1; padding: 6px 9px; font-size: 13px; border-radius: 6px; border: 1px solid var(--border); background: var(--bg); color: var(--ink);">
+            <option value="">-- Select a topic --</option>
+          </select>
+          <button id="probeAddSeedBtn" class="btn" style="padding: 6px 12px; font-size: 12px; cursor: pointer; border: 1px solid var(--border); border-radius: 6px; background: transparent; color: var(--ink);">+ Add Seed</button>
+        </div>
+
+        <div id="probeSeedsContainer" style="display: flex; flex-direction: column; gap: 6px; margin-bottom: 1rem;">
+          <div style="display: flex; gap: 8px;">
+            <input type="text" class="probe-seed-input" placeholder="e.g. 5g networks propagate the coronavirus via cellular waves" style="flex: 1; padding: 6px 9px; font-size: 12.5px; border-radius: 6px; border: 1px solid var(--border); background: var(--bg); color: var(--ink);">
+          </div>
+        </div>
+
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
+          <div id="localServerStatus" style="font-size: 11px; display: flex; align-items: center; gap: 5px;">
+            <!-- local server status indicator -->
+          </div>
+          <button id="probeSubmitBtn" class="btn" style="padding: 7px 18px; font-size: 13px; font-weight: 600; cursor: pointer; border-radius: 6px; background: var(--accent); color: white; border: none;">Probe Claims</button>
+        </div>
+
+        <div id="probeResultsArea" style="display: none; border-top: 1px solid var(--border); padding-top: 1rem;">
+          <h4 style="margin-top: 0; margin-bottom: 0.5rem; font-size: 13px;">Macro-Alignment (Similarity to Centroid)</h4>
+          <div id="probeMacroResults" style="display: flex; flex-direction: column; gap: 6px; margin-bottom: 1rem;"></div>
+          
+          <h4 style="margin-top: 0; margin-bottom: 0.5rem; font-size: 13px; display: flex; justify-content: space-between; align-items: center;">
+            <span>Micro-Alignment Comment Clusters</span>
+            <span id="microMatchMethodBadge" style="font-size: 10px; font-weight: normal; background: var(--accent-bg); color: var(--accent); padding: 1px 5px; border-radius: 3px;">TF-IDF overlap</span>
+          </h4>
+          <div id="probeMicroResults" style="max-height: 250px; overflow-y: auto; display: flex; flex-direction: column; gap: 10px; padding-right: 5px;"></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="two-col" style="display: grid; grid-template-columns: 1fr 1fr; gap: 1.5rem; margin-top: 1.5rem;">
+      <!-- Column 3: Claim-Bearing Human Flags -->
+      <div class="panel">
+        <h3 style="margin-top: 0; margin-bottom: 0.5rem; display: flex; align-items: center; justify-content: space-between; font-size: 14px;">
+          <span>Topic Claim Classification Review</span>
+          <span style="font-size: 11px; font-weight: normal; background: var(--accent-bg); color: var(--accent); padding: 2px 6px; border-radius: 4px;">Piece 2</span>
+        </h3>
+        <p style="font-size: 12px; color: var(--ink-2); line-height: 1.4; margin-bottom: 1rem;">
+          Review and audit topics to label them as having a central claim, or as being diffuse/heterogeneous meta-discussions with no coherent central claim.
+        </p>
+        <div class="table-controls" style="display: flex; gap: 10px; align-items: center; margin-bottom: 0.8rem;">
+          <input type="text" id="claimsSearch" placeholder="Filter by topic..." style="flex: 1; padding: 5px 8px; font-size: 12px; border-radius: 4px; border: 1px solid var(--border); background: var(--bg); color: var(--ink);">
+          <select id="claimsFilterSelect" style="padding: 5px 8px; font-size: 12px; border-radius: 4px; border: 1px solid var(--border); background: var(--bg); color: var(--ink);">
+            <option value="all">All States</option>
+            <option value="unreviewed">Unreviewed</option>
+            <option value="has_claim">Has Claim</option>
+            <option value="no_coherent_claim">No Coherent Claim (diffuse, still substantive)</option>
+            <option value="noise_meaningless">Noise / Meaningless (exclude from analysis)</option>
+          </select>
+        </div>
+        <div class="table-wrap" style="max-height: 400px; overflow-y: auto;">
+          <table class="tabular">
+            <thead>
+              <tr>
+                <th>Topic</th>
+                <th>Top Signal Claims</th>
+                <th style="text-align: center; width: 180px;">Classification</th>
+              </tr>
+            </thead>
+            <tbody id="topicClaimsBody">
+              <!-- Populated dynamically -->
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- Column 4: Noise-Topic Residual Reassignments -->
+      <div class="panel">
+        <h3 style="margin-top: 0; margin-bottom: 0.5rem; display: flex; align-items: center; justify-content: space-between; font-size: 14px;">
+          <span>Broad/Noise-Topic Residual Detection Queue</span>
+          <span style="font-size: 11px; font-weight: normal; background: var(--accent-bg); color: var(--accent); padding: 2px 6px; border-radius: 4px;">Piece 4</span>
+        </h3>
+        <p style="font-size: 12px; color: var(--ink-2); line-height: 1.4; margin-bottom: 1rem;">
+          Comments assigned to meta/noise/broad topics that have a small or negative similarity gap against a secondary substantive topic. Review and reassign them.
+        </p>
+        <div class="table-wrap" style="max-height: 400px; overflow-y: auto;">
+          <table class="tabular">
+            <thead>
+              <tr>
+                <th>Comment Text</th>
+                <th>Assigned Topic</th>
+                <th>Best Substantive Alternate</th>
+                <th style="text-align: right;">Gap</th>
+                <th style="text-align: center;">Action</th>
+              </tr>
+            </thead>
+            <tbody id="topicResidualsBody">
+              <!-- Populated dynamically -->
+            </tbody>
+          </table>
+        </div>
+        <div id="residualsPagination" style="display: flex; justify-content: space-between; align-items: center; margin-top: 0.8rem; font-size: 12px;">
+          <button id="residualsPrevBtn" class="btn" style="padding: 4px 10px; cursor: pointer; border: 1px solid var(--border); border-radius: 4px; background: transparent; color: var(--ink);">&larr; Prev</button>
+          <span id="residualsPageLabel">Page 1 of --</span>
+          <button id="residualsNextBtn" class="btn" style="padding: 4px 10px; cursor: pointer; border: 1px solid var(--border); border-radius: 4px; background: transparent; color: var(--ink);">Next &rarr;</button>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="tab" id="tab-ats">
+    <h2 class="section-title">AboveTopSecret archive (browsable, 1998&ndash;2023, 7.15M comments)</h2>
+    <p class="caption">A separate, older conspiracy-forum corpus recovered from the Wayback Machine, alongside r/conspiracy -- not yet run through topic modeling or full NER. Browse it like the forum it was: pick a thread below and read the discussion in order. Keyword search is a secondary way in, for finding one specific comment.</p>
+
+    <div class="panel" style="margin-bottom: 1.5rem;">
+      <h3 style="margin-top:0; font-size:14px;">Browse threads</h3>
+      <div style="display:flex; gap:0.6rem; align-items:center; margin-bottom:0.8rem; flex-wrap:wrap;">
+        <input type="text" id="atsThreadIndexFilter" placeholder="Filter thread titles&hellip;" style="flex:1; min-width:200px; padding:7px 10px; font-size:13px; border-radius:6px; border:1px solid var(--border); background:var(--bg); color:var(--ink);">
+        <label style="font-size:12px; color:var(--ink-2);">Sort
+          <select id="atsThreadIndexSort" style="margin-left:4px; padding:5px 8px; font-size:12.5px; border-radius:6px; border:1px solid var(--border); background:var(--bg); color:var(--ink);">
+            <option value="total_comments">Most posts</option>
+            <option value="thread_title">Alphabetical</option>
+          </select>
+        </label>
+      </div>
+      <div class="table-wrap" style="max-height:520px; overflow-y:auto;">
+        <table class="tabular">
+          <thead><tr><th>Thread</th><th style="text-align:right;">Posts</th><th style="text-align:right;">Starred</th></tr></thead>
+          <tbody id="atsThreadIndexBody"></tbody>
+        </table>
+      </div>
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-top:0.6rem;">
+        <p class="row-count" id="atsThreadIndexCount" style="margin:0;"></p>
+        <button id="atsThreadIndexLoadMore" class="btn" style="padding:5px 12px; cursor:pointer; border:1px solid var(--border); border-radius:4px; background:transparent; color:var(--ink); font-size:12.5px;">Load more</button>
+      </div>
+    </div>
+
+    <div class="panel" style="margin-bottom: 1.5rem;">
+      <h3 style="margin-top:0; font-size:14px;">Top cited domains</h3>
+      <div class="table-wrap" style="max-height:260px; overflow-y:auto;">
+        <table class="tabular">
+          <thead><tr><th>Domain</th><th style="text-align:right;">Mentions</th></tr></thead>
+          <tbody id="atsDomainsBody"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="panel" style="margin-bottom:1.5rem;">
+      <h3 style="margin-top:0; font-size:14px;">Find a specific comment</h3>
+      <p style="font-size:12px; color:var(--ink-2); margin-top:0;">Secondary to browsing above &mdash; keyword search across all 7.15M comments, for when you're after one specific quote rather than reading a thread. Empty until you type something.</p>
+      <input type="text" id="atsSearchInput" placeholder="Search comment text or thread title&hellip;" style="width:100%; padding:7px 10px; font-size:13px; border-radius:6px; border:1px solid var(--border); background:var(--bg); color:var(--ink); margin-bottom:0.8rem;">
+      <div class="table-wrap" style="max-height:500px; overflow-y:auto;">
+        <table class="tabular">
+          <thead><tr><th>Thread</th><th>Author</th><th>Date</th><th>Text</th><th style="text-align:center;">Starred</th></tr></thead>
+          <tbody id="atsSearchBody"></tbody>
+        </table>
+      </div>
+      <p class="row-count" id="atsSearchCount"></p>
     </div>
   </section>
 

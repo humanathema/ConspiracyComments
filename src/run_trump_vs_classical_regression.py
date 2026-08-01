@@ -9,7 +9,7 @@ import statsmodels.formula.api as smf
 # Configuration and Paths
 CANDIDATE_PATH = "data/processed/candidate_topic_split_terms.csv"
 STAGED_PATH = "data/processed/research_corpus_staged_scores_full21m.parquet"
-EMPATH_PATH = "data/processed/empath_scores_full.parquet"
+EMPATH_PATH = "data/processed/empath_scores_full_mapped.parquet"
 THREAD_PATH = "data/processed/thread_quality_metrics.csv"
 PRESENCE_PATH = "data/processed/thread_insider_presence.csv"
 BRIGADE_PATH = "data/processed/comment_brigade_flags.csv"

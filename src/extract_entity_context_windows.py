@@ -15,7 +15,7 @@ import ahocorasick
 import pandas as pd
 import pyarrow.parquet as pq
 
-CORPUS_PATH = "data/processed/empath_scores_full.parquet"
+CORPUS_PATH = "data/processed/empath_scores_full_mapped.parquet"
 UNBUCKETED_PATH = "data/processed/entity_unbucketed_with_context.csv"
 OUT_PATH = "data/processed/entity_context_windows.csv"
 

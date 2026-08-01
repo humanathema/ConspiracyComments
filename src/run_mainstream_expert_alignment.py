@@ -11,7 +11,7 @@ import pandas as pd
 
 TEMP_PATH = "data/processed/mainstream_expert_augmented_superset_temp.csv"
 FINAL_PATH = "data/processed/mainstream_expert_augmented_superset.csv"
-PARQUET_PATH = "data/processed/empath_scores_full.parquet"
+PARQUET_PATH = "data/processed/empath_scores_full_mapped.parquet"
 ENTITY_FREQ_PATH = "data/processed/corpus_entity_frequency_final.csv"
 
 BATCH_SIZE = 150

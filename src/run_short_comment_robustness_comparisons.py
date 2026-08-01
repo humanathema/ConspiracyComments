@@ -26,7 +26,7 @@ SHORT_STANCE_CACHE_PATH = 'data/processed/entity_mentions_cache_short.parquet'
 LONG_CITATIONS_CACHE_PATH = 'data/processed/citations_cache.parquet'
 SHORT_CITATIONS_CACHE_PATH = 'data/processed/citations_cache_short.parquet'
 
-SHORT_COMMENTS_PATH = 'data/processed/conspiracy_comments_short_lte100chars.parquet'
+SHORT_COMMENTS_PATH = 'data/processed/conspiracy_comments_short_lte100chars_mapped.parquet'
 
 EPS = 1e-9
 

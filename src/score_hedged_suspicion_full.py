@@ -24,7 +24,7 @@ import pandas as pd
 import pyarrow.parquet as pq
 
 MODEL_PATH = "data/processed/hedged_suspicion_pipeline.pkl"
-INPUT_PARQUET = "data/processed/empath_scores_full.parquet"
+INPUT_PARQUET = "data/processed/empath_scores_full_mapped.parquet"
 OUTPUT_PARQUET = "data/processed/hedged_suspicion_scores_full21m.parquet"
 
 # --- STAGE 1 REGEX PATTERNS (verbatim from the original candidate-queue build) ---

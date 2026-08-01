@@ -96,7 +96,11 @@ joined AS (
     c.upvotes, regexp_replace(c.text, '[\\r\\n\\t]+', ' ', 'g') AS text,
     ROW_NUMBER() OVER (PARTITION BY e.entity_key ORDER BY c.upvotes DESC) AS rn
   FROM real_entities e
-  JOIN '{TOPIC_CORPUS}' c ON c.id = e.comment_id
+  JOIN (
+    SELECT id, upvotes, text FROM '{TOPIC_CORPUS}'
+    UNION ALL
+    SELECT id, upvotes, text FROM '{SHORT_CORPUS}'
+  ) c ON c.id = e.comment_id
   WHERE e.is_list_dump = 0
 )
 SELECT comment_id, entity_key, construct, predicted_label, p_hostile, p_endorsement, upvotes, text
@@ -166,7 +170,11 @@ WITH all_comment_ids AS (
 ),
 comment_metadata AS (
   SELECT c.id AS comment_id, c.link_id, c.parent_id
-  FROM '{TOPIC_CORPUS}' c
+  FROM (
+    SELECT id, link_id, parent_id FROM '{TOPIC_CORPUS}'
+    UNION ALL
+    SELECT id, link_id, parent_id FROM '{SHORT_CORPUS}'
+  ) c
   WHERE c.id IN (SELECT comment_id FROM all_comment_ids)
 ),
 parent_ids AS (
@@ -176,7 +184,11 @@ parent_ids AS (
 ),
 parent_texts AS (
   SELECT c.id AS parent_comment_id, regexp_replace(c.text, '[\\r\\n\\t]+', ' ', 'g') AS parent_text
-  FROM '{TOPIC_CORPUS}' c
+  FROM (
+    SELECT id, text FROM '{TOPIC_CORPUS}'
+    UNION ALL
+    SELECT id, text FROM '{SHORT_CORPUS}'
+  ) c
   WHERE c.id IN (SELECT parent_comment_id FROM parent_ids)
 ),
 joined_threads AS (
@@ -221,6 +233,11 @@ WITH extracted AS (
     regexp_extract(text, ?, 1, 'i') AS matched,
     strftime(to_timestamp(created_utc), '%Y-%m') AS month
   FROM '{TOPIC_CORPUS}'
+  UNION ALL
+  SELECT 
+    regexp_extract(text, ?, 1, 'i') AS matched,
+    strftime(to_timestamp(created_utc), '%Y-%m') AS month
+  FROM '{SHORT_CORPUS}'
 )
 SELECT 
   lower(matched) AS entity_key,
@@ -229,7 +246,7 @@ SELECT
 FROM extracted
 WHERE matched != '' AND (lower(matched) != 'who' OR matched = 'WHO')
 GROUP BY 1, 2
-""", [regex_pattern])
+""", [regex_pattern, regex_pattern])
 
 con.execute(f"""
 CREATE TABLE sq.entity_monthly AS
@@ -237,6 +254,8 @@ WITH real_entities AS (
   SELECT comment_id, entity_key, construct, predicted_label FROM '{ENTITY_CACHE_LONG}' WHERE entity_key NOT LIKE 'merged_%'
   UNION ALL
   SELECT comment_id, entity_key, construct, predicted_label FROM '{ENTITY_CACHE_EXTENDED}'
+  UNION ALL
+  SELECT comment_id, entity_key, construct, predicted_label FROM '{ENTITY_CACHE_SHORT}'
 ),
 pre_monthly AS (
   SELECT
@@ -247,7 +266,11 @@ pre_monthly AS (
     SUM(CASE WHEN e.predicted_label = 'endorsement' THEN 1 ELSE 0 END) AS n_endorsement,
     SUM(CASE WHEN e.predicted_label = 'other' THEN 1 ELSE 0 END) AS n_other
   FROM real_entities e
-  JOIN '{TOPIC_CORPUS}' c ON c.id = e.comment_id
+  JOIN (
+    SELECT id, created_utc FROM '{TOPIC_CORPUS}'
+    UNION ALL
+    SELECT id, created_utc FROM '{SHORT_CORPUS}'
+  ) c ON c.id = e.comment_id
   GROUP BY 1, 2, 3
 )
 SELECT entity_key, construct, month, mentions, n_hostile, n_endorsement, n_other FROM pre_monthly

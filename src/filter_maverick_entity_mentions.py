@@ -11,7 +11,7 @@ manually curated (see handoff §10) — swap in a curated list by pointing
 
 Usage:
     python src/filter_maverick_entity_mentions.py \\
-        --input data/processed/empath_scores_full.parquet \\
+        --input data/processed/empath_scores_full_mapped.parquet \\
         --output data/processed/maverick_entity_mention_candidates.parquet \\
         --min-mentions 2 --min-lift 1.0
 """
@@ -70,7 +70,7 @@ if __name__ == "__main__":
     ap.add_argument("--entities", default="data/processed/maverick_authority_entities.csv")
     ap.add_argument("--min-mentions", type=int, default=2)
     ap.add_argument("--min-lift", type=float, default=1.0)
-    ap.add_argument("--input", default="data/processed/empath_scores_full.parquet")
+    ap.add_argument("--input", default="data/processed/empath_scores_full_mapped.parquet")
     ap.add_argument("--output", default="data/processed/maverick_entity_mention_candidates.parquet")
     ap.add_argument("--check-only", action="store_true",
                      help="Just run the HITL sanity check, don't scan the full corpus")

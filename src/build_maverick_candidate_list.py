@@ -28,7 +28,7 @@ import ahocorasick
 import pandas as pd
 import pyarrow.parquet as pq
 
-CORPUS_PATH = "data/processed/empath_scores_full.parquet"
+CORPUS_PATH = "data/processed/empath_scores_full_mapped.parquet"
 OUT_PATH = "data/processed/maverick_candidate_entities_scored.csv"
 
 # ---------------------------------------------------------------------------

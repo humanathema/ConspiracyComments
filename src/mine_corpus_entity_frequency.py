@@ -33,7 +33,7 @@ import pandas as pd
 import pyarrow.parquet as pq
 import spacy
 
-CORPUS_PATH = "data/processed/empath_scores_full.parquet"
+CORPUS_PATH = "data/processed/empath_scores_full_mapped.parquet"
 CANDIDATE_PATH = "data/processed/maverick_candidate_entities_scored.csv"
 OUT_PATH = "data/processed/corpus_entity_frequency.csv"
 

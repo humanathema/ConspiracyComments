@@ -27,7 +27,7 @@ from stance_window_utils import extract_entity_window
 from build_entity_mentions_cache import entity_groups_for_row
 
 # Paths
-SHORT_COMMENTS_PATH = 'data/processed/conspiracy_comments_short_lte100chars.parquet'
+SHORT_COMMENTS_PATH = 'data/processed/conspiracy_comments_short_lte100chars_mapped.parquet'
 STANCE_MODEL_PATH = 'data/processed/stance_classifier_3class.joblib'
 QUEUE_OUT_PATH = 'data/hitl/queue_jones_short_stance_quality_check.csv'
 PRED_OUT_PATH = 'data/processed/jones_short_stance_quality_check_predictions.csv'

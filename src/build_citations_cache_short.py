@@ -19,7 +19,7 @@ from build_citations_cache import (
     DOMAIN_LOOKUP_PATH, DOMAIN_FALLBACK_EXCLUDED,
 )
 
-SHORT_COMMENTS_PATH = 'data/processed/conspiracy_comments_short_lte100chars.parquet'
+SHORT_COMMENTS_PATH = 'data/processed/conspiracy_comments_short_lte100chars_mapped.parquet'
 OUT_PARQUET = 'data/processed/citations_cache_short.parquet'
 OUT_CSV = 'data/processed/citations_cache_short.csv'
 

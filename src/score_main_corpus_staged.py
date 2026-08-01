@@ -51,7 +51,7 @@ def score_main_corpus():
     # source_citation evidential-grounding analysis), which verified against real
     # HITL labels excludes 77% of true personal_experience positives and 73% of
     # true procedural_skepticism positives. Wrong corpus for these two dimensions.
-    input_parquet = 'data/processed/empath_scores_full.parquet'
+    input_parquet = 'data/processed/empath_scores_full_mapped.parquet'
     output_parquet = 'data/processed/research_corpus_staged_scores_full21m.parquet'
     
     print(f"📖 Processing {input_parquet} in memory-efficient chunks...")

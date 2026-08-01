@@ -11,8 +11,8 @@ def main():
     con = duckdb.connect()
     
     # Define our source tables
-    empath_path = 'data/processed/empath_scores_full.parquet'
-    short_path = 'data/processed/conspiracy_comments_short_lte100chars.parquet'
+    empath_path = 'data/processed/empath_scores_full_mapped.parquet'
+    short_path = 'data/processed/conspiracy_comments_short_lte100chars_mapped.parquet'
     
     # Total sample sizes needed
     train_size = 100000

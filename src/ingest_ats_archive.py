@@ -440,8 +440,42 @@ POSTED_TIMESTAMP_REGEX = re.compile(
     r'\s*\n\s*\n',
     re.IGNORECASE,
 )
-QUOTE_AUTHOR_REGEX = re.compile(r'originally posted by\s+([^\n]{1,60})', re.IGNORECASE)
-REPLY_TO_REGEX = re.compile(r'reply to (?:this )?post by\s+([^\n]{1,60})', re.IGNORECASE)
+QUOTE_AUTHOR_REGEX = re.compile(r'originally posted by\s*:?\s*([^\n]{1,60})', re.IGNORECASE)
+REPLY_TO_REGEX = re.compile(r'reply to\s+(?:this\s+)?post by\s*:?\s*([^\n]{1,60})', re.IGNORECASE)
+QUOTE_PREFIX_REGEX = re.compile(r'^(?:originally posted by|reply to (?:this )?post by)\s*:?\s*', re.IGNORECASE)
+
+
+MAX_PLAUSIBLE_USERNAME_LEN = 40
+
+
+def _extract_quote_author_and_text(quotebox_text):
+    """Splits a <div class="quotebox"> element's flattened text into (author,
+    quoted_text). Across every ATS skin generation checked (2004 image-icon
+    style: '<i>Originally posted by X</i>', 2018 font-icon style: bare '<i>
+    X</i>' with no prefix phrase), the first non-blank line is usually the
+    quoted author -- with or without an 'Originally posted by' / 'reply to
+    (this) post by' prefix. But not every quotebox quotes a member post --
+    some quote a site disclaimer/footer with no author line at all, in which
+    case the "first line" heuristic would wrongly grab a chunk of that quoted
+    prose as if it were a username. Only trust the first line as an author
+    when it either had an explicit prefix phrase, or is short/plain enough to
+    plausibly be a bare username (no sentence-ending punctuation, under
+    MAX_PLAUSIBLE_USERNAME_LEN chars) -- otherwise treat the whole block as
+    author-less quoted text rather than guessing."""
+    lines = [_clean_ws(ln) for ln in str(quotebox_text).split('\n')]
+    lines = [ln for ln in lines if ln]
+    if not lines:
+        return None, ''
+    had_prefix = bool(QUOTE_PREFIX_REGEX.match(lines[0]))
+    candidate = QUOTE_PREFIX_REGEX.sub('', lines[0]).strip()
+    looks_like_username = (
+        candidate
+        and len(candidate) <= MAX_PLAUSIBLE_USERNAME_LEN
+        and not re.search(r'[.!?]\s+\S', candidate)
+    )
+    if had_prefix or looks_like_username:
+        return candidate or None, ' '.join(lines[1:]).strip()
+    return None, ' '.join(lines).strip()
 PROFILE_TD_SIGNATURE_REGEX = re.compile(r'authors/|registered:|ats points|mediumtxt', re.IGNORECASE)
 
 
@@ -480,6 +514,128 @@ def _author_from_profile_td(td):
             break
         return line
     return None
+
+
+POST_CONTAINER_MARKERS = re.compile(r'guestpost|threadpost', re.IGNORECASE)
+ICON_STAR_REGEX = re.compile(r'icon-star', re.IGNORECASE)
+
+
+def _is_quotebox(tag):
+    """Matches ATS's quote wrapper across skins: <div class="quotebox"> in
+    older/font-icon skins, <blockquote id="quotebox"> in the 2014+ skin
+    seen alongside 'threadpost'/'KonaBody' class names. Structure (a div or
+    blockquote flagged as a quote) matters here, not the specific tag/attr
+    combination, since that varies by skin generation."""
+    if tag.name not in ('div', 'blockquote'):
+        return False
+    return 'quotebox' in (tag.get('class') or []) or tag.get('id') == 'quotebox'
+
+
+def _find_div_post_container(anchor, next_anchor):
+    """For skins with no <tr> structure at all (found 2026-07-27: a 'guestpost'
+    div-based skin and a 'threadpost' div-based skin, both post-~2010,
+    neither using the table layout every skin up to that point used -- see
+    handoff/task_ats_topic_modeling.md's sibling audit for how this was
+    found and how much of the corpus it affects). Climbs the anchor's div
+    ancestors looking for a known post-container marker first; falls back to
+    the smallest ancestor div that doesn't also contain the NEXT post's
+    anchor, so an unrecognized future skin still gets a sane per-post
+    boundary instead of silently producing nothing."""
+    for div in anchor.find_parents('div'):
+        marker_text = (div.get('id') or '') + ' ' + ' '.join(div.get('class') or [])
+        if POST_CONTAINER_MARKERS.search(marker_text):
+            return div
+    for div in anchor.find_parents('div'):
+        if next_anchor is not None and any(
+            a is next_anchor for a in div.find_all('a', attrs={'name': PID_NAME_REGEX})
+        ):
+            continue
+        return div
+    return None
+
+
+def _author_from_div_container(div):
+    link = div.find('a', class_=re.compile(r'membr', re.IGNORECASE))
+    return _clean_ws(link.get_text()) if link else None
+
+
+def _build_post_dict(content_parts, post_id, author, thread_id, page_num, title_text):
+    """Shared field-extraction logic for one post, given the BeautifulSoup
+    element(s) that make up its header+body. Used by both the table-row-based
+    primary path and the div-based fallback path for skins with no <tr>
+    structure -- everything past 'find this post's elements' is identical
+    regardless of which skin produced them, since it all operates on
+    flattened text/regex from here on. Returns None for degenerate/corrupted
+    captures that shouldn't become a fake comment."""
+    starred = (
+        any(part.find('img', src=STAR_IMG_REGEX) for part in content_parts)
+        or any(part.find(class_=ICON_STAR_REGEX) for part in content_parts)
+    )
+
+    # Extract quoted content BEFORE flattening to text. ATS wraps quotes in a
+    # quotebox element (div or blockquote, see _is_quotebox) in every skin
+    # generation checked -- a reliable structural marker that's invisible to
+    # a regex run on already-flattened text, since get_text() has no way to
+    # signal where a quote block started/ended by that point. Only the
+    # OUTERMOST quotebox per occurrence is extracted (a quote-of-a-quote's
+    # own nested quotebox belongs to what the outer quote's author was
+    # themselves quoting, not to this post's own direct reply target);
+    # decomposing the outer one removes its nested descendants from the tree
+    # too, so the cleaned body never contains any of it.
+    quoted_authors, quoted_texts = [], []
+    for part in content_parts:
+        for qbox in part.find_all(_is_quotebox):
+            if qbox.find_parent(_is_quotebox) is not None:
+                continue
+            qauthor, qtext = _extract_quote_author_and_text(qbox.get_text('\n'))
+            if qauthor:
+                quoted_authors.append(qauthor)
+            quoted_texts.append(qtext)
+            qbox.decompose()
+
+    full_text = '\n'.join(part.get_text('\n') for part in content_parts)
+
+    ts_match = POSTED_TIMESTAMP_REGEX.search(full_text)
+    raw_timestamp = _clean_ws(ts_match.group(1)) if ts_match else 'Unknown'
+    if ts_match and ts_match.group(2) and not author:
+        author = _clean_ws(ts_match.group(2))
+
+    # Fallback regex pass, now colon-tolerant ("originally posted by: X", not
+    # just "originally posted by X" -- the earlier version silently matched
+    # nothing on the colon variant). This only fires on whatever text remains
+    # after quotebox removal above, so it's a residual catch for quote markup
+    # that isn't wrapped in a proper quotebox element (rare, but seen in a
+    # handful of malformed/edge-case captures), not the primary path anymore.
+    # REPLY_TO_REGEX's "reply to (this) post by X" also directly matches the
+    # 'guestpost' skin's inline hyperlinked reply marker, no extra handling
+    # needed for that skin beyond finding its post boundary correctly.
+    reply_to_authors = list(quoted_authors)
+    reply_to_authors += [_clean_ws(m) for m in QUOTE_AUTHOR_REGEX.findall(full_text)]
+    reply_to_authors += [_clean_ws(m) for m in REPLY_TO_REGEX.findall(full_text)]
+
+    body_text = re.sub(r'\s*\n\s*', '\n', full_text).strip()
+    body_text = re.sub(r'\n{3,}', '\n\n', body_text)
+
+    # A handful of captures have genuinely malformed/unclosed HTML that
+    # confuses table-structure parsing regardless of skin, landing the
+    # anchor's row on the page's own nav-bar chrome instead of the real post
+    # row. That's source corruption, not a parseable template - skip rather
+    # than emit nav text as a fake comment body.
+    if 'BelowTopSecret.com' in body_text:
+        return None
+
+    return {
+        'thread_id': thread_id,
+        'thread_title': title_text,
+        'page_num': page_num,
+        'post_id': post_id,
+        'author': author or 'Unknown',
+        'raw_timestamp': raw_timestamp,
+        'body': body_text,
+        'starred': starred,
+        'reply_to_authors': reply_to_authors,
+        'quoted_texts': quoted_texts,
+    }
 
 
 def _find_anchor_row(anchor, max_climb=2):
@@ -583,39 +739,29 @@ def parse_html_file(file_path, thread_id=None, page_num=None):
             sib = sib.find_next_sibling('tr')
             hops += 1
 
-        full_text = '\n'.join(part.get_text('\n') for part in content_parts)
-        starred = any(part.find('img', src=STAR_IMG_REGEX) for part in content_parts)
+        post = _build_post_dict(content_parts, post_id, author, thread_id, page_num, title_text)
+        if post is not None:
+            posts_extracted.append(post)
 
-        ts_match = POSTED_TIMESTAMP_REGEX.search(full_text)
-        raw_timestamp = _clean_ws(ts_match.group(1)) if ts_match else 'Unknown'
-        if ts_match and ts_match.group(2) and not author:
-            author = _clean_ws(ts_match.group(2))
-
-        reply_to_authors = [_clean_ws(m) for m in QUOTE_AUTHOR_REGEX.findall(full_text)]
-        reply_to_authors += [_clean_ws(m) for m in REPLY_TO_REGEX.findall(full_text)]
-
-        body_text = re.sub(r'\s*\n\s*', '\n', full_text).strip()
-        body_text = re.sub(r'\n{3,}', '\n\n', body_text)
-
-        # A handful of captures have genuinely malformed/unclosed HTML that
-        # confuses table-structure parsing regardless of skin, landing the
-        # anchor's row on the page's own nav-bar chrome instead of the real
-        # post row. That's source corruption, not a parseable template - skip
-        # rather than emit nav text as a fake comment body.
-        if 'BelowTopSecret.com' in body_text:
-            continue
-
-        posts_extracted.append({
-            'thread_id': thread_id,
-            'thread_title': title_text,
-            'page_num': page_num,
-            'post_id': post_id,
-            'author': author or 'Unknown',
-            'raw_timestamp': raw_timestamp,
-            'body': body_text,
-            'starred': starred,
-            'reply_to_authors': reply_to_authors,
-        })
+    # Fallback for skins with no <tr> structure at all (found 2026-07-27: a
+    # 'guestpost' div-based skin and a 'threadpost' div-based skin, both
+    # concentrated post-~2010 but also seen scattered in earlier Common-
+    # Crawl-sourced captures -- see handoff/task_ats_topic_modeling.md's
+    # sibling audit). The primary loop above finds zero posts for these,
+    # since _find_anchor_row never locates an enclosing <tr>. Only runs when
+    # anchors exist but the table-based pass found nothing, so it never
+    # touches (or risks regressing) the already-working table-based skins.
+    if anchors and not posts_extracted:
+        for idx, anchor in enumerate(anchors):
+            post_id = PID_NAME_REGEX.match(anchor.get('name', '')).group(1)
+            next_anchor = anchors[idx + 1] if idx + 1 < len(anchors) else None
+            div = _find_div_post_container(anchor, next_anchor)
+            if div is None:
+                continue
+            author = _author_from_div_container(div)
+            post = _build_post_dict([div], post_id, author, thread_id, page_num, title_text)
+            if post is not None:
+                posts_extracted.append(post)
 
     return posts_extracted
 
@@ -834,6 +980,56 @@ def convert_jsonl_to_parquet(input_path, output_path):
     print(f"{in_size/1e6:.1f} MB -> {out_size/1e6:.1f} MB ({out_size/in_size:.1%} of original)")
 
 
+def compress_cache(cache_dir=DEFAULT_CACHE_DIR, delete_raw=False):
+    """
+    Compresses the entire raw HTML cache directory into a highly-compressed .tar.gz archive.
+    Once successfully written and verified, optionally deletes the raw HTML directory.
+    """
+    import tarfile
+    import shutil
+    
+    if not os.path.exists(cache_dir):
+        print(f"Error: Cache directory {cache_dir} does not exist.", file=sys.stderr)
+        return
+        
+    archive_path = cache_dir + ".tar.gz"
+    print(f"Compressing cache directory {cache_dir} -> {archive_path}...")
+    
+    html_files = [f for f in os.listdir(cache_dir) if f.endswith('.html')]
+    if not html_files:
+        print(f"No HTML files found in {cache_dir} to compress.")
+        return
+        
+    print(f"Packaging and compressing {len(html_files):,} HTML files using Gzip...")
+    start_time = time.time()
+    
+    try:
+        # Create tar.gz using buffered stream
+        with tarfile.open(archive_path, "w:gz") as tar:
+            tar.add(cache_dir, arcname=os.path.basename(cache_dir))
+            
+        duration = time.time() - start_time
+        orig_size_gb = sum(os.path.getsize(os.path.join(cache_dir, f)) for f in html_files) / (1024 * 1024 * 1024)
+        comp_size_gb = os.path.getsize(archive_path) / (1024 * 1024 * 1024)
+        
+        print(f"\nSuccess! Archive created in {duration:.1f} seconds.")
+        print(f"Original Size: {orig_size_gb:.3f} GB")
+        print(f"Compressed Size: {comp_size_gb:.3f} GB ({comp_size_gb/orig_size_gb:.1%} of original!)")
+        
+        if delete_raw:
+            print(f"\nDeleting uncompressed raw HTML folder {cache_dir} to free up disk space...")
+            shutil.rmtree(cache_dir)
+            print("Successfully removed raw directory! Disk space reclaimed.")
+        else:
+            print(f"\nNote: Raw HTML folder remains intact. To delete it and reclaim space, run with --delete-raw flag.")
+            
+    except Exception as e:
+        print(f"Error during compression: {e}", file=sys.stderr)
+        if os.path.exists(archive_path):
+            os.remove(archive_path)
+
+
+
 def main():
     parser = argparse.ArgumentParser(description="AboveTopSecret Wayback Machine Ingestion Pipeline")
     subparsers = parser.add_subparsers(dest="command", help="Subcommand to execute")
@@ -863,6 +1059,12 @@ def main():
     parquet_parser = subparsers.add_parser("to-parquet", help="Convert the JSONLines comments export to Parquet")
     parquet_parser.add_argument("--input", default=DEFAULT_OUTPUT_FILE, help="Path to the JSONLines comments file")
     parquet_parser.add_argument("--output", default=None, help="Path to write the Parquet file (default: input with .parquet extension)")
+
+    # Subcommand: compress
+    compress_parser = subparsers.add_parser("compress", help="Compress raw HTML cache into a tar.gz archive to save disk space")
+    compress_parser.add_argument("--cache-dir", default=DEFAULT_CACHE_DIR, help="Directory containing cached HTML files")
+    compress_parser.add_argument("--delete-raw", action="store_true", help="Delete raw uncompressed HTML directory upon successful compression")
+
 
     # Subcommand: run-pipeline
     pipe_parser = subparsers.add_parser("run-pipeline", help="Run end-to-end extraction for specific thread IDs")
@@ -912,6 +1114,10 @@ def main():
     elif args.command == "to-parquet":
         output_path = args.output or (os.path.splitext(args.input)[0] + '.parquet')
         convert_jsonl_to_parquet(args.input, output_path)
+
+    elif args.command == "compress":
+        compress_cache(cache_dir=args.cache_dir, delete_raw=args.delete_raw)
+
 
     elif args.command == "run-pipeline":
         thread_ids = [int(t.strip()) for t in args.threads.split(',')]

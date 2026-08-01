@@ -120,18 +120,31 @@ def main():
     parser = argparse.ArgumentParser(description="Stage C ambiguous classifier")
     parser.add_argument("--maverick", action="store_true", help="Run maverick disambiguation mode")
     parser.add_argument("--mainstream", action="store_true", help="Run mainstream expert mode")
+    parser.add_argument("--ats", action="store_true", help="Run on AboveTopSecret (ATS) corpus")
     args = parser.parse_args()
 
-    if args.maverick:
-        wordbags_path = "data/processed/stage_b_maverick_word_bags.json"
-        classified_out = "data/processed/maverick_entity_disambiguation_classified.csv"
-        signature_out = "data/processed/stage_c_maverick_signature_words.json"
-        mode_name = "Maverick Expert"
+    if args.ats:
+        if args.maverick:
+            wordbags_path = "data/processed/stage_b_ats_maverick_word_bags.json"
+            classified_out = "data/processed/ats_maverick_entity_disambiguation_classified.csv"
+            signature_out = "data/processed/stage_c_ats_maverick_signature_words.json"
+            mode_name = "ATS Maverick Expert"
+        else:
+            wordbags_path = "data/processed/stage_b_ats_word_bags.json"
+            classified_out = "data/processed/ats_entity_disambiguation_classified.csv"
+            signature_out = "data/processed/stage_c_ats_signature_words.json"
+            mode_name = "ATS Mainstream Expert"
     else:
-        wordbags_path = WORDBAGS_PATH
-        classified_out = CLASSIFIED_OUT
-        signature_out = SIGNATURE_OUT
-        mode_name = "Mainstream Expert"
+        if args.maverick:
+            wordbags_path = "data/processed/stage_b_maverick_word_bags.json"
+            classified_out = "data/processed/maverick_entity_disambiguation_classified.csv"
+            signature_out = "data/processed/stage_c_maverick_signature_words.json"
+            mode_name = "Maverick Expert"
+        else:
+            wordbags_path = WORDBAGS_PATH
+            classified_out = CLASSIFIED_OUT
+            signature_out = SIGNATURE_OUT
+            mode_name = "Mainstream Expert"
 
     print(f"Running classification in {mode_name} mode...")
 

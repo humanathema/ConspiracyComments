@@ -36,7 +36,7 @@ import pyarrow.parquet as pq
 
 REVIEW_PATH = "data/processed/entity_final_review.csv"
 FULL_ENTITY_LIST_PATH = "data/processed/corpus_entity_frequency_final.csv"
-CORPUS_PATH = "data/processed/empath_scores_full.parquet"
+CORPUS_PATH = "data/processed/empath_scores_full_mapped.parquet"
 
 WORDBAGS_OUT = "data/processed/stage_g_word_bags.json"
 CLASSIFIED_OUT = "data/processed/stage_g_classified.csv"

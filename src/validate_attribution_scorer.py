@@ -29,7 +29,7 @@ from attribution_confidence_scorer import score_entity_attribution
 from verified_maverick_additions import VERIFIED_MAVERICK_ADDITIONS
 
 STAGED_PATH = "data/processed/research_corpus_staged_scores_full21m.parquet"
-EMPATH_PATH = "data/processed/empath_scores_full.parquet"
+EMPATH_PATH = "data/processed/empath_scores_full_mapped.parquet"
 ENTITY_PATH = "data/processed/entity_final_review.csv"
 OUT_PATH = "data/processed/attribution_scorer_validation_sample.csv"
 SAMPLE_SIZE = 400

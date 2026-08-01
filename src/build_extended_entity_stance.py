@@ -58,6 +58,7 @@ from per_entity_stance_breakdown import summarize
 
 STANCE_MODEL_PATH = 'data/processed/stance_classifier_2stage_pooled.joblib'
 OTHER_ENTITIES_PATH = 'data/processed/other_entities_mentions.csv'
+UNREVIEWED_ENTITIES_PATH = 'data/processed/missing_entity_candidates.csv'
 OUT_PARQUET = 'data/processed/entity_mentions_cache_extended.parquet'
 OUT_BREAKDOWN = 'data/processed/per_entity_stance_breakdown_extended.csv'
 MIN_MENTIONS_TO_REPORT = 20
@@ -117,6 +118,21 @@ def load_entity_list():
             if name.lower() in covered:
                 continue
             entities.append((name, row['bucket']))
+
+    # Nash, 2026-07-26: extend stance coverage to the "unreviewed" list too --
+    # these have no construct/bucket decision yet, but stance classification
+    # doesn't depend on knowing the bucket first, and it's the same validated
+    # classifier, no new judgment calls. Tagged construct='unreviewed' so the
+    # explorer can show real stance numbers without pretending a bucket
+    # decision has been made.
+    already = set(name.lower() for name, _ in entities)
+    with open(UNREVIEWED_ENTITIES_PATH, newline='', encoding='utf-8') as f:
+        for row in csv.DictReader(f):
+            name = row['entity'].strip()
+            if not name or name.lower() in covered or name.lower() in already:
+                continue
+            entities.append((name, 'unreviewed'))
+            already.add(name.lower())
 
     print(f"Loaded {len(entities)} entities across {len(set(c for _, c in entities))} constructs.")
     return entities

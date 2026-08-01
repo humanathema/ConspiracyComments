@@ -56,7 +56,7 @@ MIN_TOTAL_MENTIONS = 150            # entity must clear this to get a reversal r
 MIN_HALF_MENTIONS = 30              # each half (early/late) must clear this too
 
 
-def build_long_table_with_time(df, has_col, rx, lookup, candidate_to_bares, vec, clf, classes, text_lookup, time_lookup):
+def build_long_table_with_time(df, has_col, rx, lookup, candidate_to_bares, vec, clf, classes, text_lookup, time_lookup, strict=False, threshold=0.55, margin=0.30):
     mask = df[has_col] == 1
     ids = df.loc[mask, 'id'].astype(str)
     print(f"  Processing {len(ids):,} {has_col} mentions...")
@@ -89,12 +89,34 @@ def build_long_table_with_time(df, has_col, rx, lookup, candidate_to_bares, vec,
     X = vec.transform(windows_to_score)
     probs = clf.predict_proba(X)
     pred_idx = probs.argmax(axis=1)
+
+    if strict:
+        print(f"  [strict] Applying selective confidence filter (threshold >= {threshold}, margin >= {margin})...")
+        final_labels = []
+        for p_vec, default_idx in zip(probs, pred_idx):
+            p_top = p_vec[default_idx]
+            pred_label = classes[default_idx]
+            
+            if pred_label in ['hostile', 'endorsement']:
+                sorted_p = sorted(p_vec)
+                p_margin = sorted_p[-1] - sorted_p[-2]
+                
+                if p_top < threshold or p_margin < margin:
+                    final_labels.append('other')
+                else:
+                    final_labels.append(pred_label)
+            else:
+                final_labels.append('other')
+    else:
+        final_labels = [classes[i] for i in pred_idx]
+
     out = pd.DataFrame(row_meta)
     for i, c in enumerate(classes):
         out[f"p_{c}"] = probs[:, i]
-    out["predicted_label"] = [classes[i] for i in pred_idx]
+    out["predicted_label"] = final_labels
     out["year"] = pd.to_datetime(out["created_utc"], unit="s").dt.year
     return out
+
 
 
 def yearly_summary(long_df, construct_label, classes):
@@ -164,10 +186,18 @@ def main():
     global MIN_TOTAL_MENTIONS
     parser = argparse.ArgumentParser()
     parser.add_argument('--min-total-mentions', type=int, default=MIN_TOTAL_MENTIONS)
+    parser.add_argument('--strict', action='store_true', help="Apply selective confidence thresholding")
+    parser.add_argument('--threshold', type=float, default=0.55, help="Confidence threshold for polar stances")
+    parser.add_argument('--margin', type=float, default=0.30, help="Confidence margin threshold")
     args = parser.parse_args()
     MIN_TOTAL_MENTIONS = args.min_total_mentions
+    strict = args.strict
+    threshold = args.threshold
+    margin = args.margin
 
     print("=== Per-entity stance over time (r/conspiracy, unfiltered population) ===")
+    if strict:
+        print(f"Applying SELECTIVE CONFIDENCE GATING (threshold >= {threshold}, margin >= {margin})")
 
     print("Loading stance classifier...")
     stance_model = joblib.load(STANCE_MODEL_PATH)
@@ -220,21 +250,28 @@ def main():
     print(f"  Fetched {len(text_lookup):,} texts.")
 
     print("\nBuilding per-entity long table with time (maverick)...")
-    long_mav = build_long_table_with_time(df, 'has_maverick', rx_mav, lookup, MAVERICK_CANDIDATE_TO_BARES, vec, clf, classes, text_lookup, time_lookup)
+    long_mav = build_long_table_with_time(df, 'has_maverick', rx_mav, lookup, MAVERICK_CANDIDATE_TO_BARES, vec, clf, classes, text_lookup, time_lookup, strict, threshold, margin)
     print("Building per-entity long table with time (consensus)...")
-    long_con = build_long_table_with_time(df, 'has_consensus_expert', rx_con, consensus_lookup, CONSENSUS_CANDIDATE_TO_BARES, vec, clf, classes, text_lookup, time_lookup)
+    long_con = build_long_table_with_time(df, 'has_consensus_expert', rx_con, consensus_lookup, CONSENSUS_CANDIDATE_TO_BARES, vec, clf, classes, text_lookup, time_lookup, strict, threshold, margin)
 
     yearly_mav = yearly_summary(long_mav, 'maverick', classes)
     yearly_con = yearly_summary(long_con, 'consensus', classes)
     yearly = pd.concat([yearly_mav, yearly_con], ignore_index=True)
-    yearly.to_csv(YEARLY_OUT_PATH, index=False)
-    print(f"\nSaved yearly breakdown to {YEARLY_OUT_PATH}")
+    
+    yearly_out = YEARLY_OUT_PATH
+    reversal_out = REVERSAL_OUT_PATH
+    if strict:
+        yearly_out = yearly_out.replace(".csv", f"_strict_t{int(threshold*100)}_m{int(margin*100)}.csv")
+        reversal_out = reversal_out.replace(".csv", f"_strict_t{int(threshold*100)}_m{int(margin*100)}.csv")
+
+    yearly.to_csv(yearly_out, index=False)
+    print(f"\nSaved yearly breakdown to {yearly_out}")
 
     rev_mav = reversal_summary(long_mav, 'maverick')
     rev_con = reversal_summary(long_con, 'consensus')
     reversal = pd.concat([rev_mav, rev_con], ignore_index=True)
-    reversal.to_csv(REVERSAL_OUT_PATH, index=False)
-    print(f"Saved early-vs-late reversal summary to {REVERSAL_OUT_PATH}")
+    reversal.to_csv(reversal_out, index=False)
+    print(f"Saved early-vs-late reversal summary to {reversal_out}")
 
     print(f"\n=== Alex Jones, year by year (min {MIN_MENTIONS_TO_REPORT_YEAR} mentions/year) ===")
     jones_years = yearly_mav[(yearly_mav['entity'] == 'alex jones') & (yearly_mav['mention_count'] >= MIN_MENTIONS_TO_REPORT_YEAR)]
@@ -257,6 +294,7 @@ def main():
         print("  No entity cleared the mention thresholds.")
 
     print("\nDone.")
+
 
 
 if __name__ == "__main__":

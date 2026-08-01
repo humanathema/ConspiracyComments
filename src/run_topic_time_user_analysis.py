@@ -25,7 +25,7 @@ from refine_thesis_models import build_regex
 
 # File paths
 STAGED_PATH = 'data/processed/research_corpus_staged_scores_full21m.parquet'
-EMPATH_PATH = 'data/processed/empath_scores_full.parquet'
+EMPATH_PATH = 'data/processed/empath_scores_full_mapped.parquet'
 HIGH_UPVOTE_TOPICS_PATH = 'data/processed/high_upvote_with_topics.parquet'
 TOPIC_NAMES_PATH = 'data/processed/monthTopics1.csv'
 USERS_CENSUS_PATH = 'data/processed/df_users_live.csv'

@@ -51,7 +51,7 @@ import pandas as pd
 import statsmodels.formula.api as smf
 
 STAGED_PATH = "data/processed/research_corpus_staged_scores_full21m.parquet"
-EMPATH_PATH = "data/processed/empath_scores_full.parquet"
+EMPATH_PATH = "data/processed/empath_scores_full_mapped.parquet"
 INSIDER_PATH = "data/processed/author_insider_metrics.csv"
 THREAD_PATH = "data/processed/thread_quality_metrics.csv"
 PRESENCE_PATH = "data/processed/thread_insider_presence.csv"

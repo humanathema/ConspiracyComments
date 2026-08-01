@@ -19,7 +19,7 @@ from refine_thesis_models import build_regex
 from consensus_experts_verified import VERIFIED_CONSENSUS_EXPERTS
 
 QUEUE_PATH = "data/hitl/queue_consensus_stance.csv"
-EMPATH_PATH = "data/processed/empath_scores_full.parquet"
+EMPATH_PATH = "data/processed/empath_scores_full_mapped.parquet"
 
 
 def main():
@@ -40,7 +40,7 @@ def main():
     con = duckdb.connect()
     ids = df["id"].astype(str).tolist()
     id_list_sql = ",".join(f"'{i}'" for i in ids)
-    # NOTE: empath_scores_full.parquet has ~58,669 duplicate `id` rows
+    # NOTE: empath_scores_full_mapped.parquet has ~58,669 duplicate `id` rows
     # (a known, separately-documented data-quality issue in the core
     # corpus files -- see ANTIGRAVITY_HANDOFF.md). QUALIFY here to take
     # exactly one row per id, or this merge fans out and duplicates queue
