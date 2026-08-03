@@ -61,9 +61,17 @@ structure). It would likely need:
 
 ## Status
 
-Not scoped, not started, no code written. First real next step, when
-picked up: scope a **small pilot** (e.g. the largest N threads in the
-100k reddit sample, or a fixed thread-count/depth cap) before
-considering ATS+BTS+full-corpus scale — mirrors how the embedding-model
-comparison itself was scoped down to the 100k sample rather than the
-full multi-million-row corpus first.
+CORRECTED 2026-08-02 (was stale/wrong): the whole-chain (thread-level
+monolithic) embedding piece of this IS done, just not under a name this
+doc anticipated. `data/processed/graph_pilot_top200_depth/chain_embeddings_gemini.npy`
+is (29,913, 3072) float32 -- one Gemini embedding per WHOLE reply-chain
+(the full concatenated chain text embedded as a single document, not
+per-comment, not a step-wise trajectory -- that's the separate
+`chain_trajectories_gemini.parquet` artifact). 29,913/29,913 chains
+embedded (done mask confirms), only 3 failed/zero-vector.
+
+Still genuinely NOT done: the more elaborate attention/hierarchical,
+thread-position-aware encoding scheme described above, and the
+selective largest-threads-first prioritization, entity/timeline
+integration, and author-level integration. Those remain real open work
+-- only the "one embedding per whole chain" piece exists so far.

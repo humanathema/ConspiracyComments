@@ -76,6 +76,63 @@ probably the more interesting finding (surfaces content the top-down
 taxonomy didn't anticipate, or graph communities driven by surface
 phrasing rather than real semantic domains).
 
+## Expanded signal design (2026-08-02, later same session) — explicit
+## anti-black-box requirement
+
+Nash's framing, verbatim in spirit: "these different features we pick
+should be tunable, but we want this not to be a black box as we
+progress -- we want it to be comprehensible at each stage as much as
+possible, a conscious rejection of the black box AI approach." This is
+a real design constraint, not a preference -- it argues for a
+**multiplex graph**: same node set, multiple SEPARATE named edge
+layers, never collapsed into one blended similarity score. Each layer
+should be independently computable, independently inspectable (run
+community detection on it ALONE before combining anything), and
+independently tunable (turn a layer on/off, reweight it) -- so a
+finding can always be traced back to which signal(s) produced it.
+Layer disagreement is itself informative, not noise to average away
+(e.g. two threads linked by author-burst co-occurrence but NOT by
+semantic similarity flags "this author was doing something unrelated
+in the same session," a real finding a pre-blended score would erase).
+
+Six layers now scoped (two implemented in `src/graph_pilot.py`'s first
+pilot, four designed but not built):
+
+1. **Reply structure** (implemented) -- direct `parent_id` -> `id`
+   edges within a thread.
+2. **Semantic similarity** (implemented) -- k-NN cosine edges from
+   comment embeddings (MiniLM in the pilot; the earlier embedding-model
+   test showed Gemini doesn't obviously help here, so no reason to pay
+   for it in this context either).
+3. **Author co-participation** -- author X appears in threads A and B
+   -> edge between those threads, weighted by shared-thread count.
+4. **Author-pair recurring exchange** -- a DISTINCT, stronger signal
+   from #3: A replied to B (or vice versa, real reply edges, not just
+   co-presence) in more than one separate thread. Two people who've
+   actually argued across three threads is a different fact from two
+   people who happened to both comment in three threads without
+   interacting -- deliberately not folded into #3.
+5. **Post-title topic similarity** -- a thread-to-thread signal (not
+   comment-to-comment): embed post titles, connect threads by title
+   similarity. Distinct axis from within-thread comment content (#2).
+6. **Author burst co-occurrence** -- the newest, most novel signal: for
+   each author, find contiguous windows of rapid activity (several
+   comments close together in time -- a "burst," roughly a session of
+   engagement). If a single burst spans multiple threads, that's a real
+   behavioral link between those threads independent of content
+   similarity -- those threads were live in the same person's attention
+   *simultaneously*. Genuinely different from #3 (no timing
+   requirement) and #2 (pure content, no behavior). How hard/soft this
+   signal should be (burst-window width, minimum burst size) is
+   explicitly unresolved -- Nash flagged this himself ("idk how hard or
+   soft that signal should be").
+
+`src/graph_pilot.py`'s first pilot run (top 100 threads by comment
+count, ~313k comments, layers 1+2 only) also computes normalized mutual
+information between the two layers' independent community-detection
+results -- a first concrete instance of the "compare layers before
+combining" principle above, not just a design intention.
+
 ## Real constraints, confirmed this session
 
 - **Full corpus lives on Kaggle, not locally.** `empath_scores_full_mapped.parquet`

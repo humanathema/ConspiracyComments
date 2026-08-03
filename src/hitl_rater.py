@@ -60,9 +60,26 @@ QUEUES = {
     "escalation_human_review": _abs("data/hitl/queue_escalation_human_review.csv"),
     "frontier_disagreement_qc": _abs("data/hitl/queue_frontier_disagreement_qc.csv"),
     "qwen_escalation_review": _abs("data/hitl/queue_qwen_escalation_review.csv"),
+    # Added 2026-08-03: confidently-wrong stage1 requeue (rerun of
+    # build_active_learning_requeue.py against round5-bigval's actual
+    # trained model -- tiers 1/2 specifically target the "confidently
+    # wrong other/stance" failure mode found via the threshold-sweep
+    # diagnostics tonight, not generic boundary uncertainty), plus the
+    # escalation ladder's aleatoric+no-context rows (39+29=68) that were
+    # flagged since 2026-08-01 to go to direct review, never actually
+    # queued until now.
+    "active_learning_requeue_v2": _abs("data/hitl/queue_active_learning_requeue_v2.csv"),
+    "escalation_aleatoric_review": _abs("data/hitl/queue_escalation_aleatoric_review.csv"),
 }
 
 EMPATH_PATH = _abs("data/processed/empath_scores_full_mapped.parquet")
+# EMPATH_PATH was never downloaded locally (only exists on Kaggle) -- the
+# context lookup below silently returned empty context for every row
+# regardless of parent_id, not just when data was genuinely missing.
+# LOCAL_CONTEXT_DB (built by build_local_context_db.py from the raw
+# comment shards Nash confirmed are available locally, data/raw/
+# r_conspiracy_comments*.jsonl.gz) is the real local source of truth now.
+LOCAL_CONTEXT_DB = _abs("data/processed/local_context.duckdb")
 
 # AI-silver rows only ever stored a +-15-word entity window, not the full
 # comment (found 2026-08-02 reviewing frontier-judge disagreements) -- 64%
@@ -229,7 +246,8 @@ function renderLabelButtons(selected) {
     'maverick_stance_round6', 'maverick_stance_round7', 'maverick_stance_round8', 'consensus_stance_round8',
     'wikileaks_quality_check', 'assange_quality_check', 'snowden_quality_check', 'greenwald_quality_check',
     'jones_short_quality_check', 'wikileaks_short_quality_check', 'assange_short_quality_check', 'snowden_short_quality_check', 'greenwald_short_quality_check', 'irr_stance_shared',
-    'active_learning_requeue', 'escalation_human_review', 'frontier_disagreement_qc', 'qwen_escalation_review'];
+    'active_learning_requeue', 'escalation_human_review', 'frontier_disagreement_qc', 'qwen_escalation_review',
+    'active_learning_requeue_v2', 'escalation_aleatoric_review'];
   if (STANCE_QUEUES.includes(current)) {
     opts = [
       ['endorsement', 'kp', '1'], ['hostile', 'kn', '2'],
@@ -435,7 +453,8 @@ document.addEventListener('keydown', (e) => {
     'maverick_stance_round6', 'maverick_stance_round7', 'maverick_stance_round8', 'consensus_stance_round8',
     'wikileaks_quality_check', 'assange_quality_check', 'snowden_quality_check', 'greenwald_quality_check',
     'jones_short_quality_check', 'wikileaks_short_quality_check', 'assange_short_quality_check', 'snowden_short_quality_check', 'greenwald_short_quality_check', 'irr_stance_shared',
-    'active_learning_requeue', 'escalation_human_review', 'frontier_disagreement_qc', 'qwen_escalation_review'];
+    'active_learning_requeue', 'escalation_human_review', 'frontier_disagreement_qc', 'qwen_escalation_review',
+    'active_learning_requeue_v2', 'escalation_aleatoric_review'];
   if (STANCE_QUEUES.includes(current)) {
     map = {'1': 'endorsement', '2': 'hostile', '3': 'neutral', '4': 'ambiguous', '5': 'wrong_match'};
   } else {
@@ -592,7 +611,7 @@ class Handler(BaseHTTPRequestHandler):
             if CONTEXT_CACHE and str(comment_id) in CONTEXT_CACHE:
                 self._json(CONTEXT_CACHE[str(comment_id)])
                 return
-            if not os.path.exists(path) or not os.path.exists(EMPATH_PATH):
+            if not os.path.exists(path) or not os.path.exists(LOCAL_CONTEXT_DB):
                 self._json({"parent_text": None, "sibling_texts": []})
                 return
             df = load_df(path)
@@ -606,18 +625,18 @@ class Handler(BaseHTTPRequestHandler):
             parent_text = None
             sibling_texts = []
             try:
-                con = duckdb.connect()
+                con = duckdb.connect(LOCAL_CONTEXT_DB, read_only=True)
                 if parent_id_raw and parent_id_raw != link_id_raw and parent_id_raw.startswith("t1_"):
                     parent_comment_id = parent_id_raw[3:]
                     res = con.execute(
-                        f"SELECT text FROM read_parquet('{EMPATH_PATH}') WHERE id = ? LIMIT 1",
+                        "SELECT text FROM comments WHERE id = ? LIMIT 1",
                         [parent_comment_id],
                     ).fetchone()
                     if res:
                         parent_text = res[0]
                 if parent_id_raw:
                     sib = con.execute(
-                        f"""SELECT DISTINCT text FROM read_parquet('{EMPATH_PATH}')
+                        """SELECT DISTINCT text FROM comments
                             WHERE parent_id = ? AND id != ? LIMIT 5""",
                         [parent_id_raw, str(comment_id)],
                     ).fetchall()

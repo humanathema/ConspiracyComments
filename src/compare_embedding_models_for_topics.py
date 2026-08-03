@@ -42,7 +42,10 @@ N_SAMPLE = 100000  # the full population used to fit reddit's current model
 # token rate) rather than assuming "whole corpus" meant the full
 # multi-million-row unfiltered population.
 SEED = 42
-PROJECT = "tobiasnash-vertex-frontier"
+PROJECT = "nashpncc-vertex-frontier"  # switched 2026-08-02: the old project
+# belongs to contact@tobiasnash.co.nz (real billing, alerts-only, no hard
+# stop), NOT the intended tobiasnashpncc@gmail.com free-trial account --
+# every Vertex call tonight before this point billed the wrong account.
 LOCATION = "global"
 GEMINI_CACHE_PATH = "data/processed/_gemini_embedding_comparison_cache.npy"
 

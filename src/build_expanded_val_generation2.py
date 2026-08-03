@@ -50,7 +50,13 @@ def main():
     irr_new = irr_aug[~irr_aug["text"].isin(base_texts)].copy()
     overlap = set(mined_new["text"]) & set(irr_new["text"])
     if overlap:
-        raise ValueError(f"{len(overlap)} rows appear in both new-row sets -- resolve before proceeding")
+        m = mined_new.set_index("text").loc[list(overlap), "label"]
+        i = irr_new.set_index("text").loc[list(overlap), "label"]
+        disagreements = m[m != i.reindex(m.index)]
+        if len(disagreements):
+            raise ValueError(f"{len(disagreements)} overlapping rows have conflicting labels between mined and IRR sets -- resolve before proceeding")
+        print(f"{len(overlap)} rows appear identically in both new-row sets (same text, same label) -- dropping the IRR-set duplicate", flush=True)
+        irr_new = irr_new[~irr_new["text"].isin(overlap)].copy()
 
     new_rows = pd.concat([mined_new, irr_new], ignore_index=True)
     print(f"New rows: {len(mined_new)} mined + {len(irr_new)} IRR = {len(new_rows)} total", flush=True)

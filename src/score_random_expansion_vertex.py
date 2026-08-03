@@ -67,8 +67,8 @@ ACCOUNT = "contact@tobiasnash.co.nz"  # tobiasnashpncc@gmail.com has no IAM
 LOCATION = "global"  # gemini-3.5-flash 404s on region-pinned endpoints (tried
 # us-central1/us-east1/us-east5/europe-west1), only available via global as
 # of this project's current rollout -- confirmed empirically, not documented
-INPUT_PATH = "data/processed/boundary_candidates.csv"
-OUT_PATH = "data/processed/boundary_candidates_frontier_scored.parquet"
+INPUT_PATH = "data/processed/random_expansion_candidates.csv"
+OUT_PATH = "data/processed/random_expansion_candidates_frontier_scored.parquet"
 MODEL_NAME = "gemini-3.5-flash"
 CHECKPOINT_EVERY = 50
 MAX_WORKERS = 15  # conservative starting point -- this project's real Vertex
