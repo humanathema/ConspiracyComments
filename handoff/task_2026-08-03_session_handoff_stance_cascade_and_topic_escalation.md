@@ -5,10 +5,12 @@ accounts. Check live state before trusting anything below as current.
 
 ## Headline result
 
-**round7-combined-fixes is the new best stance classifier: kappa 0.4760** (entity-conditioning
-+ bucket-redesign, on round7's full random-expansion training data), measured on a genuinely
-bigger, more reliable 680-row validation set — up from the old 334-row val that this whole
-session set out to fix. All comparisons below are on that same 680-row val unless noted.
+**The current recommended best is an ENSEMBLE (round6-combined-fixes + round7-combined-fixes,
+averaged, + escalation at threshold=0.45): kappa 0.5622** — see the "Ensemble test" section
+below. Best *single* model is round7-combined-fixes at kappa 0.4760 (entity-conditioning +
+bucket-redesign, on round7's full random-expansion training data). Both measured on a
+genuinely bigger, more reliable 680-row validation set — up from the old 334-row val that this
+whole session set out to fix. All comparisons below are on that same 680-row val unless noted.
 
 ## Why the val set changed (the actual starting problem)
 
@@ -125,16 +127,28 @@ escalate further to reach its (still lower) peak.
 efficient real operating point (nearly-optimal, ~17% of rows escalated) — not round5's
 requirement of escalating 75%+ of the corpus for comparable value.
 
-## Ensemble test — real methodology bug caught, fix in flight
+## Ensemble test — real result, THE current best (after a bug fix)
 
 First ensemble attempt (round6-combined + round7-combined, averaged 3-way probabilities) used
 a different analytic P(other) combination formula than the greedy-pipeline decision rule used
 everywhere else in the cascade work, which silently compared the ensemble against artificially
-weakened solo baselines (0.4405/0.4685 instead of the real 0.4660/0.4760). **Result should be
-treated as void.** Fixed version (`error-decomp-and-ensemble` kernel v2, uses the identical
-`cascade_predict` greedy-pipeline logic for both solo and ensembled predictions) was pushed
-and running as of this doc — check `tobiasnashktc/error-decomp-and-ensemble` for the real
-result before trusting any ensemble conclusion.
+weakened solo baselines (0.4405/0.4685 instead of the real 0.4660/0.4760) — that first result
+was void. Fixed version (`error-decomp-and-ensemble` kernel v2, uses the identical
+`cascade_predict` greedy-pipeline logic for both solo and ensembled predictions) reran clean:
+sanity checks against the solo baselines matched exactly (0.4660/0.4760), confirming the fix
+worked, and the real ensemble result is genuinely the best of the whole session:
+
+| | Kappa |
+|---|---|
+| round6-combined alone | 0.4660 |
+| round7-combined alone | 0.4760 |
+| **Ensemble (round6+round7 averaged, no escalation)** | **0.4975** |
+| **Ensemble + escalation (threshold=0.45)** | **0.5622** |
+
+**This is the current recommended best stance classifier as of this doc: kappa 0.5622**, free
+noise-cancellation from averaging two independently-trained models plus escalation on top —
+no new training required. Worth re-checking once model-size-ablation results land, in case
+ModernBERT-large changes which models are worth ensembling.
 
 ## Active-learning queues rebuilt against current models
 
@@ -222,8 +236,10 @@ scoped extraction (see `build_targeted_context_cache.py`) over full-corpus local
 ## Open items / not yet done
 
 1. **model-size-ablation** (round5, ModernBERT-large) and **model-size-ablation-round7**
-   (round7, windowing+ModernBERT-large) — both still running as of this doc.
-2. **error-decomp-and-ensemble v2** (fixed decision-rule ensemble test) — still running.
+   (round7, windowing+ModernBERT-large) — both still running as of this doc (each has hit a
+   CUDA OOM at least once already, mid-session memory settings tightened: max_length=768,
+   batch_size=2, gradient_checkpointing=True — check for a clean run before trusting either).
+2. ~~error-decomp-and-ensemble v2~~ — **done**, see "Ensemble test" above. Real result: 0.5622.
 3. **recompute-own-content-outliers v2** (topic-modeling exact escalation count) — still
    running.
 4. Progressive/distillation cascade loop — designed (see below) but not launched. Uses
