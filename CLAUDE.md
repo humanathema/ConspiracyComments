@@ -4,27 +4,21 @@ This is Tobias Nash's honours thesis project. Read `ANTIGRAVITY_HANDOFF.md`
 first — it's short on purpose (guardrails, current verified state, and
 an index of open task files in `handoff/`).
 
-## Immediate next task, raised 2026-07-17, partially done
+## `handoff/task_notebook_and_repo_polish.md` — superseded (2026-08-03)
 
-`handoff/task_notebook_and_repo_polish.md` — **read this before doing
-anything else if picking up fresh work in this repo.** Covers, in order:
+Raised 2026-07-17. As of 2026-08-03, marked superseded — a long stance-cascade
+and topic-escalation session took priority instead (see
+`handoff/task_2026-08-03_session_handoff_stance_cascade_and_topic_escalation.md`).
+Original items:
 
-1. A wider audit of `ConspiracyMaster_Refactored.ipynb` for dormant-but-
-   not-necessarily-obsolete work (not just the spaCy FactAppeal example
-   already flagged elsewhere — that was just the first thing that came
-   to mind, not a complete list; watch for recency bias, older sections
-   are easy to walk past).
-2. Notebook cleanup (run cells for visible output, collapse code cells,
-   truncate large raw-output dumps) — the repo and this notebook
-   specifically have been shared with Nash's supervisor for audit, it
-   needs to be presentable.
-3. Expanding `README.md` — it's the one markdown file GitHub renders on
-   the repo homepage, the only thing a casual visitor sees without
-   clicking through. Needs actual findings referenced, not just usage
-   instructions.
+1. Wider audit of `ConspiracyMaster_Refactored.ipynb` for dormant work — superseded.
+2. Notebook cleanup (visible output, collapsed cells, truncated dumps) — superseded.
+3. Expanding `README.md` with real findings — superseded.
 4. ~~Fixing hardcoded `/Users/nash/...` absolute paths~~ — **done** (verified
    2026-08-03: `utils/file_paths.py` has no hardcoded paths left, and the
    notebook's `BASE` is now derived from a `REPO_ROOT` variable). No longer
    a blocker on pushing.
 
-Items 1-3 still open.
+If picking this back up, treat 1-3 as a fresh call rather than resuming — check
+current notebook/README state first, since "superseded" here means deprioritized,
+not necessarily completed.
