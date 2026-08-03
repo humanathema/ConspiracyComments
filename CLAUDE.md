@@ -4,7 +4,7 @@ This is Tobias Nash's honours thesis project. Read `ANTIGRAVITY_HANDOFF.md`
 first — it's short on purpose (guardrails, current verified state, and
 an index of open task files in `handoff/`).
 
-## Immediate next task, raised 2026-07-17, not started
+## Immediate next task, raised 2026-07-17, partially done
 
 `handoff/task_notebook_and_repo_polish.md` — **read this before doing
 anything else if picking up fresh work in this repo.** Covers, in order:
@@ -22,9 +22,9 @@ anything else if picking up fresh work in this repo.** Covers, in order:
    the repo homepage, the only thing a casual visitor sees without
    clicking through. Needs actual findings referenced, not just usage
    instructions.
-4. Fixing hardcoded `/Users/nash/...` absolute paths (in
-   `utils/file_paths.py` and the notebook's own `BASE` variable) to be
-   relative to the repo root, before the next push.
+4. ~~Fixing hardcoded `/Users/nash/...` absolute paths~~ — **done** (verified
+   2026-08-03: `utils/file_paths.py` has no hardcoded paths left, and the
+   notebook's `BASE` is now derived from a `REPO_ROOT` variable). No longer
+   a blocker on pushing.
 
-Do this **before** the next `git push` — the path-portability fix
-especially needs to land before pushing publicly, not after.
+Items 1-3 still open.
