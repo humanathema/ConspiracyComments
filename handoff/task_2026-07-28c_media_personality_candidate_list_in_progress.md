@@ -1,4 +1,14 @@
-# Media-personality candidate list — IN PROGRESS, 2026-07-28
+# Media-personality candidate list — DONE (candidate list built, 2026-07-28); awaiting Nash's review
+
+**Update 2026-08-03: confirmed this was already fully done (v6, see status
+log below) but the completion never got cross-referenced into
+`handoff/task_media_personality_and_byline_review.md` or
+`ANTIGRAVITY_HANDOFF.md`'s top-level task table — both still read "not
+started" a week later. Both updated now. Output:
+`data/processed/media_personality_candidates_scored.csv`, 774/1,504
+nonzero, blank `decision` column, ready for review. Next step after
+review: merge into a `media_personality_verified.py` mirroring
+`maverick_authority_verified.py`'s structure — not yet built.**
 
 Picking up `handoff/task_media_personality_and_byline_review.md`'s ranked
 fix #1: the "whistleblower vs. media-personality" stance contrast rests

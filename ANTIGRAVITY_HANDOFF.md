@@ -8,6 +8,18 @@ Honours thesis: **"Epistemic Credibility in Online Conspiracy Communities."**
 This file is short on purpose. Read it fully before doing anything, then
 open exactly one task file from `handoff/` for whatever you're picking up.
 
+## A file referenced by a script isn't on disk? Check `handoff/REMOTE_STORAGE_MAP.md` first
+
+Several large/derived files live only on Kaggle (moved there during disk-
+cleanup passes on this 8GB-RAM machine) or, for the expert-sources
+scripts, only in a 14-day-retention GitHub Actions artifact. That doc
+has exact dataset refs and a copy-paste recipe for finding/pulling a
+file yourself. **Don't rebuild a local index/copy to work around a
+missing file** — that has crashed the disk once already. Also don't
+assume a missing file needs regenerating from scratch before checking
+there — `cited_urls_ranked.csv` was assumed lost twice this project and
+was sitting on Kaggle both times.
+
 ## Check context-repo before doing anything else
 
 If the `context-repo` MCP server is available in this session, call
@@ -210,6 +222,209 @@ convention.
 including corrections-to-corrections) lives in `handoff/ARCHIVE_full_session_history.md`
 and in `git log`. You don't need it to execute a task — only read it if
 you need to understand *why*, not just *what*.
+
+## SUPERSEDED 2026-08-04 (later same day) — read `handoff/task_2026-08-04_session_handoff_ensemble_embeddings_outlier_topics.md` FIRST
+
+That doc covers, more recently than the section below: stance ensemble
+results (best single model 0.4840, validated 4-way ensemble 0.4632),
+the neutral/ambiguous ceiling finding (real human IRR kappa as low as
+-0.055 between raters — likely not a solvable prompt problem), v3
+training data (built, staged, queued), outlier embeddings (DONE, 6.07M
+rows, 100% coverage), and the outlier topic-reassignment plan (real
+population counts recovered, Population A/B methods specified, real
+scaling engineering still needed for Population B). GCE project
+`conspiracycomments-gce` was created this session — has a running
+instance that needs stopping when done, see that doc's §4.
+
+## CURRENT STATE (2026-08-04) — READ THIS SECTION FIRST, IT'S THE WHOLE POINT
+
+Everything below this point (and the rest of this very long file) is a
+chronological log — real, but append-only, and genuinely hard to get
+oriented from cold. This section exists so a new session doesn't have
+to. It supersedes the "Current verified state (as of 2026-07-20)"
+section further down for anything the two disagree on — that section is
+now five sessions stale.
+
+**If something below references a file that isn't on disk, check
+`handoff/REMOTE_STORAGE_MAP.md` before assuming it needs rebuilding.**
+Several large files live only on Kaggle or in a 14-day GitHub Actions
+artifact — this has caused real, repeated confusion this project, twice
+independently concluding `cited_urls_ranked.csv` was "lost" when it was
+sitting on Kaggle both times.
+
+### Stance classifier
+- **Current best: kappa 0.5311** — a 5-model ModernBERT ensemble
+  (r7v2_split + r7v1_baseline + r5v2_baseline + r5v2_split + r7v3_baseline,
+  majority-vote on 680-row validation set). Verified on a genuinely reliable
+  680-row validation set (rebuilt 2026-08-03). Best *single* model:
+  r7v2_baseline, kappa 0.4840. **Frontier escalation tested 2026-08-05**:
+  sent 136 uncertain rows (ensemble margin < 0.35) to Gemini-3.5 frontier
+  judge, received 135/136 scores. **Escalation made kappa WORSE (0.5311 →
+  0.4988)** because frontier judge marked most escalated rows as "balanced/
+  mixed" (0.0 scores), converting to "other" labels — the ensemble's
+  uncertainty was actually correct. **Recommendation**: skip frontier
+  escalation, use 0.5311 ensemble baseline as final result. Still a strong
+  improvement over single-model best (0.4840). Full derivation + cascade
+  findings: `handoff/task_2026-08-04_session_handoff_ensemble_embeddings_outlier_topics.md`.
+- **Two HITL queues just finished and merged in (2026-08-03/04)**:
+  `queue_active_learning_requeue_v2.csv` (100/128 reviewed rows merged,
+  43 label changes + 57 confirmations; 28 more rows APPENDED as new
+  training rows via `src/append_requeue_v2_new_rows.py` since they were
+  prospective mined-"other" candidates never previously in the training
+  set, not corrections) and `queue_escalation_aleatoric_review.csv`
+  (68/68 merged, 12 changes + 56 confirmations). Merge scripts:
+  `src/merge_active_learning_requeue_v2.py`,
+  `src/merge_escalation_aleatoric_review.py` — both new, don't confuse
+  with the older `merge_active_learning_corrections.py`/
+  `merge_escalation_review_corrections.py`, which target different,
+  already-merged, differently-schemed queue files from 2026-08-01.
+- **Model-size ablation (ModernBERT-large) killed 2026-08-04 — real
+  structural bug found, not just an unlucky run.** Both jobs
+  (`tobiasnashws/stance-model-size-ablation` round5,
+  `tobiasnashktc/stance-model-size-ablation-round7` round7) showed the
+  identical degenerate collapse: stage1 (`is_neutral = raw_label ==
+  "neutral"`) converged to `eval_kappa: 0`, `eval_accuracy: 0.9221`
+  (exactly the majority-class-only baseline) on both rounds, with
+  `grad_norm: inf` at step 1 in round5 and a chaotic loss/grad_norm
+  trace in both (bimodal — near-zero on batches with no neutral example,
+  huge on the rare batch that has one, consistent with the ~30x
+  inverse-frequency class weight amplifying single rare-class examples
+  under `fp16` + `batch_size=2`).
+
+  **Root cause, confirmed directly in code, not inferred**: `raw_label`
+  can only ever literally equal `"neutral"` for rows built from real
+  human `human_stance` ratings (`build_stance_classifier_training_data.py:155`).
+  Every AI-silver generation path (rounds 3-7's frontier-judge expansion,
+  mined-other augmentation, the IRR majority-vote merge — whose own code
+  comment says "majority vote already collapses to the 3-way scheme")
+  only ever produces `hostile`/`endorsement`/`other`, because all of that
+  code was built while "other" was still one collapsed bucket, before the
+  bucket-redesign (which asks for a finer neutral-vs-ambiguous split)
+  existed. Confirmed via direct query: the true human "neutral" count is
+  fixed at 123 in-train regardless of round (round5 train=7,376,
+  round7 train=18,108 — same 123 either way), so as more AI-silver rows
+  get piled on in later rounds, the neutral ratio can only get worse
+  (round5 ~59:1, round7 ~146:1) — this is not something a better/luckier
+  training run could have fixed, it's structural.
+
+  **Isolated bucket-redesign ablation DID show a real, validated
+  improvement** (+0.0677 kappa, `kaggle_stance_bucket_redesign_ablation`)
+  — but that ran on a much smaller/earlier training-data snapshot
+  (designed/dated 2026-07-30, before round6/7's massive AI-silver
+  expansion on 2026-08-02), at a much healthier neutral ratio than what
+  round7's data has now. The redesign itself isn't a bad idea — it broke
+  because nobody re-checked how the ratio would evolve as more silver
+  data (which structurally cannot contribute "neutral" examples) got
+  added in later rounds.
+
+  **Not yet decided**: how to fix this before trying a bigger model
+  again — candidates discussed: (a) a cheap local heuristic to split
+  existing AI-silver `"other"` rows into neutral/ambiguous using existing
+  lexical constructs, (b) a future LLM judge pass once human labels are
+  consistent (needs sign-off, real cost), (c) revert stage1 to the
+  original `has_stance vs other` split and shelve the finer distinction
+  for now. Nash also flagged his own labeling of `"neutral"` vs
+  `"ambiguous"` may have drifted in definition over the project's
+  timeline (early usage closer to "in the middle of the spectrum," later
+  usage closer to "clinical/detached, zero stance information") — a
+  joint human+AI spot-check of a sample of human-labeled neutral/
+  ambiguous rows is the agreed next step before picking a fix.
+- **Round8 retrain (roberta-base combined-fixes) is no longer blocked**
+  on the ablation results (both killed) — but deliberately not yet
+  pushed, pending the neutral/ambiguous decision above, since round8
+  would use the same bucket-redesign stage1 target and inherit the same
+  structural issue if pushed as-is.
+
+### Topic modeling
+- **Production topic assignment already exists and is fine**: BERTopic
+  fit once on a 100k-comment sample (`train_bertopic_...`), producing a
+  100-centroid matrix (97 real + 3 synthetic seeds); the rest of the
+  ~40M-row corpus gets assigned via `src/apply_topic_assignments.py` —
+  MiniLM-embed each comment, cosine-similarity to the fixed centroids,
+  0.35 threshold, title-fallback for outliers. This script is properly
+  checkpointed (10k-row chunks, atomic per-chunk parquet writes, real
+  resume-on-crash logic, multi-worker sharding) — use it as the
+  reference pattern for anything else that needs to touch the full
+  corpus.
+- **Currently running**: `manawatusamaritans/recompute-own-content-outliers`
+  — re-running the same MiniLM-embed-and-threshold check WITHOUT the
+  title-fallback rescue, to get the true row-level outlier rate (the
+  reported 5.5%/13.5% figures are understated because title-fallback
+  silently masks failed own-content matches; log-extrapolated true rate
+  is ~15.2% combined). **This job has ZERO checkpointing** — confirmed
+  by reading it directly, it accumulates the entire corpus in memory and
+  writes once at the end per corpus (long then short) — unlike
+  `apply_topic_assignments.py` above, which it should have reused the
+  pattern from but didn't. Real risk of losing all progress if it hits
+  Kaggle's ~12h session limit; left running per Nash's call
+  (2026-08-04) rather than killing and losing what it already has. If it
+  dies, rewrite with `apply_topic_assignments.py`'s checkpoint pattern
+  before relaunching — don't just re-run the same unsafe version.
+- **Gemini embeddings as a raw BERTopic/UMAP+HDBSCAN input: confirmed
+  negative result** (curse of dimensionality — 51.9% outliers vs
+  MiniLM's ~0%). Current effective use of Gemini embeddings is narrow:
+  rescuing MiniLM/BERTopic's own outlier population, not a wholesale
+  embedding swap.
+- **Graph-based topic structure**: a full pilot (200-thread/~90k-comment,
+  6-layer multi-layer hierarchical link community detection) was built
+  2026-08-02 in one long session that never got written up until
+  recovered 2026-08-03 — see `handoff/task_graph_based_topic_structure.md`
+  for the full recovered writeup. Real, quantified finding: of 352
+  meaningful communities, **zero** had the Gemini semantic layer as
+  their dominant signal — citation co-mention (44%), author (35%), reply
+  structure (15%), and entity co-mention (3%) drove everything. Not a
+  general BERTopic replacement (doesn't cover comments with no
+  citations/shared entities), but a genuinely promising, cheap
+  (no-embedding-needed) complementary tool specifically for the
+  outlier population BERTopic already struggles with. Recommended next
+  step (a semantic-layer-dropped ablation) not yet run.
+
+### Citation / entity-list work
+- **Media-personality candidate list: DONE, awaiting Nash's review,
+  NOT wired into `hitl_rater.py`.** `data/processed/media_personality_candidates_scored.csv`
+  — 1,504 Wikipedia-sourced candidates, 774 with nonzero corpus
+  mentions, blank `decision` column (same convention as
+  `maverick_candidate_entities_scored.csv`). This fixes the asymmetric
+  foundation of the "whistleblowers endorsed / media personalities
+  attacked" finding (124-entity reviewed whistleblower category vs. 4
+  hardcoded media-personality names). Full history:
+  `handoff/task_2026-07-28c_media_personality_candidate_list_in_progress.md`.
+  It is a flat CSV meant for direct manual review (fill in `decision`),
+  not currently a `hitl_rater.py` queue — say so if you want it wired in.
+- **Citation coverage**: `cited_urls_ranked.csv` recovered from Kaggle
+  (`tobiasnashws/conspiracycomments-derived-tier2` — was never actually
+  lost). Byline extraction turned out to already have run at 5,500-URL
+  scale (not the 500 the old doc described) — 55.9% success. A fresh,
+  independent 30-URL spot-check (2026-08-03) found ~90%+ precision.
+  Fixed two real bugs found during that check: a date-leakage bug
+  (`clean_author_name()` in `src/translation.py` was accepting publish
+  dates like "May 7, 2026" as if they were author names) and a single
+  reddit-mirror domain (`libertysoft4.github.io`) producing nonsense
+  bylines — every other `*.github.io` domain in the ranked list was
+  checked individually and confirmed legitimate. Also fixed a "No
+  Author"-type placeholder-string gap in the same blacklist.
+  `handoff/byline_extraction_results.md` and
+  `handoff/task_citation_coverage_expansion.md` both updated to reflect
+  the real numbers — don't trust either doc's numbers from before
+  2026-08-03.
+
+### HITL review queue landscape (checked directly against `hitl_rater.py`'s `QUEUES` dict, 2026-08-04)
+Most stance/quality-check queues are fully done. Genuinely open:
+- **`domain_citation_tier`**: 89/603 rated — 603 domains by citation
+  volume, this is the "source rating" queue if that's what you're
+  looking for.
+- **`maverick_stance_round8`**: 0/146 — never started.
+- **`consensus_stance_round8`**: 0/62 — never started.
+- **`greenwald_short_quality_check`**: 0/68 — never started (sibling to
+  the wikileaks/assange/snowden short-comment quality checks, which are
+  all done).
+- Two negligible 1-row gaps (`maverick_stance_round2` 119/120,
+  `active_learning_requeue` v1 149/150) — not worth chasing.
+- **`irr_stance_shared` looks empty (0/99) in its own queue file but
+  is NOT actually unfinished** — the real ratings are stored per-rater
+  in `data/hitl/irr_responses/` (Jono/Lw/tobias), not in the main
+  queue's `human_stance` column. Already used to compute Fleiss kappa
+  0.48 back on 2026-07-28. Don't re-rate this thinking it's empty.
 
 ## Update 2026-07-28 — large Claude Code session: ATS→Kaggle pipeline,
 ## cascade design, and shared infra (context-repo/wake-relay/gateway)
@@ -839,7 +1054,13 @@ don't assume from the source order.
 7. **Never use `git push --force`, never amend a commit that isn't the
    one you just made, never delete a branch.**
 
-## Current verified state (as of 2026-07-20)
+## Current verified state (as of 2026-07-20) — SUPERSEDED, see "CURRENT STATE (2026-08-04)" near the top of this file
+
+Two weeks stale relative to the section above. Kept for the regression-
+number provenance below (core coefficients, entity-list history) which
+is still real and hasn't been redone — just don't read this section
+expecting it to reflect the stance classifier, topic modeling, or HITL
+queue state, all of which have moved on substantially since.
 
 - **Posts archive**: recovered (`data/raw/r_conspiracy_posts.jsonl`,
   1.83M posts). `data/processed/thread_quality_metrics.csv` covers all
@@ -1017,7 +1238,7 @@ just not the most recent thing to read first):**
 | File | What it is |
 |---|---|
 | `handoff/task_2026-07-28_session_wrapup.md` | **New (2026-07-28), read this first if picking up fresh.** Full detail behind the "Update 2026-07-28" summary above — entity-stance classifier reliability finding, cascade design, shared infra (context-repo/wake-relay/gateway) now live on Oracle, compute patchwork status, and everything explicitly deferred/not-yet-built. |
-| `handoff/task_media_personality_and_byline_review.md` | **New (2026-07-28), not started.** The whistleblower-vs-media-personality contrast is asymmetric (124-entity reviewed category vs. 4 hardcoded names); byline extraction's "100% precision" claim was validated against the same 30 rows it was fixed against, and a known bug still appears twice in the real output. |
+| `handoff/task_media_personality_and_byline_review.md` | **Candidate-list generation DONE (2026-08-03, found and cross-referenced — was previously undocumented at this level despite being finished since 2026-07-28).** `data/processed/media_personality_candidates_scored.csv`: 1,504 Wikipedia-sourced candidates, 774 with nonzero corpus mentions, blank `decision` column, ready for Nash's review (full build history in `handoff/task_2026-07-28c_media_personality_candidate_list_in_progress.md`). Byline extraction's "100% precision" claim and its still-live known bug are unchanged, still need the fix described in the task doc. |
 | `handoff/task_citation_coverage_expansion.md` | **New (2026-07-28), not started.** Under 1% of citations are human-verified on either platform; concrete, no-new-labels-needed next step is extending the already-validated byline extractor to more URLs by volume. |
 | `handoff/task_multi_entity_quality_check_queues.md` | **New (2026-07-21), not started, safe for Antigravity.** Generalizes the Jones quality-check queue builder to Wikileaks/Assange/Snowden/Greenwald — Nash's specific worry is that their high endorsement numbers (67-88% under the 3-class model) could have the same sarcasm/mockery blind spot the Jones check found ("limited hangout" accusations read like the "gay frogs" mockery pattern). Queue-building only, no labeling. |
 | `handoff/task_short_comment_quality_check_queue.md` | **New (2026-07-21), not started, safe for Antigravity.** Same generalization, pointed at the newly-indexed short-comment (<=100 char) corpus instead of an entity — checks whether stance detection holds up on much shorter, lower-context text before any decision to extend the core regression to that population. Queue-building only. |

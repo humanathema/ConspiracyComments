@@ -16,7 +16,15 @@ EXCLUDE_DOMAINS = {
     "amazon.com", "google.com", "patents.google.com", "patentscope.wipo.int",
     "vaers.hhs.gov", "openvaers.com", "phmpt.org", "bit.ly", "tinyurl.com",
     "fda.gov", "cdc.gov", "who.int", "nih.gov", "ncbi.nlm.nih.gov", "justice.gov",
-    "whitehouse.gov", "ons.gov.uk", "ourworldindata.org", "documentcloud.org"
+    "whitehouse.gov", "ons.gov.uk", "ourworldindata.org", "documentcloud.org",
+    # confirmed 2026-08-03 (byline spot-check): a static GitHub Pages mirror of
+    # r/conspiracy comment threads, not a real article -- html-pattern selectors
+    # grabbed a Reddit username+date and it was accepted as a byline. Checked
+    # every other *.github.io domain in cited_urls_ranked.csv for siblings
+    # (dizzib/electproject/knollfrank/alex/mkorostoff etc.) -- all are
+    # legitimate personal project/tool sites, not reddit mirrors, so this is
+    # deliberately a single-domain addition, not a blanket github.io exclusion.
+    "libertysoft4.github.io"
 }
 
 def get_domain(url: str) -> str:

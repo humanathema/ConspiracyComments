@@ -187,10 +187,14 @@ def clean_author_name(name: str) -> str:
         
     # Reject common boilerplate words or terms indicating non-authors
     blacklist = [
-        "share", "subscribe", "comments", "comment", "email", "print", "follow", 
-        "facebook", "twitter", "instagram", "login", "register", "posted", "published", 
+        "share", "subscribe", "comments", "comment", "email", "print", "follow",
+        "facebook", "twitter", "instagram", "login", "register", "posted", "published",
         "updated", "modified", "click here", "read more", "about the author", "about us",
-        "home", "news", "homepage", "contact us"
+        "home", "news", "homepage", "contact us",
+        # placeholder/non-name strings some sites literally put in the author meta
+        # field itself (found live in production output, e.g. pewforum.org's own
+        # meta tag content is the literal string "No Author")
+        "no author", "n/a", "anonymous", "unknown", "unknown author", "editorial staff"
     ]
     name_lower = name.lower()
     for word in blacklist:
@@ -200,7 +204,16 @@ def clean_author_name(name: str) -> str:
     # Also ignore purely numeric/date strings
     if re.match(r"^\d+[\s\d\-:/]*$", name):
         return ""
-        
+
+    # Reject "Month D, YYYY"-style publish dates leaking through from a
+    # .byline/.author element that actually holds the article date, not an
+    # author name (confirmed live in production output, e.g. statista.com,
+    # yalemedicine.org -- html-pattern selectors picked up a date node).
+    months = (r"jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|"
+              r"jul(?:y)?|aug(?:ust)?|sep(?:tember)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?")
+    if re.match(rf"^(?:{months})\.?\s+\d{{1,2}},?\s+\d{{4}}$", name, re.IGNORECASE):
+        return ""
+
     return name
 
 def _extract_names_from_author_val(author_val):

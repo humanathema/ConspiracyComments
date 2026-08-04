@@ -2,6 +2,8 @@
 
 Generated on 2026-07-20 by systematically cross-referencing every processed data file against the active and archived notebooks and scripts.
 
+**If a file below (or referenced by a script) isn't actually present on disk, check `handoff/REMOTE_STORAGE_MAP.md` before assuming it needs regenerating** — several large/derived files were deliberately moved to Kaggle-only storage during disk-cleanup passes and are documented there with exact dataset refs.
+
 ## File Statuses
 - **ACTIVE** — explicitly read or written by the active [ConspiracyMaster_Refactored.ipynb](file:///Users/nash/Projects/ConspiracyComments/ConspiracyMaster_Refactored.ipynb) or production modules in `src/`.
 - **legacy** — referenced only by historical/archived notebooks (retained for research provenance and lineage trace).

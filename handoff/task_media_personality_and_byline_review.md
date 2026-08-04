@@ -1,6 +1,40 @@
-# Media-personality category + byline-extraction review (raised 2026-07-27/28, not started)
+# Media-personality category + byline-extraction review (raised 2026-07-27/28)
 
-Background-agent audit finding, not yet acted on.
+Background-agent audit finding.
+
+**Update 2026-08-03: ranked fix #1's candidate-list generation is DONE,
+just never got cross-referenced back into this doc or into
+`ANTIGRAVITY_HANDOFF.md`'s top-level task table (both still said "not
+started" until this update — found by re-reading `handoff/task_2026-07-28c_media_personality_candidate_list_in_progress.md`
+directly, which has the full build history).** `src/query_media_personality_candidates.py`
+pulled 1,503 candidates from 4 Wikipedia categories (American political
+commentators, talk show hosts, podcasters, talk radio hosts —
+"American political pundits" doesn't exist as a live category, checked
+and dropped), then `src/build_media_personality_candidate_list.py`
+scored every candidate against the full corpus via `pyahocorasick` on a
+Kaggle CPU kernel (`tobiasnashws/media-personality-candidate-score`,
+after `empath_scores_full_mapped.parquet` was found only on Kaggle
+locally — see that task doc for the full mount/scoring history,
+including a case-sensitivity lookup bug in the final
+`corpus_mentions` join that silently zeroed every row until v6). Final,
+confirmed-correct output: **`data/processed/media_personality_candidates_scored.csv`,
+774/1,504 candidates with nonzero corpus mentions, blank `decision`
+column** — ready for Nash's review, same guardrail/shape as
+`maverick_candidate_entities_scored.csv`. Calibration names scored
+plausibly (Alex Jones 50,497; Joe Rogan 17,003; Tucker Carlson 8,895;
+Roger Stone 4,357; Matt Gaetz 2,067). **Known limitation, not yet
+resolved**: several top-scoring rows are likely common-word/name
+collisions, not real hits — `"Spirit"` (44,273), `"Kennedy"` (25,966,
+near-certainly JFK/RFK not the talk-show host), `"Michael Jackson"`
+(4,619, near-certainly the singer), `"Destiny"`, `"Hot Air"`. Multi-word
+distinctive names (Charlie Kirk, Candace Owens, Ben Shapiro, Jimmy Dore,
+Rachel Maddow, Tim Pool, Sean Hannity, Bill Maher, Rush Limbaugh, Jon
+Stewart, Glenn Beck) are safe to trust directly without spot-checking.
+**Not yet done**: Nash's actual review/decision pass on the 1,504-row
+CSV, and merging the reviewed result into a
+`media_personality_verified.py` (mirroring `maverick_authority_verified.py`'s
+structure) — this doc's fix #1 is "candidate list built," not "category
+fixed."
 
 ## 1. Media-personality category is arbitrary; whistleblower category isn't
 
