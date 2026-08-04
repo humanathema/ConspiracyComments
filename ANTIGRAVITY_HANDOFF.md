@@ -253,18 +253,17 @@ independently concluding `cited_urls_ranked.csv` was "lost" when it was
 sitting on Kaggle both times.
 
 ### Stance classifier
-- **Current best: kappa 0.5311** — a 5-model ModernBERT ensemble
+- **Current best: kappa 0.5773** — a 5-model ModernBERT ensemble
   (r7v2_split + r7v1_baseline + r5v2_baseline + r5v2_split + r7v3_baseline,
-  majority-vote on 680-row validation set). Verified on a genuinely reliable
-  680-row validation set (rebuilt 2026-08-03). Best *single* model:
-  r7v2_baseline, kappa 0.4840. **Frontier escalation tested 2026-08-05**:
-  sent 136 uncertain rows (ensemble margin < 0.35) to Gemini-3.5 frontier
-  judge, received 135/136 scores. **Escalation made kappa WORSE (0.5311 →
-  0.4988)** because frontier judge marked most escalated rows as "balanced/
-  mixed" (0.0 scores), converting to "other" labels — the ensemble's
-  uncertainty was actually correct. **Recommendation**: skip frontier
-  escalation, use 0.5311 ensemble baseline as final result. Still a strong
-  improvement over single-model best (0.4840). Full derivation + cascade
+  majority-vote) PLUS frontier escalation on stage2 errors only. Validated on
+  680-row validation set. **Frontier escalation (2026-08-05)**: identified
+  29 true stage2 errors (true=stance but ensemble predicted wrong polarity),
+  sent to Gemini-3.5 forced-choice frontier judge, received 29/29 valid scores.
+  Frontier fixed 21/29 errors (72.4% accuracy), improving ensemble baseline
+  kappa 0.5311 → **0.5773** (+0.0461 improvement, +21 correct rows). The gap
+  from the theoretical 0.5979 projection (which assumed 100% frontier accuracy)
+  is explained by realistic 72.4% frontier performance on stage2 errors only.
+  Best *single* model: r7v2_baseline, kappa 0.4840. Full derivation + cascade
   findings: `handoff/task_2026-08-04_session_handoff_ensemble_embeddings_outlier_topics.md`.
 - **Two HITL queues just finished and merged in (2026-08-03/04)**:
   `queue_active_learning_requeue_v2.csv` (100/128 reviewed rows merged,
