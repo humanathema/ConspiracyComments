@@ -1,59 +1,48 @@
-"""score_escalation_cascade_frontier.py
+"""score_stage2_errors_frontier.py
 
-Sends 136 escalation candidates (identified by cascade_sweep) to frontier judge
-for hostile/endorsement re-scoring. Uses Vertex Gemini frontier API.
+Scores only stage2 errors (true=stance, ensemble predicted wrong) via frontier judge.
+Uses forced-choice prompt: hostile vs endorsement only, no "other" option.
 
-Input: escalation_candidates_for_frontier.csv (row indices, predictions)
-       preds_*.csv files (text content)
-Output: escalation_cascade_frontier_scored.csv (frontier scores)
-
-The frontier judge is validated at ~0.81 accuracy on hostile/endorsement
-(stage2-only, not stage1 "other" calls). We only escalate rows where the
-ensemble was uncertain on that axis.
+Input: escalation_candidates_stage2_only.csv
+       stance_classifier_training_data_round7_bigval_split.parquet
+Output: stage2_frontier_scored.csv
 """
 import os
 import re
-import subprocess
 import threading
-import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 import pandas as pd
 from google import genai
 from google.genai import types
 from google.oauth2.credentials import Credentials
+import subprocess
 
 PROJECT = "tobiasnash-vertex-frontier"
 ACCOUNT = "contact@tobiasnash.co.nz"
 LOCATION = "global"
-INPUT_PATH = "escalation_candidates_for_frontier.csv"
-OUT_PATH = "escalation_cascade_frontier_scored.csv"
+INPUT_PATH = "escalation_candidates_stage2_only.csv"
+OUT_PATH = "stage2_frontier_scored.csv"
 MODEL_NAME = "gemini-3.5-flash"
-CHECKPOINT_EVERY = 25
-MAX_WORKERS = 15
+CHECKPOINT_EVERY = 10
+MAX_WORKERS = 10
 
-PROMPT_TEMPLATE = """You are a reviewer scoring whether a comment expresses evaluative STANCE toward a specific entity.
+PROMPT_TEMPLATE = """You are scoring a comment's STANCE toward a specific entity for research on epistemic credibility.
 
 Entity: {entity}
 Comment: {text}
 
-Your task: evaluate this comment on a three-way spectrum.
+This comment has been identified as expressing a stance (either hostile or endorsing) toward the entity. Your task: determine whether this comment is HOSTILE or ENDORSING.
 
-CRITICAL: A comment can be FACTUAL/NEUTRAL without expressing stance. If it merely states facts, cites information, or describes events without conveying the author's evaluation of the entity, that is NOT a stance comment.
+You MUST choose between hostile and endorsing — this is a forced binary choice.
 
 Scale:
-  -1.0 = clearly hostile/attacking toward the entity
-  -0.5 = mildly critical/disapproving of the entity
-   0.0 = factual/informational/not evaluative (NO stance expressed)
-  +0.5 = mildly supportive/approving of the entity
-  +1.0 = clearly endorsing/praising the entity
+  -1.0 = extremely hostile/attacking
+  -0.5 = mildly critical/hostile
+  +0.5 = mildly supportive/approving
+  +1.0 = extremely endorsing/supportive
 
-Instructions:
-- If the comment is factual/neutral/informational with no evaluation: use 0.0
-- If the comment expresses hostility/criticism: use negative (-1.0 or -0.5)
-- If the comment expresses support/endorsement: use positive (+0.5 or +1.0)
-
-Respond with ONLY the numeric score (e.g., "0.0", "-0.7", "+0.5"). No explanation."""
+Respond with ONLY the numeric score. No explanation."""
 
 SCORE_RE = re.compile(r'-?\d*\.?\d+')
 
@@ -104,6 +93,7 @@ def score_one(row_idx, text, entity):
         except Exception as e:
             msg = str(e)
             if "429" in msg or "RESOURCE_EXHAUSTED" in msg:
+                import time
                 time.sleep(10 * (attempt + 1))
                 continue
             break
@@ -112,31 +102,30 @@ def score_one(row_idx, text, entity):
 
 
 def main():
-    # Load escalation candidates
+    # Load stage2 errors only
     candidates = pd.read_csv(INPUT_PATH)
-    print(f"Loaded {len(candidates)} escalation candidates", flush=True)
+    print(f"Loaded {len(candidates)} stage2 errors", flush=True)
 
     # Load training data for text + entity
     train = pd.read_parquet("data/processed/stance_classifier_training_data_round7_bigval_split.parquet")
     val_data = train[train['split'] == 'val'].reset_index(drop=True)
     print(f"Loaded {len(val_data)} validation rows with text", flush=True)
 
-    # Candidates are in the same order as val_data (cascade_sweep didn't reorder)
-    # Just match by index
+    # Match candidates to validation rows
     escalation_data = []
     for idx, cand_row in candidates.iterrows():
-        if idx < len(val_data):
-            val_row = val_data.iloc[idx]
+        row_idx = int(cand_row['row_idx'])
+        if row_idx < len(val_data):
+            val_row = val_data.iloc[row_idx]
             escalation_data.append({
-                'row_idx': idx,
+                'row_idx': row_idx,
                 'text': val_row['text'],
                 'entity': val_row.get('target_entity', 'the subject'),
                 'true_label': cand_row['true_label'],
                 'pred_label': cand_row['pred_label'],
-                'margin': cand_row['margin']
             })
 
-    print(f"Matched {len(escalation_data)}/{len(candidates)} candidates to validation rows", flush=True)
+    print(f"Matched {len(escalation_data)} stage2 errors", flush=True)
 
     # Check for existing results
     done_idxs = set()
@@ -148,7 +137,7 @@ def main():
         print(f"Resuming: {len(done)} rows already scored", flush=True)
 
     todo = [r for r in escalation_data if r['row_idx'] not in done_idxs]
-    print(f"\nScoring {len(todo)} remaining rows via Vertex Gemini frontier...", flush=True)
+    print(f"\nScoring {len(todo)} remaining stage2 errors via Vertex Gemini...", flush=True)
 
     completed = 0
     with ThreadPoolExecutor(max_workers=MAX_WORKERS) as pool:
