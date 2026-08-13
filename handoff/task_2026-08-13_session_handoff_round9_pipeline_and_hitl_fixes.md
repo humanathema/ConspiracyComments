@@ -28,8 +28,11 @@ disambiguation problem.
 - **Confirmed with real numbers: nothing this session moved the stage1 bottleneck**
   (still ~20% of errors are stage1-locked) — the uncollapsed_v1 ensemble gain was
   entirely stage2 (§8).
-- **A windowing + list-dump-as-feature stage1 retrain ran to test that directly**
-  (§9) — see that section for the result (filled in once the run finished).
+- **A windowing + list-dump-as-feature stage1 retrain was tried and killed mid-run**
+  (§9) — stage1_baseline came back kappa 0.326, a real (if modest) regression from
+  the prior 0.369, and Nash raised a sharp, unresolved objection to the whole premise
+  partway through stage2_baseline that stopped the experiment before stage2/redesign
+  results existed. **Not resolved, deliberately left for next session — see §9.**
 - **Entity disambiguation is seriously broken and NOT yet fixed** — bare-surname
   matching is producing large numbers of wrong matches for entities nobody has
   audited yet (Robert W. Malone: 137x false-positive ratio via "Post Malone"). A
@@ -419,12 +422,64 @@ case — still saw a 10,000-char window after capping to 3 spans; the direct cha
 cap was the effective fix). After the fix: training runs at ~1.46-1.50 it/s, roughly
 2x faster — confirms the degenerate windows really were the bottleneck.
 
-**Result**: [FILL IN — training was still in progress as this doc was first written;
-see the wrap-up entry in context-repo (compartment `conspiracycomments`, most recent
-entry) for the actual final numbers and whether this moved the stage1-attributable
-error share from the 20.0-20.1% baseline in §8. If this section still says "fill in"
-and you're reading this in a future session, the run's result was never captured back
-into this doc — check context-repo directly.]
+**Result: killed mid-run, deliberately unresolved, real open question for next
+session.** `stage1_baseline` finished first: kappa **0.326**, down from the prior
+entity-retrain's `stage1_baseline` of **0.369** (a real correction made mid-session —
+this was first misreported as a comparison against 0.699, which was actually
+`stage2_baseline`'s *first-epoch* number misread out of a dense block of nested eval
+dicts; the real prior stage1 number is 0.369, and it was never "good" in any absolute
+sense — kappa 0.3-0.4 is only "fair" agreement, consistent with stage1 being the
+persistent weak link this whole project has been fighting, not something that used to
+work well and broke). `stage2_baseline` was ~20% through (no result) when Nash asked
+to kill the run.
+
+**The regression has a plausible mechanism, and Nash raised a sharp objection to it
+that was never resolved before the run got killed — this is the actual next step,
+not just "try windowing again":**
+
+Entity-span windowing's real, documented justification (`stance_window_utils.py`'s
+own module docstring) is fixing a genuine training-data contradiction: comments
+discussing multiple entities get split into one row per entity, and if the model
+input is the *full* comment text for every such row, two rows can have literally
+identical input mapped to opposite labels (e.g. "David Icke" endorsement, "Icke"
+hostile, same underlying comment) — a real, structural problem for a model that only
+ever sees whole-text input. Windowing fixes this by making each row's *input* differ
+(the local text around that specific mention), not just its entity tag.
+
+**Nash's objection, asked live and not yet answered**: if the input is *already*
+entity-conditioned (`[ENTITY: X] <full text>`), shouldn't a model with real attention
+be able to learn to condition its output on the entity token alone, without needing
+the text itself pre-truncated? In principle, yes — this is exactly what attention
+mechanisms are supposed to do, and if entity-conditioning alone is sufficient, then
+windowing's original justification is redundant with a fix (entity-conditioning) this
+project *already deployed independently* (`stance_classifier_architecture_wins_deployed_2026-08-03`,
++0.0548 kappa isolated) — while windowing's downside (throwing away broader context
+that stage1 specifically needs to judge "any stance vs no stance") would still apply.
+**Whether windowing's own +0.045 kappa validation was measured on top of an
+already-entity-conditioned baseline, or on a pre-entity-conditioning baseline where it
+would have been solving a problem entity-conditioning has since solved another way,
+was not established before the session ended** — context-repo's own entry for that
+ablation doesn't specify. This is the real question to answer before touching
+windowing again: **re-run the windowing ablation specifically against an
+entity-conditioned baseline, isolated (windowing alone, no list-dump feature, no
+combined arm-blanket-application), before concluding anything about whether it adds
+value beyond what entity-conditioning already provides.**
+
+Practical takeaways for whoever picks this up:
+1. Don't just retry `train_twostage_windowed.py` as-is — the open question above needs
+   answering first, or any result will have the same interpretability problem.
+2. If windowing does turn out to add real value beyond entity-conditioning, the stage1
+   regression found here suggests it should be **stage2-only**, not applied uniformly
+   to both stages via one shared input-construction function (which is what this
+   version did) — stage1's job (any-stance-vs-none) plausibly needs the broader
+   comment context that windowing removes, even if stage2's job (which direction, for
+   this entity) benefits from the narrower, mention-focused window.
+3. The `MAX_SPANS_PER_ROW=3` / `MAX_WINDOW_CHARS=600` fix for the degenerate-window
+   bug (unspaced-blob-counts-as-one-word) is real and worth keeping regardless of
+   whether windowing itself gets used again — it's a correctness fix independent of
+   the architecture question.
+4. Checkpoints from this run were NOT saved anywhere durable (killed before
+   completion, VM stopped) — nothing to recover, a rerun starts from scratch.
 
 ---
 
