@@ -29,8 +29,8 @@ ACCOUNT = "tobiasnash@gmail.com"
 LOCATION = "global"
 MODEL_NAME = "gemini-3.5-flash"
 
-INPUT_PATH = "/Users/nash/Projects/ConspiracyComments/data/processed/batch_escalation_candidates_round8.csv"
-OUT_PATH = "/Users/nash/Projects/ConspiracyComments/data/processed/escalation_cascade_frontier_scored.csv"
+INPUT_PATH = "/Users/nash/Projects/ConspiracyComments/data/processed/round9/round9_epistemic_for_frontier.csv"
+OUT_PATH = "/Users/nash/Projects/ConspiracyComments/data/processed/round9/round9_epistemic_frontier_scored.csv"
 CHECKPOINT_EVERY = 50  # Checkpoint results frequently
 MAX_WORKERS = 15       # Up to 15 concurrent threads for fast execution
 BATCH_SIZE = 10

@@ -8,6 +8,21 @@ Honours thesis: **"Epistemic Credibility in Online Conspiracy Communities."**
 This file is short on purpose. Read it fully before doing anything, then
 open exactly one task file from `handoff/` for whatever you're picking up.
 
+## Read `handoff/task_2026-08-13_session_handoff_entity_disambiguation_and_stance_round9.md` FIRST
+
+Most recent session. Covers, more recently than anything below: two real silent-failure
+bugs found and fixed in the entity-matching pipeline (a case-sensitivity bug that
+zero-matched every full-name-required entity, and a category-level sampling bug that
+could randomly zero out entities with real corpus presence — both affected prior pulls,
+check that doc before trusting any entity-coverage numbers from before 2026-08-13), the
+authoritative corpus-frequency source (`entity_frequency_full_corpus.csv`, not
+`entity_final_review.csv` which is stale since 2026-07-14), `maverick_authority_verified.py`
+expanded to 458 entries, a 1,264-row HITL labeling backlog merged into training
+(41,647 train rows now), a coverage-driven round9 unlabeled pool (22,459 rows, not yet
+ensemble-scored — that's the next step), a rebuilt val batch (r2, not yet labeled), a
+stage1-architecture experiment result (negative-ish, not conclusive), the full stage1
+bottleneck options landscape, and two VMs currently running idle that need stopping.
+
 ## A file referenced by a script isn't on disk? Check `handoff/REMOTE_STORAGE_MAP.md` first
 
 Several large/derived files live only on Kaggle (moved there during disk-

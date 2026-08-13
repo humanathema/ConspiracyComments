@@ -530,6 +530,32 @@ VERIFIED_MAVERICK_AUTHORITY = [
     "Matthew Bracken",
     "Norman G. Baker",
     "James Ellison",
+
+    # Added 2026-08-12 (Nash's direct call): alt-right/IDW-adjacent media
+    # personalities, real corpus presence confirmed via entity_final_review.csv
+    # doc_count (Charlie Kirk 837, Ben Shapiro 365, Jordan Peterson 356, Andrew
+    # Tate 198, Richard Spencer 112, Stefan Molyneux 60). Steven Crowder/Dave
+    # Rubin/Milo Yiannopoulos/Gavin McInnes were previously auto-bucketed
+    # other/alternative_source/mainstream_source by the Wikipedia-category
+    # pipeline -- overridden here per Nash ("definitely not mainstream" on
+    # McInnes specifically). Candace Owens and Eric Weinstein were already
+    # auto-bucketed maverick_authority but never promoted into this file (same
+    # "never promoted" gap verified_maverick_additions.py fixed elsewhere) --
+    # promoted here. Peterson and Weinstein also fit a "dissident academic"
+    # framing per Nash (Weinstein explicitly spans both) -- noted for context,
+    # not a separate bucket, since this file has no such category yet.
+    "Charlie Kirk",
+    "Ben Shapiro",
+    "Jordan Peterson",
+    "Andrew Tate",
+    "Richard Spencer",
+    "Stefan Molyneux",
+    "Steven Crowder",
+    "Dave Rubin",
+    "Milo Yiannopoulos",
+    "Gavin McInnes",
+    "Candace Owens",
+    "Eric Weinstein",
 ]
 
 # Audited 2026-07-20 (r/politics stance-queue review): "Brand" removed

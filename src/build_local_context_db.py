@@ -29,7 +29,7 @@ import time
 import duckdb
 
 RAW_DIR = "data/raw"
-OUT_DB = "data/processed/local_context.duckdb"
+OUT_DB = "local_context.duckdb"  # local disk — thumb drive lacks space for 14GB file
 MEMORY_LIMIT = "4GB"
 
 

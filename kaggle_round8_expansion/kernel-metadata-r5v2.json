@@ -1,0 +1,13 @@
+{
+  "id": "tobiasnashws/train-stance-r5v2",
+  "title": "Train Stance r5v2",
+  "code_file": "train_r5v2.py",
+  "language": "python",
+  "kernel_type": "script",
+  "is_private": true,
+  "enable_gpu": true,
+  "enable_internet": true,
+  "dataset_sources": ["tobiasnashws/stance-r8-training-splits"],
+  "competition_sources": [],
+  "kernel_sources": []
+}

@@ -16,7 +16,9 @@ __pycache__/
 .virtual_documents/
 .DS_Store
 .tmp/
-repomix-output.xml
+repomix-output*.xml
+# local corpus index (18GB, built by build_local_context_db.py -- never commit this)
+local_context.duckdb
 # archived notebook history stays on disk, out of the repo
 notebooks/archive/
 notebooks/scratchpads/

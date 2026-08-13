@@ -1,0 +1,17 @@
+{
+  "id": "tobiasnashws/score-batch-r8-ensemble",
+  "title": "Score Batch R8 Ensemble",
+  "code_file": "score_batch_r8_ensemble.py",
+  "language": "python",
+  "kernel_type": "script",
+  "is_private": "true",
+  "enable_gpu": "true",
+  "enable_tpu": "false",
+  "enable_internet": "true",
+  "dataset_sources": [
+    "tobiasnashws/stance-classifier-training-data",
+    "tobiasnashws/stance-round8-unlabeled-batch"
+  ],
+  "competition_sources": [],
+  "kernel_sources": []
+}

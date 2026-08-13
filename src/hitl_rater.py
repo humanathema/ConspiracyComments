@@ -70,16 +70,92 @@ QUEUES = {
     # queued until now.
     "active_learning_requeue_v2": _abs("data/hitl/queue_active_learning_requeue_v2.csv"),
     "escalation_aleatoric_review": _abs("data/hitl/queue_escalation_aleatoric_review.csv"),
+    "escalation_round8_aleatoric": _abs("data/hitl/queue_escalation_round8_aleatoric.csv"),
+    "expanded_entity_val_r1": _abs("data/hitl/queue_expanded_entity_val_r1.csv"),
+    # Added 2026-08-13: round9 escalation candidates that made it through
+    # the epistemic/aleatoric context test + frontier judge (with unsure
+    # option) still unresolved. doubly_unresolved = neither the local
+    # ensemble chain-walk nor the frontier judge could resolve them.
+    # ensemble_judge_disagreement = local ensemble was confident but the
+    # frontier judge said unsure -- real disagreement, cause not fully
+    # diagnosed, entity round-robin + margin-ascending order for coverage.
+    "round9_doubly_unresolved": _abs("data/hitl/queue_round9_doubly_unresolved_REVIEW.csv"),
+    "round9_ensemble_judge_disagreement": _abs("data/hitl/queue_round9_ensemble_judge_disagreement_REVIEW.csv"),
 }
 
+# Auto-discovery, added 2026-08-13: any NEW queue_*.csv dropped into
+# data/hitl/ gets picked up automatically (Nash's request, so future
+# queues don't need a manual code edit + restart to appear). Existing
+# hardcoded entries above are left untouched on purpose -- their key
+# names are load-bearing (referenced by ?queue= URLs, scripts, bookmarks)
+# and a filename-derived key wouldn't always match them anyway (e.g.
+# "wikileaks_quality_check" -> queue_wikileaks_stance_quality_check.csv).
+# Auto-discovery only fills in files NOT already covered by the dict
+# above, and only if they look like an actual rating queue: has both
+# 'id' and 'full_text' columns (the two the server code assumes exist
+# everywhere -- queue_topic_stance.csv, e.g., uses 'text'/'label' instead
+# and would break the UI if served). Filenames containing "BACKUP" are
+# skipped on purpose (snapshots, not live queues).
+def _discover_queues():
+    import glob
+    known_paths = set(QUEUES.values())
+    hitl_dir = _abs("data/hitl")
+    for path in sorted(glob.glob(os.path.join(hitl_dir, "queue_*.csv"))):
+        if path in known_paths:
+            continue
+        base = os.path.basename(path)
+        if "BACKUP" in base:
+            continue
+        try:
+            header = pd.read_csv(path, nrows=0).columns
+        except Exception:
+            continue
+        if "id" not in header or "full_text" not in header:
+            continue
+        key = base[len("queue_"):-len(".csv")]
+        if key.endswith("_REVIEW"):
+            key = key[:-len("_REVIEW")]
+        if key in QUEUES:
+            key = base[len("queue_"):-len(".csv")]  # fall back to the un-stripped form on collision
+        QUEUES[key] = path
+        print(f"Auto-discovered queue '{key}' -> {base}", flush=True)
+
+_discover_queues()
+
 EMPATH_PATH = _abs("data/processed/empath_scores_full_mapped.parquet")
-# EMPATH_PATH was never downloaded locally (only exists on Kaggle) -- the
-# context lookup below silently returned empty context for every row
-# regardless of parent_id, not just when data was genuinely missing.
 # LOCAL_CONTEXT_DB (built by build_local_context_db.py from the raw
 # comment shards Nash confirmed are available locally, data/raw/
-# r_conspiracy_comments*.jsonl.gz) is the real local source of truth now.
-LOCAL_CONTEXT_DB = _abs("data/processed/local_context.duckdb")
+# r_conspiracy_comments*.jsonl.gz) is the preferred context source.
+# LEXICAL_FULL_PATH is the fallback: the full corpus with parent_id/link_id,
+# used when LOCAL_CONTEXT_DB doesn't exist.
+LOCAL_CONTEXT_DB = _abs("local_context.duckdb")  # local disk — thumb drive lacks space
+LEXICAL_FULL_PATH = _abs("data/processed/lexical_scores_full.parquet")
+# Post title/selftext for the "chain reached the submission" case (the
+# comments table has no posts data at all). Both files are needed --
+# they cover complementary date ranges, confirmed 2026-08-13 building the
+# round9 chain-walk (build_round9_thread_chains.py): 9 submissions that
+# round9 needed were only in the *2 file, not the main one.
+RAW_POSTS_PATHS = [_abs("data/raw/r_conspiracy_posts.jsonl"), _abs("data/raw/r_conspiracy_posts2.jsonl.gz")]
+
+
+def _lookup_post(submission_id):
+    """Scoped DuckDB scan for one submission's title+selftext -- filter
+    pushdown keeps this from loading either multi-GB file into memory, but
+    it's still a real scan (no index on JSONL), so this is only called on
+    an explicit "load more context" click reaching the post, not per-row."""
+    paths = [p for p in RAW_POSTS_PATHS if os.path.exists(p)]
+    if not paths:
+        return None, None
+    con = duckdb.connect()
+    paths_literal = "[" + ",".join(f"'{p}'" for p in paths) + "]"
+    res = con.execute(f"""
+        SELECT title, selftext FROM read_ndjson(
+            {paths_literal},
+            columns={{'id':'VARCHAR','title':'VARCHAR','selftext':'VARCHAR'}},
+            ignore_errors=true
+        ) WHERE id = ? LIMIT 1
+    """, [submission_id]).fetchone()
+    return res if res else (None, None)
 
 # AI-silver rows only ever stored a +-15-word entity window, not the full
 # comment (found 2026-08-02 reviewing frontier-judge disagreements) -- 64%
@@ -124,30 +200,42 @@ def _irr_response_path(queue, rater):
 
 
 PAGE = """<!doctype html>
-<html><head><meta charset="utf-8"><title>HITL Rater</title>
+<html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1"><title>HITL Rater</title>
 <style>
-  body { font-family: -apple-system, sans-serif; max-width: 780px; margin: 40px auto; padding: 0 20px; background:#111; color:#eee; }
-  .tabs { margin-bottom: 20px; }
-  .tabs button { padding: 8px 14px; margin-right: 8px; cursor: pointer; background:#222; color:#eee; border:1px solid #444; border-radius:6px; }
+  body { font-family: -apple-system, sans-serif; max-width: 780px; margin: 20px auto; padding: 0 16px; background:#111; color:#eee; }
+  .tabs { margin-bottom: 16px; display:flex; flex-wrap:wrap; gap:6px; }
+  .tabs button { padding: 8px 12px; cursor: pointer; background:#222; color:#eee; border:1px solid #444; border-radius:6px; font-size:13px; }
   .tabs button.active { background:#3a6; border-color:#3a6; }
-  #progress { color: #999; margin-bottom: 12px; }
-  .nav { margin-bottom: 10px; }
-  .nav button { padding: 6px 12px; margin-right: 8px; cursor:pointer; background:#222; color:#eee; border:1px solid #444; border-radius:6px; }
+  #progress { color: #999; margin-bottom: 10px; font-size:14px; }
+  .nav { margin-bottom: 10px; display:flex; gap:6px; flex-wrap:wrap; }
+  .nav button { padding: 10px 16px; cursor:pointer; background:#222; color:#eee; border:1px solid #444; border-radius:6px; font-size:14px; flex:1; min-width:80px; }
   .nav button:disabled { opacity: 0.35; cursor: default; }
   #current_label { color:#9c6; margin-left: 8px; }
-  #text { white-space: pre-wrap; background:#1c1c1c; border:1px solid #333; border-radius:8px; padding:18px; line-height:1.5; margin-bottom:16px; min-height: 120px; }
+  #text { white-space: pre-wrap; background:#1c1c1c; border:1px solid #333; border-radius:8px; padding:14px; line-height:1.6; margin-bottom:12px; min-height: 80px; font-size:15px; overflow-y:auto; }
   #text mark { background:#a60; color:#fff; padding:0 2px; border-radius:3px; }
-  .labels button { padding: 10px 16px; margin: 4px 6px 4px 0; cursor:pointer; border-radius:6px; border:1px solid #555; background:#222; color:#eee; font-size:14px; }
-  .labels button:hover { background:#333; }
-  .labels button.selected { outline: 2px solid #9c6; }
+  .labels { display:flex; flex-wrap:wrap; gap:8px; margin-bottom:10px; }
+  .labels button { padding: 14px 12px; cursor:pointer; border-radius:8px; border:1px solid #555; background:#222; color:#eee; font-size:15px; flex:1; min-width:100px; text-align:center; }
+  .labels button:active { opacity:0.7; }
+  .labels button.selected { outline: 3px solid #9c6; }
   .labels button.kp { background:#274; }
   .labels button.kn { background:#622; }
-  textarea { width: 100%; box-sizing:border-box; margin-top:14px; background:#1c1c1c; color:#eee; border:1px solid #333; border-radius:6px; padding:10px; }
+  textarea { width: 100%; box-sizing:border-box; margin-top:10px; background:#1c1c1c; color:#eee; border:1px solid #333; border-radius:6px; padding:10px; font-size:14px; }
   #done { font-size: 20px; margin-top: 40px; }
-  kbd { background:#333; padding:1px 6px; border-radius:4px; }
-  #context_btn { margin-bottom: 12px; padding: 8px 14px; cursor:pointer; background:#333; color:#eee; border:1px solid #555; border-radius:6px; }
-  #context { display:none; white-space: pre-wrap; background:#1a1a24; border:1px solid #335; border-radius:8px; padding:14px; margin-bottom:16px; font-size: 13px; color:#bcd; }
+  kbd { background:#333; padding:1px 6px; border-radius:4px; font-size:12px; }
+  #context_btn { margin-bottom: 10px; padding: 10px 14px; cursor:pointer; background:#333; color:#eee; border:1px solid #555; border-radius:6px; font-size:14px; width:100%; box-sizing:border-box; }
+  #context { display:none; white-space: pre-wrap; background:#1a1a24; border:1px solid #335; border-radius:8px; padding:12px; margin-bottom:12px; font-size: 13px; color:#bcd; }
   #context h4 { margin: 0 0 6px 0; color:#89b; }
+  @media (max-width: 600px) {
+    body { margin: 8px auto; padding: 0 10px; padding-bottom: 140px; }
+    #text { font-size:16px; line-height:1.65; max-height:45vh; overflow-y:auto; -webkit-overflow-scrolling:touch; }
+    .labels { position:fixed; bottom:0; left:0; right:0; background:#181818; border-top:1px solid #333; padding:10px; gap:6px; margin:0; z-index:100; }
+    .labels button { padding: 16px 8px; font-size:15px; min-width:60px; border-radius:10px; }
+    .labels button kbd { display:none; }
+    .nav button { padding: 12px; font-size:15px; }
+    .tabs button { font-size:12px; padding:7px 10px; }
+    #progress { font-size:13px; }
+    #context_btn { font-size:15px; padding:12px; }
+  }
 </style></head>
 <body>
 <div class="tabs" id="tabs"></div>
@@ -241,20 +329,14 @@ function renderLabelButtons(selected) {
   const l = document.getElementById('labels');
   l.innerHTML = '';
   let opts = [];
-  const STANCE_QUEUES = ['consensus_stance', 'maverick_stance', 'consensus_stance_politics', 'maverick_stance_politics',
-    'maverick_stance_round2', 'maverick_stance_round3', 'maverick_stance_round4', 'maverick_stance_round5',
-    'maverick_stance_round6', 'maverick_stance_round7', 'maverick_stance_round8', 'consensus_stance_round8',
-    'wikileaks_quality_check', 'assange_quality_check', 'snowden_quality_check', 'greenwald_quality_check',
-    'jones_short_quality_check', 'wikileaks_short_quality_check', 'assange_short_quality_check', 'snowden_short_quality_check', 'greenwald_short_quality_check', 'irr_stance_shared',
-    'active_learning_requeue', 'escalation_human_review', 'frontier_disagreement_qc', 'qwen_escalation_review',
-    'active_learning_requeue_v2', 'escalation_aleatoric_review'];
-  if (STANCE_QUEUES.includes(current)) {
-    opts = [
-      ['endorsement', 'kp', '1'], ['hostile', 'kn', '2'],
-      ['neutral', '', '3'], ['ambiguous', '', '4'],
-      ['wrong_match', 'kn', '5']
-    ];
-  } else if (current === 'domain_citation_tier') {
+  // Stance (endorsement/hostile/neutral/ambiguous) is the default for
+  // every queue in this project except the few explicitly built around a
+  // different construct -- inverted 2026-08-13 from a stance-queue
+  // allowlist (which silently gave new/auto-discovered queues the wrong
+  // buttons) to a non-stance denylist, since stance is actually the
+  // common case, not the exception.
+  const NON_STANCE_QUEUES = ['maverick_authority', 'personal_experience', 'procedural_skepticism'];
+  if (current === 'domain_citation_tier') {
     // Matches the 5-tier link_source_tier taxonomy used everywhere else in
     // the pipeline (run_link_source_tier_regressions.py) minus no_link
     // (not applicable here -- every row already has a real citation).
@@ -263,10 +345,16 @@ function renderLabelButtons(selected) {
       ['aggregator_or_platform', '', '3'], ['unmatched_link', 'kn', '4'],
       ['skip_unclear', 'kn', '5']
     ];
-  } else {
+  } else if (NON_STANCE_QUEUES.includes(current)) {
     opts = [
       ['positive', 'kp', '1'], ['lean_positive', 'kp', '2'],
       ['negative', 'kn', '3'], ['unsure', '', '4']
+    ];
+  } else {
+    opts = [
+      ['endorsement', 'kp', '1'], ['hostile', 'kn', '2'],
+      ['neutral', '', '3'], ['ambiguous', '', '4'],
+      ['wrong_match', 'kn', '5']
     ];
   }
   for (const [label, cls, key] of opts) {
@@ -278,19 +366,48 @@ function renderLabelButtons(selected) {
   }
 }
 
-function highlightSpans(text, spansJson) {
-  if (!spansJson) return escapeHtml(text);
-  let spans;
-  try { spans = JSON.parse(spansJson); } catch (e) { return escapeHtml(text); }
-  if (!spans || !spans.length) return escapeHtml(text);
-  spans.sort((a, b) => a.start - b.start);
+function highlightSpans(text, spansJson, targetEntity) {
+  // Try span-based highlights first (precise, pre-computed)
+  if (spansJson) {
+    let spans;
+    try { spans = JSON.parse(spansJson); } catch (e) { spans = null; }
+    if (spans && spans.length) {
+      spans.sort((a, b) => a.start - b.start);
+      let out = '';
+      let pos = 0;
+      for (const s of spans) {
+        if (s.start < pos) continue;
+        out += escapeHtml(text.slice(pos, s.start));
+        out += '<mark>' + escapeHtml(text.slice(s.start, s.end)) + '</mark>';
+        pos = s.end;
+      }
+      out += escapeHtml(text.slice(pos));
+      return out;
+    }
+  }
+  // Fallback: case-insensitive indexOf loop for the entity name.
+  // Tries the full name first; if not found, tries each token (surname etc).
+  if (!targetEntity) return escapeHtml(text);
+  const lower = text.toLowerCase();
+  // Build list of needles: full name, then individual tokens > 3 chars
+  const tokens = targetEntity.split(/\s+/).filter(t => t.length > 3);
+  const needles = [targetEntity.toLowerCase()];
+  for (const t of tokens) {
+    const tl = t.toLowerCase();
+    if (!needles.includes(tl)) needles.push(tl);
+  }
+  // Use the first needle that actually appears in the text
+  let needle = needles[0];
+  for (const n of needles) {
+    if (lower.includes(n)) { needle = n; break; }
+  }
   let out = '';
   let pos = 0;
-  for (const s of spans) {
-    if (s.start < pos) continue; // skip overlapping
-    out += escapeHtml(text.slice(pos, s.start));
-    out += '<mark>' + escapeHtml(text.slice(s.start, s.end)) + '</mark>';
-    pos = s.end;
+  let idx;
+  while ((idx = lower.indexOf(needle, pos)) !== -1) {
+    out += escapeHtml(text.slice(pos, idx));
+    out += '<mark>' + escapeHtml(text.slice(idx, idx + needle.length)) + '</mark>';
+    pos = idx + needle.length;
   }
   out += escapeHtml(text.slice(pos));
   return out;
@@ -348,7 +465,7 @@ function showCurrent() {
       escapeHtml(row.recovered_full_text) +
       '<div style="font-size:11px; color:#888; margin-top:12px; padding-top:8px; border-top:1px solid #333;">original window used for scoring/labeling: <em>' + escapeHtml(row.full_text) + '</em></div>';
   } else {
-    document.getElementById('text').innerHTML = highlightSpans(row.full_text, row.entity_spans);
+    document.getElementById('text').innerHTML = highlightSpans(row.full_text, row.entity_spans, row.target_entity);
   }
   const cidEl = document.getElementById('comment_id_display');
   const cid = row.comment_id || row.id;
@@ -381,26 +498,47 @@ function showCurrent() {
 
   document.getElementById('context').style.display = 'none';
   document.getElementById('context').innerHTML = '';
+  contextDepth = 0;
   const ctxBtn = document.getElementById('context_btn');
   if (row.parent_id) {
     ctxBtn.style.display = 'inline-block';
+    ctxBtn.disabled = false;
+    ctxBtn.textContent = 'Load surrounding context (parent + sibling replies)';
     ctxBtn.onclick = () => loadContext(row.id);
   } else {
     ctxBtn.style.display = 'none';
   }
 }
 
+let contextDepth = 0;
+
 async function loadContext(id) {
   const ctx = document.getElementById('context');
+  const ctxBtn = document.getElementById('context_btn');
   ctx.style.display = 'block';
-  ctx.textContent = 'Loading...';
-  const r = await apiFetch('/api/context?queue=' + current + '&id=' + encodeURIComponent(id));
+  if (contextDepth === 0) ctx.textContent = 'Loading...';
+  contextDepth += 1;
+  const r = await apiFetch('/api/context?queue=' + current + '&id=' + encodeURIComponent(id) + '&depth=' + contextDepth);
   const data = await r.json();
+  // `levels[0]` is the immediate parent, `levels[1]` its own parent
+  // (grandparent), etc. -- oldest-to-newest display order matches how a
+  // human would actually read the thread top-down.
   let html = '';
-  if (data.parent_text) {
-    html += '<h4>Parent comment (being replied to):</h4>' + escapeHtml(data.parent_text) + '<br><br>';
-  } else {
-    html += '<h4>Parent:</h4>(top-level reply to the post, or parent not found)<br><br>';
+  const levels = data.levels || [];
+  for (let i = levels.length - 1; i >= 0; i--) {
+    const label = i === 0 ? 'Parent comment (being replied to):' : `Ancestor (${i + 1} levels up):`;
+    html += '<h4>' + label + '</h4>' + escapeHtml(levels[i]) + '<br><br>';
+  }
+  if (data.post_title || data.post_selftext) {
+    html += '<h4>Post (top of thread):</h4>';
+    if (data.post_title) html += '<strong>' + escapeHtml(data.post_title) + '</strong><br>';
+    if (data.post_selftext) html += escapeHtml(data.post_selftext) + '<br>';
+    html += '<br>';
+  }
+  if (!levels.length && !data.post_title && data.is_toplevel) {
+    html += '<h4>Parent:</h4>(top-level reply to the post — no parent comment)<br><br>';
+  } else if (!levels.length && !data.post_title) {
+    html += '<h4>Parent:</h4>(nested reply — parent comment not in local corpus)<br><br>';
   }
   if (data.sibling_texts && data.sibling_texts.length) {
     html += '<h4>Other replies to the same parent:</h4>';
@@ -409,6 +547,13 @@ async function loadContext(id) {
     }
   }
   ctx.innerHTML = html;
+  if (data.chain_exhausted) {
+    ctxBtn.textContent = 'No more context available (reached top of thread)';
+    ctxBtn.disabled = true;
+  } else {
+    ctxBtn.textContent = 'Load more context (go up one more level)';
+    ctxBtn.disabled = false;
+  }
 }
 
 async function submit(label) {
@@ -448,17 +593,13 @@ document.addEventListener('keydown', (e) => {
   if (e.metaKey || e.ctrlKey || e.altKey) return;
 
   let map = {};
-  const STANCE_QUEUES = ['consensus_stance', 'maverick_stance', 'consensus_stance_politics', 'maverick_stance_politics',
-    'maverick_stance_round2', 'maverick_stance_round3', 'maverick_stance_round4', 'maverick_stance_round5',
-    'maverick_stance_round6', 'maverick_stance_round7', 'maverick_stance_round8', 'consensus_stance_round8',
-    'wikileaks_quality_check', 'assange_quality_check', 'snowden_quality_check', 'greenwald_quality_check',
-    'jones_short_quality_check', 'wikileaks_short_quality_check', 'assange_short_quality_check', 'snowden_short_quality_check', 'greenwald_short_quality_check', 'irr_stance_shared',
-    'active_learning_requeue', 'escalation_human_review', 'frontier_disagreement_qc', 'qwen_escalation_review',
-    'active_learning_requeue_v2', 'escalation_aleatoric_review'];
-  if (STANCE_QUEUES.includes(current)) {
-    map = {'1': 'endorsement', '2': 'hostile', '3': 'neutral', '4': 'ambiguous', '5': 'wrong_match'};
-  } else {
+  const NON_STANCE_QUEUES = ['maverick_authority', 'personal_experience', 'procedural_skepticism'];
+  if (current === 'domain_citation_tier') {
+    map = {'1': 'mainstream_reliable', '2': 'mixed_or_low_reliability', '3': 'aggregator_or_platform', '4': 'unmatched_link', '5': 'skip_unclear'};
+  } else if (NON_STANCE_QUEUES.includes(current)) {
     map = {'1': 'positive', '2': 'lean_positive', '3': 'negative', '4': 'unsure'};
+  } else {
+    map = {'1': 'endorsement', '2': 'hostile', '3': 'neutral', '4': 'ambiguous', '5': 'wrong_match'};
   }
   if (map[e.key]) submit(map[e.key]);
   if (e.key === 'ArrowLeft' && idx > 0) { idx -= 1; showCurrent(); }
@@ -509,7 +650,20 @@ LOGIN_PAGE = """<!doctype html>
 
 
 def load_df(path):
-    return pd.read_csv(path)
+    df = pd.read_csv(path)
+    # A queue CSV whose human_stance/human_label, notes, or rater_id column
+    # is entirely empty gets inferred as float64 (all-NaN) by read_csv --
+    # writing a string label into that column then raises
+    # "TypeError: Invalid value 'X' for dtype 'float64'" deep in pandas'
+    # setitem path, which crashes the request handler with NO response
+    # sent (net::ERR_EMPTY_RESPONSE client-side). Found 2026-08-13 on the
+    # freshly-built round9 queues, whose label columns start fully blank.
+    # Force these three known write-targets to object dtype unconditionally
+    # so this can't recur for any future queue in the same state.
+    for col in ("human_stance", "human_label", "notes", "rater_id"):
+        if col in df.columns:
+            df[col] = df[col].astype(object)
+    return df
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -604,47 +758,116 @@ class Handler(BaseHTTPRequestHandler):
             qs = parse_qs(parsed.query)
             queue = qs.get("queue", [None])[0]
             comment_id = qs.get("id", [None])[0]
+            try:
+                depth = max(1, min(15, int(qs.get("depth", ["1"])[0])))
+            except (TypeError, ValueError):
+                depth = 1
             path = QUEUES.get(queue)
             if not path or not comment_id:
                 self._json({"error": "bad request"}, 400)
                 return
-            if CONTEXT_CACHE and str(comment_id) in CONTEXT_CACHE:
-                self._json(CONTEXT_CACHE[str(comment_id)])
+            if depth == 1 and CONTEXT_CACHE and str(comment_id) in CONTEXT_CACHE:
+                cached = dict(CONTEXT_CACHE[str(comment_id)])
+                cached.setdefault("levels", [])
+                cached.setdefault("chain_exhausted", False)
+                self._json(cached)
                 return
-            if not os.path.exists(path) or not os.path.exists(LOCAL_CONTEXT_DB):
-                self._json({"parent_text": None, "sibling_texts": []})
+            if not os.path.exists(path):
+                self._json({"parent_text": None, "sibling_texts": [], "levels": [], "chain_exhausted": True})
                 return
             df = load_df(path)
             row = df[df["id"].astype(str) == str(comment_id)]
             if row.empty or "parent_id" not in df.columns:
-                self._json({"parent_text": None, "sibling_texts": []})
+                self._json({"parent_text": None, "sibling_texts": [], "levels": [], "chain_exhausted": True})
                 return
             r = row.iloc[0]
             parent_id_raw = str(r.get("parent_id", "") or "")
             link_id_raw = str(r.get("link_id", "") or "")
-            parent_text = None
             sibling_texts = []
+            # `levels`: ancestor texts from the immediate parent (levels[0])
+            # upward, one entry per depth requested. Walks further each
+            # time the frontend asks for a higher `depth`, reusing the same
+            # comment-lookup this project's chain-walking training code
+            # uses (LOCAL_CONTEXT_DB's full 44M-row comments table, or the
+            # lexical parquet fallback) -- added 2026-08-13 so "Load more
+            # context" can go past the immediate parent instead of stopping
+            # there, matching what round9's epistemic/aleatoric chain-walk
+            # already does offline.
+            levels = []
+            post_title = None
+            post_selftext = None
+            chain_exhausted = False
             try:
-                con = duckdb.connect(LOCAL_CONTEXT_DB, read_only=True)
-                if parent_id_raw and parent_id_raw != link_id_raw and parent_id_raw.startswith("t1_"):
-                    parent_comment_id = parent_id_raw[3:]
-                    res = con.execute(
-                        "SELECT text FROM comments WHERE id = ? LIMIT 1",
-                        [parent_comment_id],
-                    ).fetchone()
-                    if res:
-                        parent_text = res[0]
+                use_db = os.path.exists(LOCAL_CONTEXT_DB)
+                if use_db:
+                    con = duckdb.connect(LOCAL_CONTEXT_DB, read_only=True)
+                    def _lookup_comment(cid):
+                        res = con.execute(
+                            "SELECT text, parent_id FROM comments WHERE id = ? LIMIT 1", [cid]
+                        ).fetchone()
+                        return res if res else None
+                    def _lookup_siblings(pid, exclude_id):
+                        return [s[0] for s in con.execute(
+                            "SELECT DISTINCT text FROM comments WHERE parent_id = ? AND id != ? LIMIT 5",
+                            [pid, exclude_id],
+                        ).fetchall()]
+                else:
+                    # Fallback: query the full lexical parquet (slower but no pre-build needed)
+                    pcon = duckdb.connect()
+                    def _lookup_comment(cid):
+                        res = pcon.execute(
+                            f"SELECT text, parent_id FROM read_parquet('{LEXICAL_FULL_PATH}') WHERE id = ? LIMIT 1", [cid]
+                        ).fetchone()
+                        return res if res else None
+                    def _lookup_siblings(pid, exclude_id):
+                        return [s[0] for s in pcon.execute(
+                            f"SELECT DISTINCT text FROM read_parquet('{LEXICAL_FULL_PATH}') WHERE parent_id = ? AND id != ? LIMIT 5",
+                            [pid, exclude_id],
+                        ).fetchall()]
+
                 if parent_id_raw:
-                    sib = con.execute(
-                        """SELECT DISTINCT text FROM comments
-                            WHERE parent_id = ? AND id != ? LIMIT 5""",
-                        [parent_id_raw, str(comment_id)],
-                    ).fetchall()
-                    sibling_texts = [s[0] for s in sib]
+                    sibling_texts = _lookup_siblings(parent_id_raw, str(comment_id))
+
+                cur_parent = parent_id_raw
+                for _ in range(depth):
+                    if not cur_parent:
+                        chain_exhausted = True
+                        break
+                    if cur_parent.startswith("t3_"):
+                        title, selftext = _lookup_post(cur_parent[3:])
+                        post_title, post_selftext = title, selftext
+                        chain_exhausted = True
+                        break
+                    if not cur_parent.startswith("t1_"):
+                        chain_exhausted = True
+                        break
+                    found = _lookup_comment(cur_parent[3:])
+                    if not found:
+                        chain_exhausted = True
+                        break
+                    text, next_parent = found
+                    levels.append(text)
+                    cur_parent = str(next_parent or "")
+                if not chain_exhausted and (not cur_parent or cur_parent.startswith("t3_")):
+                    # loop ended because we hit `depth`, but the NEXT level
+                    # would be the post or a dead end -- surface that now so
+                    # the frontend can show it without one more round-trip,
+                    # and mark exhausted since there's genuinely nothing
+                    # further to load either way.
+                    if cur_parent.startswith("t3_"):
+                        title, selftext = _lookup_post(cur_parent[3:])
+                        post_title, post_selftext = title, selftext
+                    chain_exhausted = True
             except Exception as e:
                 self._json({"error": str(e)}, 500)
                 return
-            self._json({"parent_text": parent_text, "sibling_texts": sibling_texts})
+            is_toplevel = (not parent_id_raw) or (parent_id_raw == link_id_raw) or parent_id_raw.startswith("t3_")
+            parent_text = levels[0] if levels else None
+            self._json({
+                "parent_text": parent_text, "sibling_texts": sibling_texts, "is_toplevel": is_toplevel,
+                "levels": levels, "post_title": post_title, "post_selftext": post_selftext,
+                "chain_exhausted": chain_exhausted,
+            })
 
         else:
             self._json({"error": "not found"}, 404)
