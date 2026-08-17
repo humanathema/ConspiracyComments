@@ -19,6 +19,10 @@ __pycache__/
 repomix-output*.xml
 # local corpus index (18GB, built by build_local_context_db.py -- never commit this)
 local_context.duckdb
+# local posts index (825MB, built by hitl_rater.py's _get_posts_con() -- never commit this)
+local_posts_index.duckdb
+# model checkpoints, inference outputs (large binaries, not source) -- never commit this
+outputs/
 # archived notebook history stays on disk, out of the repo
 notebooks/archive/
 notebooks/scratchpads/

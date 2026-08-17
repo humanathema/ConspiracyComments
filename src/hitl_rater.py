@@ -136,13 +136,65 @@ LEXICAL_FULL_PATH = _abs("data/processed/lexical_scores_full.parquet")
 # round9 chain-walk (build_round9_thread_chains.py): 9 submissions that
 # round9 needed were only in the *2 file, not the main one.
 RAW_POSTS_PATHS = [_abs("data/raw/r_conspiracy_posts.jsonl"), _abs("data/raw/r_conspiracy_posts2.jsonl.gz")]
+# Local, indexed posts table (build_posts_index.py) -- added 2026-08-14 after
+# finding the REAL cause of "sometimes says no context" / general slowness:
+# any row whose immediate parent is the submission itself (parent_id starts
+# "t3_") fell into _lookup_post()'s raw-file scan below, which reads
+# data/raw/*.jsonl(.gz) -- i.e. the USB thumb drive, unindexed. A plain
+# COUNT(*) over those two files took over 2 minutes and didn't finish. This
+# isn't a rare "reached the top of a long thread" case either -- plenty of
+# rows are direct top-level replies to a post, so this was hit constantly,
+# not occasionally. LOCAL_POSTS_DB is a one-time local copy (same pattern as
+# LOCAL_CONTEXT_DB for comments) -- falls back to the slow raw scan below if
+# it hasn't been built yet.
+LOCAL_POSTS_DB = _abs("local_posts_index.duckdb")
+
+_LOCAL_CONTEXT_CON = None
+_LOCAL_POSTS_CON = None
+
+
+def _get_context_con():
+    """One persistent read-only connection to the 19.5GB local_context.duckdb,
+    opened once and reused via cheap per-request cursors -- was previously
+    re-opened (duckdb.connect(...)) on every single /api/context call. DuckDB
+    connections aren't safe to share directly across concurrent threads
+    (ThreadingHTTPServer spins up one per request), but .cursor() gives a
+    lightweight, thread-safe view into the same already-open connection, so
+    this keeps concurrency-safety while cutting the repeated file-open cost."""
+    global _LOCAL_CONTEXT_CON
+    if _LOCAL_CONTEXT_CON is None and os.path.exists(LOCAL_CONTEXT_DB):
+        _LOCAL_CONTEXT_CON = duckdb.connect(LOCAL_CONTEXT_DB, read_only=True)
+        # This machine has 8GB RAM total (see machine_constraints memory) --
+        # DuckDB's default memory_limit is a large fraction of detected
+        # system RAM, and its buffer pool grows as it caches pages touched
+        # by queries with no cap otherwise. Point lookups (WHERE id = ?)
+        # against a 19.5GB file don't need much cache to be fast; capping
+        # this explicitly avoids DuckDB's own buffer pool being a second,
+        # independent source of memory pressure on top of everything else.
+        _LOCAL_CONTEXT_CON.execute("PRAGMA memory_limit='1GB'")
+    return _LOCAL_CONTEXT_CON
+
+
+def _get_posts_con():
+    global _LOCAL_POSTS_CON
+    if _LOCAL_POSTS_CON is None and os.path.exists(LOCAL_POSTS_DB):
+        _LOCAL_POSTS_CON = duckdb.connect(LOCAL_POSTS_DB, read_only=True)
+        _LOCAL_POSTS_CON.execute("PRAGMA memory_limit='512MB'")
+    return _LOCAL_POSTS_CON
 
 
 def _lookup_post(submission_id):
-    """Scoped DuckDB scan for one submission's title+selftext -- filter
-    pushdown keeps this from loading either multi-GB file into memory, but
-    it's still a real scan (no index on JSONL), so this is only called on
-    an explicit "load more context" click reaching the post, not per-row."""
+    """Fast path: the local indexed posts table (see LOCAL_POSTS_DB comment
+    above). Falls back to a raw scan of data/raw/*.jsonl(.gz) -- the USB
+    thumb drive, unindexed, genuinely slow -- only if the index hasn't been
+    built yet."""
+    posts_con = _get_posts_con()
+    if posts_con is not None:
+        res = posts_con.cursor().execute(
+            "SELECT title, selftext FROM posts WHERE id = ? LIMIT 1", [submission_id]
+        ).fetchone()
+        return res if res else (None, None)
+
     paths = [p for p in RAW_POSTS_PATHS if os.path.exists(p)]
     if not paths:
         return None, None
@@ -385,29 +437,43 @@ function highlightSpans(text, spansJson, targetEntity) {
       return out;
     }
   }
-  // Fallback: case-insensitive indexOf loop for the entity name.
-  // Tries the full name first; if not found, tries each token (surname etc).
+  // Fallback: case-insensitive search for the entity name. Tries the full
+  // name first (as one phrase); separately, ALSO highlights every
+  // individual token (first name, surname, etc.) found anywhere in the
+  // text -- not just whichever needle happens to be checked first. Fixed
+  // 2026-08-14: the old version picked exactly one needle (full name, or
+  // else the first token that matched) and stopped, so a URL slug like
+  // "aaron-swartz-was-murdered" (hyphenated, no space -- the full-name
+  // phrase check fails) would highlight only "aaron" and never look for
+  // "swartz" too, even though it's sitting right there.
   if (!targetEntity) return escapeHtml(text);
   const lower = text.toLowerCase();
-  // Build list of needles: full name, then individual tokens > 3 chars
   const tokens = targetEntity.split(/\s+/).filter(t => t.length > 3);
   const needles = [targetEntity.toLowerCase()];
   for (const t of tokens) {
     const tl = t.toLowerCase();
     if (!needles.includes(tl)) needles.push(tl);
   }
-  // Use the first needle that actually appears in the text
-  let needle = needles[0];
+  // Collect every match for every needle that appears, then merge into
+  // non-overlapping spans (longest/earliest wins on overlap, so the full
+  // "aaron swartz" phrase pre-empts a separate "aaron" + "swartz" pair
+  // when both are present).
+  let matches = [];
   for (const n of needles) {
-    if (lower.includes(n)) { needle = n; break; }
+    let pos = 0, idx;
+    while ((idx = lower.indexOf(n, pos)) !== -1) {
+      matches.push({ start: idx, end: idx + n.length });
+      pos = idx + n.length;
+    }
   }
+  matches.sort((a, b) => a.start - b.start || (b.end - b.start) - (a.end - a.start));
   let out = '';
   let pos = 0;
-  let idx;
-  while ((idx = lower.indexOf(needle, pos)) !== -1) {
-    out += escapeHtml(text.slice(pos, idx));
-    out += '<mark>' + escapeHtml(text.slice(idx, idx + needle.length)) + '</mark>';
-    pos = idx + needle.length;
+  for (const m of matches) {
+    if (m.start < pos) continue;  // overlaps an already-highlighted (longer) span
+    out += escapeHtml(text.slice(pos, m.start));
+    out += '<mark>' + escapeHtml(text.slice(m.start, m.end)) + '</mark>';
+    pos = m.end;
   }
   out += escapeHtml(text.slice(pos));
   return out;
@@ -487,7 +553,7 @@ function showCurrent() {
   }
   const targetEl = document.getElementById('target_entity');
   if (row.target_entity) {
-    targetEl.textContent = 'This comment mentions multiple entities -- rate stance toward: ' + row.target_entity;
+    targetEl.textContent = 'Rate stance toward: ' + row.target_entity;
     targetEl.style.display = 'block';
   } else {
     targetEl.style.display = 'none';
@@ -649,7 +715,18 @@ LOGIN_PAGE = """<!doctype html>
 </body></html>"""
 
 
+_DF_CACHE = {}  # path -> (mtime, df) -- avoids re-parsing a queue CSV on every
+# request (e.g. every /api/context click) when it hasn't changed on disk.
+# Safe: the only write path (do_POST's /api/label handler) saves via
+# df.to_csv(path), which updates the file's mtime, so the next load_df()
+# call for that path naturally sees a cache miss and reloads.
+
+
 def load_df(path):
+    mtime = os.path.getmtime(path)
+    cached = _DF_CACHE.get(path)
+    if cached and cached[0] == mtime:
+        return cached[1]
     df = pd.read_csv(path)
     # A queue CSV whose human_stance/human_label, notes, or rater_id column
     # is entirely empty gets inferred as float64 (all-NaN) by read_csv --
@@ -663,6 +740,7 @@ def load_df(path):
     for col in ("human_stance", "human_label", "notes", "rater_id"):
         if col in df.columns:
             df[col] = df[col].astype(object)
+    _DF_CACHE[path] = (mtime, df)
     return df
 
 
@@ -800,7 +878,7 @@ class Handler(BaseHTTPRequestHandler):
             try:
                 use_db = os.path.exists(LOCAL_CONTEXT_DB)
                 if use_db:
-                    con = duckdb.connect(LOCAL_CONTEXT_DB, read_only=True)
+                    con = _get_context_con().cursor()
                     def _lookup_comment(cid):
                         res = con.execute(
                             "SELECT text, parent_id FROM comments WHERE id = ? LIMIT 1", [cid]

@@ -30,6 +30,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent))
 from pull_hitl_val_batch import (
     build_person_entities, build_domain_entities, _collect_excluded_pairs,
+    _is_bare_surname_mode, _passes_surname_disambiguation,
 )
 
 LONG_CORPUS = "data/processed/empath_scores_full_mapped.parquet"
@@ -39,7 +40,7 @@ RANDOM_STATE = 42
 OUT_PATH = "data/processed/round9/round9_unlabeled_pool.parquet"
 
 
-def scan_corpus(con, corpus_path, min_len, entities, source_kind, excluded_id_pairs, excluded_text_pairs, cap, seed):
+def scan_corpus(con, corpus_path, min_len, entities, source_kind, excluded_id_pairs, excluded_text_pairs, cap, seed, disambiguate=False):
     if not entities:
         return pd.DataFrame()
     when_clauses = "\n    ".join(
@@ -78,6 +79,8 @@ def scan_corpus(con, corpus_path, min_len, entities, source_kind, excluded_id_pa
     frames = []
     for name, _, cats in entities:
         chunk = df[df["target_entity"] == name]
+        if disambiguate and _is_bare_surname_mode(name):
+            chunk = chunk[chunk["text"].apply(lambda t: _passes_surname_disambiguation(t, name))]
         if len(chunk) == 0:
             continue
         n = min(cap, len(chunk))
@@ -102,7 +105,7 @@ def main():
 
     for corpus_path, min_len, tag in [(LONG_CORPUS, 50, "long"), (SHORT_CORPUS, 5, "short")]:
         print(f"=== {tag} corpus ===")
-        p = scan_corpus(con, corpus_path, min_len, persons, f"person_{tag}", excluded_id_pairs, excluded_text_pairs, TARGET_PER_ENTITY, RANDOM_STATE)
+        p = scan_corpus(con, corpus_path, min_len, persons, f"person_{tag}", excluded_id_pairs, excluded_text_pairs, TARGET_PER_ENTITY, RANDOM_STATE, disambiguate=True)
         d = scan_corpus(con, corpus_path, min_len, domains, f"domain_{tag}", excluded_id_pairs, excluded_text_pairs, TARGET_PER_ENTITY, RANDOM_STATE)
         if len(p):
             p["population"] = tag

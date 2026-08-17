@@ -121,7 +121,321 @@ AMBIGUOUS_SURNAMES = {
     "kory", "lake", "duke", "wolf", "wood", "truth",
     "butler", "garrison", "griffin", "peters", "roberts", "watson", "watkins",
     "weinstein", "manning", "steele", "ventura",
+    # Added 2026-08-14 after the bare-surname audit (handoff/bare_surname_audit_2026-08-13.csv):
+    # "malone" is dominated by the musician Post Malone -- corpus-wide only 63 of
+    # 8,656 bare hits (0.7%) are the real Robert W. Malone, the worst ratio (137x)
+    # of any audited entity. The preceding-capitalized-name heuristic below only
+    # catches ~47% of these (most "Post Malone" references aren't immediately
+    # adjacent to "Post"), so it's not sufficient alone for this one -- full-name-
+    # only is the safe fallback, same tradeoff (lower recall, high precision) as
+    # every other entry in this set.
+    "malone",
+    # "summers" (for "Larry Summers") belongs in the ordinary-English-word group
+    # above (bell/wolf/wood/duke/lake/truth), not the different-person-collision
+    # group -- confirmed directly: of 150 round9-pool rows, only 35 even have it
+    # capitalized ("Summers"); the other 115 are the plain lowercase season word
+    # ("hot summers", "worked summers as a kid"). The preceding-capitalized-name
+    # heuristic can't fix this -- it's not a competing proper name, it's a common
+    # noun, so full-name-phrase matching is the only safe option here too.
+    "summers",
+    # "carlson" (for "Tucker Carlson", one of the original 11) -- confirmed real
+    # wrong-match 2026-08-14 by Nash directly while rating the new active-learning
+    # queue: comment eq3bfx9 bare-matched "Tucker Carlson" but is actually about
+    # Randall Carlson (Graham Hancock's podcast co-guest, discussing a comet-impact
+    # theory). The preceding-capitalized-name heuristic can't catch this class of
+    # error -- "Randall" was named several comments earlier in the SAME THREAD, not
+    # adjacent to this specific "Carlson" mention, so no single-comment regex can
+    # resolve it. This is exactly the kind of case the project's existing
+    # first-name-or-surname signature-word disambiguation machinery
+    # (stage_b_consolidated_corpus_pass.py / stage_c_classify_ambiguous.py,
+    # already has "hunter"/"hillary"-style clusters) is built for -- worth
+    # extending to a "carlson": {"Tucker Carlson": [...], "Randall Carlson": [...]}
+    # cluster rather than just falling back to full-name-only here, since bare
+    # "Tucker Carlson" mentions (no "Tucker") are common enough to be worth
+    # recovering. Full-name-only in the meantime, same safe-fallback tradeoff as
+    # everything else in this set.
+    "carlson",
 }
+
+
+# Common nickname -> formal-given-name variants. Needed because
+# _passes_surname_disambiguation treats any capitalized word preceding/
+# following the surname that isn't literally the entity's recorded given
+# name as a competing person -- which wrongly flags genuine mentions like
+# "Jim Fetzer" (entity "James Fetzer"), "Bill Cooper" (entity "Milton
+# William Cooper"), "Mike Yeadon" (entity "Michael Yeadon"). Found
+# 2026-08-18 auditing round9_unlabeled_pool.parquet's disambiguation
+# fails: these three alone accounted for a meaningful share of the 1,251
+# rejected rows. Not exhaustive -- covers the names that actually
+# collided in this corpus's verified entity lists.
+NICKNAME_EQUIVALENTS = {
+    "william": {"bill", "billy", "will", "willy"},
+    "robert": {"bob", "bobby", "rob", "robbie"},
+    "richard": {"dick", "rick", "ricky", "rich"},
+    "james": {"jim", "jimmy", "jamie"},
+    "michael": {"mike", "mikey", "mick"},
+    "thomas": {"tom", "tommy"},
+    "david": {"dave", "davey"},
+    "christopher": {"chris"},
+    "steven": {"steve", "stevie"},
+    "stephen": {"steve", "stevie"},
+    "kenneth": {"ken", "kenny"},
+    "gregory": {"greg"},
+    "andrew": {"andy", "drew"},
+    "theodore": {"ted", "teddy"},
+    "edward": {"ed", "eddie", "ted"},
+    "daniel": {"dan", "danny"},
+    "joseph": {"joe", "joey"},
+    "charles": {"charlie", "chuck"},
+    "anthony": {"tony"},
+    "francis": {"frank"},
+    "raymond": {"ray"},
+    "lawrence": {"larry"},
+    "jonathan": {"jon", "jonny"},
+    "nicholas": {"nick", "nicky"},
+    "patrick": {"pat"},
+    "matthew": {"matt"},
+    "samuel": {"sam", "sammy"},
+    "benjamin": {"ben", "benny"},
+    "alexander": {"alex"},
+    "jeffrey": {"jeff"},
+    "kimberly": {"kim"},
+    "katherine": {"kathy", "kate", "katie"},
+    "deborah": {"deb", "debbie"},
+    "susan": {"sue", "susie"},
+    "margaret": {"maggie", "meg", "peggy"},
+}
+# Reverse lookup: nickname -> set of formal names it can stand for.
+_NICKNAME_TO_FORMAL = {}
+for _formal, _nicks in NICKNAME_EQUIVALENTS.items():
+    for _nick in _nicks:
+        _NICKNAME_TO_FORMAL.setdefault(_nick, set()).add(_formal)
+
+# Titles that precede a surname without being a competing name.
+TITLES = {
+    "dr", "doctor", "mr", "mrs", "ms", "miss", "prof", "professor",
+    "sen", "senator", "rep", "president", "gov", "governor", "judge",
+    "reverend", "rev", "father", "sir", "colonel", "col", "general",
+    "gen", "captain", "capt", "major", "lieutenant", "lt",
+}
+
+
+def _lookup_given_names(surname: str, maverick_names, consensus_names) -> set[str]:
+    """Derive given name(s) for a bare-surname alias entity (e.g. "Mullis")
+    by finding sibling full-name entries in the verified entity lists that
+    end with the same surname (e.g. "Kary Mullis" -> "kary"). Needed
+    because bare-surname aliases like UNAMBIGUOUS_MAVERICK_ALIASES ("Mullis",
+    "Mikovits", ...) carry no given name of their own, so passed through
+    _passes_surname_disambiguation as-is they'd reject every genuine full
+    mention ("Kary Mullis said...") as a false collision.
+    """
+    given = set()
+    for name in list(maverick_names) + list(consensus_names):
+        parts = name.strip().split()
+        if len(parts) >= 2 and parts[-1].lower() == surname.lower():
+            given.add(re.sub(r"[.,'\"]+$", "", parts[0]).lower())
+    return given
+
+
+def _edit_distance_le1(a: str, b: str) -> bool:
+    """True if a and b differ by at most one single-character insertion,
+    deletion, or substitution. Cheap length-gated check, not a full DP
+    edit-distance table -- only needs to answer <=1, not the exact value."""
+    if a == b:
+        return True
+    la, lb = len(a), len(b)
+    if abs(la - lb) > 1 or min(la, lb) < 3:
+        return False
+    if la == lb:
+        diffs = sum(1 for x, y in zip(a, b) if x != y)
+        return diffs <= 1
+    shorter, longer = (a, b) if la < lb else (b, a)
+    i = j = skipped = 0
+    while i < len(shorter) and j < len(longer):
+        if shorter[i] != longer[j]:
+            skipped += 1
+            if skipped > 1:
+                return False
+            j += 1
+        else:
+            i += 1
+            j += 1
+    return True
+
+
+_GIVEN_NAME_CACHE: dict[str, set[str]] = {}
+
+
+def _looked_up_given_names(surname: str) -> set[str]:
+    """Cached wrapper around _lookup_given_names -- lazily imports the
+    verified entity lists (avoids a module-load-time import cycle/cost)
+    and memoizes per surname since this runs per-row at scan time."""
+    key = surname.lower()
+    if key not in _GIVEN_NAME_CACHE:
+        sys.path.insert(0, str(Path(__file__).parent))
+        from maverick_authority_verified import VERIFIED_MAVERICK_AUTHORITY
+        from consensus_experts_verified import VERIFIED_CONSENSUS_EXPERTS
+        _GIVEN_NAME_CACHE[key] = _lookup_given_names(
+            surname, VERIFIED_MAVERICK_AUTHORITY, VERIFIED_CONSENSUS_EXPERTS
+        )
+    return _GIVEN_NAME_CACHE[key]
+
+
+def _is_bare_surname_mode(entity: str) -> bool:
+    """True if _person_sql_cond() will match this entity via the bare
+    surname (the mode the disambiguation check below applies to), False if
+    it falls back to full-name-phrase matching (already unambiguous by
+    construction -- nothing to disambiguate). Mirrors _person_sql_cond's
+    own branching; kept as a separate function rather than having
+    _person_sql_cond return a flag, so the (name, cond, category) tuple
+    shape pull_all_entities()/scan_corpus() already consume doesn't change.
+
+    Single-token entities (e.g. "Mullis") used to always return False here
+    -- meaning bare-surname aliases went through the whole pipeline with
+    NO disambiguation applied at all, not because they're safe, but because
+    the check had nothing to compare against. Fixed 2026-08-18: now gated
+    (and checked with a looked-up given name from a sibling full-name
+    entry, e.g. "Mullis" -> "Kary") whenever such a lookup succeeds. Left
+    ungated when it doesn't -- confirmed via "Tedros" (Tedros Adhanom
+    Ghebreyesus, a mononym used as a FIRST name, not a surname -- the
+    lookup finds no sibling "X Tedros" entry and returns empty, and gating
+    with an empty given-name set caused real "Tedros Ghebreyesus" mentions
+    to be wrongly rejected as colliding with an unrecognized "Tedros").
+    Better to skip disambiguation than guess wrong with no information.
+    """
+    last = _bare_surname_key(entity)
+    if len(last) < 6 or last in AMBIGUOUS_SURNAMES:
+        return False
+    parts = entity.strip().split()
+    if len(parts) == 1:
+        return bool(_looked_up_given_names(last))
+    return True
+
+
+def _passes_surname_disambiguation(text: str, entity: str) -> bool:
+    """Reject a bare-surname match if EVERY occurrence of the surname in
+    `text` looks like it belongs to someone else's full name -- checked in
+    BOTH directions:
+    - preceded by a different capitalized token (e.g. "Post Malone", "Bill
+      Cooper" for target entity "Cooper" -- the surname is being used as
+      someone else's surname), or
+    - immediately followed by a different capitalized token (e.g. "Gregory
+      Peck" for target entity "Dick Gregory" -- the surname is being used
+      as someone ELSE's first name, the mirror-image error).
+    Preceded by the target's OWN given name/initial is treated as decisive
+    (clean regardless of what follows -- that's a real full-name mention).
+    A single clean occurrence is enough to keep the row -- one genuine
+    mention is a genuine mention even if the same comment also references
+    an unrelated person who happens to share the surname.
+
+    Validated 2026-08-13/14 (handoff/task_2026-08-13_session_handoff_round9_pipeline_and_hitl_fixes.md
+    section 10) on the backward direction alone; the forward direction was
+    added 2026-08-14 after Nash caught a real miss while rating the active-
+    learning queue directly: "Dick Gregory" bare-matched a comment that was
+    actually about "Gregory Peck" the actor ("On the Beach starring Gregory
+    Peck") -- backward-only checking sees "staring" (lowercase) before
+    "Gregory" and calls it clean, missing that "Peck" follows it. This is
+    the exact case the original entity-disambiguation diagnosis already
+    named but the first implementation didn't act on ("'Gregory' is someone
+    else's first name in [Bateson/Mankiw/Mannarino], the matcher doesn't
+    check word position at all" -- handoff section 10). Known limitation
+    either direction: undercatches non-adjacent collisions (Robert W.
+    Malone, handled via AMBIGUOUS_SURNAMES instead) -- this is a floor on
+    precision, not a ceiling.
+    """
+    parts = entity.strip().split()
+    surname = re.sub(r"[.,]+$", "", parts[-1])
+    given = {re.sub(r"[.,'\"]+$", "", p).lower() for p in parts[:-1]}
+    if not given:
+        # Bare-surname alias entity (e.g. "Mullis") -- look up given
+        # name(s) from sibling full-name entries in the verified lists
+        # (e.g. "Kary Mullis") so a real full mention isn't rejected for
+        # lacking a given name the entity string never carried in the
+        # first place. See _lookup_given_names().
+        given = _looked_up_given_names(surname)
+
+    def _own_or_nickname(stripped: str) -> bool:
+        if stripped in given or stripped == surname.lower():
+            return True
+        # e.g. "Bill" for given name "william"
+        if _NICKNAME_TO_FORMAL.get(stripped, set()) & given:
+            return True
+        # Tolerate common misspellings/variant spellings of the given name
+        # only (not the surname -- that would loosen real collision
+        # detection). Confirmed real cases: "Anne Coulter" (entity "Ann
+        # Coulter"), "Kerry Mullis"/"Kari Mullis" (entity "Mullis" ->
+        # looked-up given name "kary") -- both genuine mentions rejected
+        # by exact string match alone. Edit distance <=1 is deliberately
+        # tight -- catches a single added/dropped/swapped letter, not a
+        # different name entirely.
+        return any(_edit_distance_le1(stripped, g) for g in given)
+
+    def _is_other_name(word: str) -> bool:
+        if not word or not word[0].isupper():
+            return False
+        stripped = word.lower().strip(".").strip("'")
+        if stripped in TITLES:
+            return False
+        return not _own_or_nickname(stripped)
+
+    def _is_sentence_initial(text_before_word: str) -> bool:
+        """True if the word immediately after `text_before_word` opens a
+        sentence/clause/list item rather than being a genuine adjacent
+        proper name -- e.g. "The Collins Bloodline", "Well Ellsberg is...",
+        "1. The Giuliani photo". Ordinary capitalized words at these
+        positions (headline style, list items, sentence starts) were being
+        misread as competing names. Found 2026-08-18 auditing
+        round9_unlabeled_pool.parquet. `text_before_word` already excludes
+        the word itself (caller passes preceding[:pw.start()]).
+        """
+        stripped_before = text_before_word.rstrip()
+        if not stripped_before:
+            return True  # very start of the text
+        return bool(re.search(r'[.!?\n"‘’“”(]\s*(?:[-*•]|\d+[.)])?\s*$', stripped_before))
+
+    # Case-sensitive on purpose: this checks whether the surname appears as a
+    # capitalized proper noun. A case-insensitive match would also catch
+    # ordinary lowercase words that happen to collide with a surname (e.g.
+    # "summers" the season, for entity "Larry Summers") and, since those are
+    # typically preceded by a lowercase word, get counted as a "clean"
+    # occurrence -- silently passing rows that never actually reference the
+    # person. (Recall for genuinely-lowercase-written mentions of the person
+    # is intentionally sacrificed here -- the underlying SQL pull is already
+    # case-insensitive for recall; this check only needs one clean signal to
+    # keep a row, so being conservative here just means occasionally falling
+    # through to "not found_any" rather than confirming via a real match.)
+    occ_pat = re.compile(r"\b" + re.escape(surname) + r"\b")
+    found_any = False
+    for m in occ_pat.finditer(text):
+        found_any = True
+        preceding = text[:m.start()]
+        pw = re.search(r"([A-Za-z][A-Za-z.']*)\s*$", preceding)
+        preceded_by_own_name = False
+        preceded_by_other_name = False
+        if pw:
+            word = pw.group(1)
+            if word[0].isupper():
+                stripped = word.lower().strip(".").strip("'")
+                if stripped in TITLES:
+                    pass  # neutral: a title isn't a competing name
+                elif _own_or_nickname(stripped):
+                    preceded_by_own_name = True
+                elif _is_sentence_initial(preceding[:pw.start()]):
+                    pass  # neutral: capitalized only by sentence/list position
+                else:
+                    preceded_by_other_name = True
+        if preceded_by_own_name:
+            return True  # unambiguous: the target's own full name
+
+        following = text[m.end():]
+        fw = re.match(r"\s+([A-Za-z][A-Za-z.']*)", following)  # only whitespace between --
+        # a period/comma right after means end of clause, not a tight "Surname Nextword" phrase
+        followed_by_other_name = bool(fw) and _is_other_name(fw.group(1))
+
+        if not preceded_by_other_name and not followed_by_other_name:
+            return True  # nothing suspicious in either direction -- clean
+        # else: this occurrence looks like someone else's name either way -- check the rest
+    return not found_any  # surname not actually found (shouldn't happen post-SQL-match) -- don't reject on nothing
 
 
 def _person_sql_cond(entity: str) -> str:
@@ -237,6 +551,17 @@ def build_person_entities() -> list[tuple[str, str, str]]:
     doc_counts = pd.read_csv(DOC_COUNTS_FILE).set_index("best_identity")["combined_doc_count"].to_dict()
     review = pd.read_csv("data/processed/entity_final_review.csv")
     best_identity_lookup = review.set_index(review["entity"].str.lower())["best_identity"].to_dict()
+    # entity_frequency_full_corpus.csv is the authoritative full-corpus count
+    # (see handoff docs) -- used as a fallback below for names whose
+    # best_identity resolution is missing/blank, since DOC_COUNTS_FILE has
+    # real coverage gaps for exactly those (confirmed 2026-08-14: Mark Lane,
+    # Victor Marchetti, Rashid Buttar, Stefan Molyneux all have real corpus
+    # presence here despite no row in DOC_COUNTS_FILE keyed either way).
+    freq_lookup = (
+        pd.read_csv("data/processed/entity_frequency_full_corpus.csv")
+        .assign(entity_lower=lambda d: d["entity"].str.lower())
+        .set_index("entity_lower")["combined"].to_dict()
+    )
     # SKIP_PERSONS names must be resolved through best_identity too, not just
     # matched literally: consensus_experts_verified.py deliberately includes
     # alias variants of skipped people (e.g. "Steven Hawking" misspelling,
@@ -250,20 +575,43 @@ def build_person_entities() -> list[tuple[str, str, str]]:
         if name.lower() in SKIP_ENTITIES or name in SKIP_PERSONS:
             continue
         best_id = best_identity_lookup.get(name.lower())
-        if best_id in skip_identities:
+        # pd.notna(), not a bare truthiness check: best_id can be a literal
+        # float NaN (a real row in entity_final_review.csv with a blank
+        # best_identity cell, distinct from "no row at all" which gives
+        # None) -- and bool(float('nan')) is True in Python, so `best_id or
+        # name`/`if best_id` silently treated NaN as a valid resolved
+        # identity instead of falling back to `name`. Found 2026-08-14:
+        # this collapsed Mark Lane/Victor Marchetti/Rashid Buttar/Stefan
+        # Molyneux (and Mark Dice, separately already excluded via
+        # SKIP_PERSONS) onto the same bad dedup key, and independently
+        # zeroed their doc-count lookup -- both silently dropped all four
+        # from every pull this project has ever run, despite each having
+        # 129-446 real corpus mentions (entity_frequency_full_corpus.csv).
+        has_best_id = pd.notna(best_id)
+        if has_best_id and best_id in skip_identities:
             continue
-        count = doc_counts.get(best_id, 0) if best_id else 0
+        count = doc_counts.get(best_id, 0) if has_best_id else 0
+        if count < MIN_COMBINED_DOC_COUNT:
+            count = freq_lookup.get((best_id if has_best_id else name).lower(), 0)
         if count < MIN_COMBINED_DOC_COUNT:
             continue
         # Dedup by best_identity (aliases in VERIFIED_MAVERICK_ADDITIONS like
         # "Ed Snowden" would otherwise create a second, redundant entry for
         # the same person already covered by the canonical form).
-        dedup_key = best_id or name
+        dedup_key = best_id if has_best_id else name
         if dedup_key in seen:
             continue
         seen.add(dedup_key)
         cond = _person_sql_cond(name)
-        entities.append((name, cond, cat))
+        # Use the resolved canonical identity as the label wherever we have
+        # one, not whichever raw alias happened to survive dedup -- found
+        # 2026-08-14 (Nash noticed a "Folta" link resolving to bare surname
+        # "Folta" instead of "Kevin Folta" as target_entity): 41 entities had
+        # this mismatch, all cosmetic/label-only, matching pattern was
+        # unaffected since `cond` is still built from whichever raw name
+        # survived.
+        display_name = best_id if has_best_id else name
+        entities.append((display_name, cond, cat))
     return entities
 
 
@@ -293,6 +641,7 @@ def pull_all_entities(
     excluded_text_pairs: set,
     max_per_entity: int,
     seed: int,
+    disambiguate: bool = False,
 ) -> pd.DataFrame:
     """Single-pass scan: build one big CASE/WHEN query so the parquet is read once."""
     if not entities:
@@ -337,6 +686,12 @@ def pull_all_entities(
     frames = []
     for name, _, cats in entities:
         chunk = df[df["target_entity"] == name]
+        if disambiguate and _is_bare_surname_mode(name):
+            before = len(chunk)
+            chunk = chunk[chunk["text"].apply(lambda t: _passes_surname_disambiguation(t, name))]
+            dropped = before - len(chunk)
+            if dropped:
+                print(f"    {name}: dropped {dropped} likely wrong-entity rows (surname disambiguation)")
         if len(chunk) == 0:
             print(f"    {name}: 0 rows")
             continue
@@ -384,7 +739,7 @@ def main():
     con = duckdb.connect()
 
     print("\n--- Person entities (single scan) ---")
-    person_df = pull_all_entities(con, person_entities, "person_maverick", excluded_id_pairs, excluded_text_pairs, args.max_per_entity, seed)
+    person_df = pull_all_entities(con, person_entities, "person_maverick", excluded_id_pairs, excluded_text_pairs, args.max_per_entity, seed, disambiguate=True)
 
     print("\n--- Domain entities (single scan) ---")
     domain_df = pull_all_entities(con, domain_entities, "domain_source", excluded_id_pairs, excluded_text_pairs, args.max_per_entity, seed)
