@@ -155,6 +155,15 @@ AMBIGUOUS_SURNAMES = {
     # recovering. Full-name-only in the meantime, same safe-fallback tradeoff as
     # everything else in this set.
     "carlson",
+    # "doctors" (for entity "America's Frontline Doctors") -- not a
+    # surname at all, an ordinary plural common noun picked up because
+    # _bare_surname_key() just takes the entity's last word regardless of
+    # whether the entity is a person or an organization. Bare "doctors"
+    # bare-matched 123,311/473,447 (26%) of the full entity-mention pool
+    # built 2026-08-18 -- confirmed via spot-check that literally none of
+    # a random sample even referenced the organization. Forces the
+    # full-phrase match instead.
+    "doctors",
 }
 
 
