@@ -556,6 +556,15 @@ VERIFIED_MAVERICK_AUTHORITY = [
     "Gavin McInnes",
     "Candace Owens",
     "Eric Weinstein",
+
+    # Added 2026-08-18 (Nash's direct call, coverage-gap check while building
+    # the full entity-mention pool): media personalities with real corpus
+    # presence confirmed via entity_frequency_full_corpus.csv (Sean Hannity
+    # 2,256, Rush Limbaugh 2,087, Laura Loomer 1,087 -- all well above the
+    # 100-doc_count floor), never previously added to this file.
+    "Sean Hannity",
+    "Rush Limbaugh",
+    "Laura Loomer",
 ]
 
 # Audited 2026-07-20 (r/politics stance-queue review): "Brand" removed

@@ -19,6 +19,22 @@ Sizing (count-only query, 2026-08-18): 364,934 long + 69,049 short = 433,983
 raw person-entity matches before disambiguation/dedup -- comfortably within
 memory on this machine (no need for the VM).
 
+Two more fixes folded in after the first build (2026-08-18, found during
+QA on that build's output):
+  - skip_original_11=False: the default build_person_entities() drops the
+    11 entities already covered by early-round training data (correct for
+    pull_hitl_val_batch.py's original "don't request redundant new HITL
+    labels" purpose) -- but that silently dropped Tucker Carlson, Alex
+    Jones, Roger Stone, Matt Gaetz, Aaron Swartz, and WikiLeaks entirely
+    from a pool meant for full-corpus inference coverage.
+  - drop_duplicates on ["id", "target_entity"], not just ["id"]: a single
+    comment mentioning two different tracked entities (e.g. both Alex
+    Jones and WikiLeaks) was having one of the two entity-labels silently
+    discarded by an id-only dedup. Confirmed via the first build: patching
+    in the recovered original-11 entities only added 108,772 of the
+    130,085 matched rows, the other ~21K were multi-entity comments
+    collapsed onto whichever entity was already in the pool.
+
 Output: data/processed/round9/full_entity_mention_pool.parquet
 """
 import sys
@@ -43,8 +59,30 @@ def main():
     excluded_id_pairs, excluded_text_pairs = _collect_excluded_pairs()
     print(f"  {len(excluded_id_pairs):,} id-pairs, {len(excluded_text_pairs):,} text-pairs to exclude\n", flush=True)
 
-    persons = build_person_entities()
+    persons = build_person_entities(skip_original_11=False)
     domains = build_domain_entities()
+
+    # skip_original_11=False can recover an entity whose SQL condition is
+    # byte-identical to one already present under a different display name
+    # (e.g. "Julian Assange" -> '\bassange\b', same as the already-present
+    # bare alias "Assange") -- scanning both would double-label the exact
+    # same matched comments under two different target_entity values.
+    # Confirmed 2026-08-18 for Julian Assange/Assange and Edward Snowden/
+    # Snowden specifically; this is a general safety net for any other
+    # such pair, not just those two.
+    seen_conds = set()
+    deduped = []
+    dropped = []
+    for name, cond, cat in persons:
+        if cond in seen_conds:
+            dropped.append(name)
+            continue
+        seen_conds.add(cond)
+        deduped.append((name, cond, cat))
+    if dropped:
+        print(f"Dropped {len(dropped)} entities with a duplicate SQL condition (already covered under another display name): {dropped}\n", flush=True)
+    persons = deduped
+
     print(f"Person entities: {len(persons)}  Domain entities: {len(domains)}\n", flush=True)
 
     con = duckdb.connect()
@@ -65,7 +103,7 @@ def main():
             all_frames.append(d_df)
         print(f"  person matches: {len(p_df):,}  domain matches: {len(d_df):,}\n", flush=True)
 
-    pool = pd.concat(all_frames, ignore_index=True).drop_duplicates(subset=["id"])
+    pool = pd.concat(all_frames, ignore_index=True).drop_duplicates(subset=["id", "target_entity"])
     print(f"Full combined pool: {len(pool):,} rows across {pool['target_entity'].nunique()} entities", flush=True)
 
     Path(OUT_PATH).parent.mkdir(parents=True, exist_ok=True)

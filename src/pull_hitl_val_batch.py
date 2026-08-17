@@ -533,7 +533,7 @@ def _collect_excluded_ids() -> set:
     return {i for i, _ in id_pairs}
 
 
-def build_person_entities() -> list[tuple[str, str, str]]:
+def build_person_entities(skip_original_11: bool = True) -> list[tuple[str, str, str]]:
     """Return list of (canonical_name, sql_condition, category).
 
     Source: the hand-reviewed VERIFIED_MAVERICK_AUTHORITY / _ADDITIONS /
@@ -541,6 +541,20 @@ def build_person_entities() -> list[tuple[str, str, str]]:
     filtered by real combined long+short doc_count (see DOC_COUNTS_FILE /
     MIN_COMBINED_DOC_COUNT above) — no new per-entity judgment calls, just a
     uniform frequency floor applied to entities already reviewed.
+
+    skip_original_11: when True (default, matches every existing caller's
+    behavior), SKIP_ENTITIES drops the 11 entities already covered by
+    training/val data from early project rounds -- correct for THIS
+    module's original purpose (don't generate redundant new HITL labeling
+    requests for ground already covered). Pass False for full-corpus
+    INFERENCE coverage instead (e.g. build_full_entity_mention_pool.py) --
+    found 2026-08-18 that leaving this on silently dropped Tucker Carlson,
+    Alex Jones, Roger Stone, Matt Gaetz, Aaron Swartz, Bill Gates, and
+    WikiLeaks entirely from a pool meant to cover every verified entity
+    (Assange/Snowden/Greenwald/Fauci partially survived only by accident,
+    via a bare-alias string that happens not to match the literal
+    SKIP_ENTITIES string, then get relabeled to the full canonical name on
+    display -- an inconsistency, not by design).
     """
     sys.path.insert(0, str(Path(__file__).parent))
     from maverick_authority_verified import VERIFIED_MAVERICK_AUTHORITY
@@ -581,7 +595,7 @@ def build_person_entities() -> list[tuple[str, str, str]]:
     entities = []
     seen = set()
     for name, cat in all_names.items():
-        if name.lower() in SKIP_ENTITIES or name in SKIP_PERSONS:
+        if (skip_original_11 and name.lower() in SKIP_ENTITIES) or name in SKIP_PERSONS:
             continue
         best_id = best_identity_lookup.get(name.lower())
         # pd.notna(), not a bare truthiness check: best_id can be a literal
