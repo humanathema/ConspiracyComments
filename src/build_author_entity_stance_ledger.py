@@ -37,8 +37,14 @@ its own label_source tag (e.g. "cascade_confidence_filtered") rather than
 rebuilding this from scratch.
 
 Output: data/processed/author_entity_stance_ledger.parquet
-Columns: id, author, target_entity, entity_category, stance, label_source,
-         created_utc
+Columns: id, author, target_entity, entity_category, stance_label,
+         stance_score, label_source, created_utc
+stance_label is the discrete hostile/endorsement/other call (human and
+ensemble tiers). stance_score is a continuous -1..1 signal (frontier_judge
+tier only, from round9's frontier_score -- 0.5=lean endorsement,
+-0.5=lean hostile, +-1=confident, per that pipeline's own scale). Kept as
+two separate columns rather than one mixed-type "stance" column -- pyarrow
+can't serialize a column holding both strings and floats.
 """
 import sys
 from pathlib import Path
@@ -92,9 +98,10 @@ def build_human_tier(con) -> pd.DataFrame:
     matched = _recover_author_by_text(con, human)
     print(f"  {len(matched):,} recovered with author ({len(matched)/max(len(human),1):.1%} match rate)", flush=True)
     matched["entity_category"] = None
-    matched["stance"] = matched["label"]
+    matched["stance_label"] = matched["label"]
+    matched["stance_score"] = float("nan")
     matched["label_source"] = "human"
-    return matched[["id", "author", "target_entity", "entity_category", "stance", "label_source", "created_utc"]]
+    return matched[["id", "author", "target_entity", "entity_category", "stance_label", "stance_score", "label_source", "created_utc"]]
 
 
 def build_frontier_tier(con) -> pd.DataFrame:
@@ -106,7 +113,7 @@ def build_frontier_tier(con) -> pd.DataFrame:
         except FileNotFoundError:
             continue
     if not scores:
-        return pd.DataFrame(columns=["id", "author", "target_entity", "entity_category", "stance", "label_source", "created_utc"])
+        return pd.DataFrame(columns=["id", "author", "target_entity", "entity_category", "stance_label", "stance_score", "label_source", "created_utc"])
     scored = pd.concat(scores, ignore_index=True).drop_duplicates(subset=["id"])
     merged = ctx.merge(scored, on="id", how="inner")
     print(f"  {len(merged):,} frontier-judge-scored rows", flush=True)
@@ -124,9 +131,10 @@ def build_frontier_tier(con) -> pd.DataFrame:
     con.unregister("fj")
     merged = merged.merge(ids, on="id", how="inner")
     merged["entity_category"] = None
-    merged["stance"] = merged["frontier_score"]
+    merged["stance_label"] = None
+    merged["stance_score"] = merged["frontier_score"].astype(float)
     merged["label_source"] = "frontier_judge"
-    return merged[["id", "author", "target_entity", "entity_category", "stance", "label_source", "created_utc"]]
+    return merged[["id", "author", "target_entity", "entity_category", "stance_label", "stance_score", "label_source", "created_utc"]]
 
 
 def build_ensemble_tier(con) -> pd.DataFrame:
@@ -144,9 +152,10 @@ def build_ensemble_tier(con) -> pd.DataFrame:
     """).df()
     con.unregister("ens")
     df = df.merge(ids, on="id", how="inner")
-    df["stance"] = df["pred_label"]
+    df["stance_label"] = df["pred_label"]
+    df["stance_score"] = df["signed_score"].astype(float) if "signed_score" in df.columns else float("nan")
     df["label_source"] = "ensemble"
-    return df[["id", "author", "target_entity", "entity_category", "stance", "label_source", "created_utc"]]
+    return df[["id", "author", "target_entity", "entity_category", "stance_label", "stance_score", "label_source", "created_utc"]]
 
 
 def main():
