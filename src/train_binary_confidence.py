@@ -58,19 +58,25 @@ NUM_EPOCHS = int(os.environ.get("NUM_EPOCHS", "2"))
 GRAD_CKPT = os.environ.get("GRAD_CKPT", "0") == "1"
 TAG = os.environ.get("TAG", "binconf")
 SAVE_ROOT = os.environ.get("SAVE_ROOT", "/home/nash/retrain_twostage")
-# Continuing training from an already-converged checkpoint needs a much
-# lower LR than training from scratch -- the original 2e-5 caused a real
-# NaN divergence (loss->0, grad_norm->nan, never recovers) a few hundred
-# steps into a continuation run 2026-08-18. Default drops automatically
-# when INIT_FROM_CHECKPOINT is set; LEARNING_RATE env var overrides either way.
-_default_lr = 2e-6 if os.environ.get("INIT_FROM_CHECKPOINT") else 2e-5
-LEARNING_RATE = float(os.environ.get("LEARNING_RATE", str(_default_lr)))
-# Defensive cap on marked-window text length -- some rows produced up to
-# 61,535 chars (932 rows >5,000 chars) when every occurrence of a
-# frequently-mentioned entity gets its own wrapped window; tokenizer
-# truncation (MAX_LENGTH) should handle this, but capping upstream avoids
-# feeding pathologically long strings into the tokenizer at all.
-MAX_MARKED_TEXT_CHARS = int(os.environ.get("MAX_MARKED_TEXT_CHARS", "4000"))
+# 2026-08-18: two continuation-fine-tune runs both diverged (loss->0,
+# grad_norm->nan) at the exact same step regardless of learning rate
+# (2e-5 vs 2e-6, identical failure point both times) -- ruling LR out as
+# the cause. Real root cause: bf16 has only ~7 mantissa bits, so near 1.0
+# it can't represent anything finer than ~0.008 -- a confidence value
+# like 0.995 rounds to EXACTLY 1.0 in bf16, and the epsilon clamp
+# (1e-12) is meaningless at that precision, so -log(1-c) hits log(0).
+# This checkpoint was already well-calibrated from its original
+# training, so continuing to fine-tune it pushes some confidence values
+# right up against that ceiling. Fixed properly by running in fp32
+# instead (see BF16 below) -- the LR-lowering and length-cap "fixes"
+# tried first were guesses that didn't address the real cause and are
+# reverted here rather than left as unexplained side effects.
+LEARNING_RATE = float(os.environ.get("LEARNING_RATE", "2e-5"))
+# fp32 by default when continuing from a checkpoint (see above); bf16
+# remains the default for training from scratch, where this hasn't been
+# observed to be a problem. BF16 env var overrides either way.
+_default_bf16 = "0" if os.environ.get("INIT_FROM_CHECKPOINT") else "1"
+USE_BF16 = os.environ.get("BF16", _default_bf16) == "1"
 # DeVries & Taylor's budget parameter: target average -log(c) penalty.
 # Their paper anneals lambda to hit this target; we use a fixed lambda and
 # report the achieved average confidence directly instead of dynamic
@@ -266,8 +272,6 @@ def _texts_with_marked_window(df, desc_lookup):
                 win_start_char += 1
             marked = marked[:win_start_char] + ">>" + marked[win_start_char:end] + "<<" + marked[end:]
             offset += 4
-        if len(marked) > MAX_MARKED_TEXT_CHARS:
-            marked = marked[:MAX_MARKED_TEXT_CHARS]
         texts.append(f"[ENTITY: {entity}]{about} {marked}")
     return texts
 
@@ -283,7 +287,7 @@ def main():
     print(f"MODEL_NAME={MODEL_NAME} MAX_LENGTH={MAX_LENGTH} BATCH_SIZE={BATCH_SIZE} "
           f"NUM_EPOCHS={NUM_EPOCHS} GRAD_CKPT={GRAD_CKPT} CONF_LAMBDA={CONF_LAMBDA} "
           f"INCLUDE_OTHER={INCLUDE_OTHER} OTHER_CONF_LAMBDA={OTHER_CONF_LAMBDA if INCLUDE_OTHER else 'n/a'} "
-          f"LEARNING_RATE={LEARNING_RATE} INPUT_FORMAT={INPUT_FORMAT}", flush=True)
+          f"LEARNING_RATE={LEARNING_RATE} INPUT_FORMAT={INPUT_FORMAT} USE_BF16={USE_BF16}", flush=True)
 
     df = pd.read_parquet(INPUT_FILE)
     df["stage_label"] = df["label"].map(LABEL_TO_ID)
@@ -354,7 +358,7 @@ def main():
         save_strategy="no",
         logging_steps=20,
         report_to=[],
-        bf16=torch.cuda.is_available(),
+        bf16=USE_BF16 and torch.cuda.is_available(),
         gradient_checkpointing=GRAD_CKPT,
         label_names=["labels"],
     )
