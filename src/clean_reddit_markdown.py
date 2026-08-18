@@ -69,7 +69,92 @@ def _link_replacement(m: re.Match) -> str:
         return anchor
     return f"{anchor} ({domain})"
 
-# **bold**, __bold__ -> bold (keep the text, strip the markers)
+
+# --- Placeholder protection for back-translation -------------------------
+#
+# Round-tripping a comment through translation (en->de->en) needs links
+# protected from two things: (1) long/messy real URLs send the MT model
+# into degenerate repetition loops (found 2026-08-19), (2) even a clean
+# placeholder needs to survive the round trip intact enough to restore the
+# ORIGINAL link afterward -- the classifier/training use case needs the
+# real link back, not just a domain, since the specific article (not just
+# the outlet) can be what matters (Nash's point: the entity being scored
+# is often someone named in the text, not the linked domain -- the link
+# can be incidental evidence, not the classification target itself).
+#
+# Empirically tested 2026-08-19 (Nash's idea) against the real opus-mt-
+# en-de/de-en models: letter-based placeholders ("XLINK1X" etc) survive a
+# SINGLE occurrence per sentence, but degrade on the 2nd/3rd occurrence in
+# the same sentence (German's noun-capitalization rule flips case on
+# lowercase placeholders; even all-caps ones picked up single-letter
+# substitutions on later occurrences -- "XLINK2X"->"XLINk2X",
+# "XLINK3X"->"XLINC3X"). Large primes with no thousands-separator survived
+# with EXACT, 100% fidelity across 5 placeholders in one sentence -- no
+# letters means no case-corruption risk, and "no commas" specifically
+# avoids the model reformatting the number with German's opposite
+# comma/period convention for thousands-separators/decimals.
+BARE_URL_RE = re.compile(r"https?://\S+")
+
+# Fixed pool of large, non-"famous" primes (no widely-known mathematical
+# significance -- avoids the small chance a very well-known prime like
+# 998244353, used constantly in competitive-programming modulo contexts,
+# has some learned association in the model's training data that a
+# genuinely obscure prime wouldn't).
+_PRIME_POOL = [
+    86028157, 49979693, 15485917, 32452867, 67867979, 22801763, 71976487,
+    41706329, 93724837, 58831397, 27644479, 86028121, 15485867, 49979687,
+    32452843, 67867967, 22801751, 71976449, 41706311, 93724813,
+]
+
+
+def protect_links_for_translation(text: str):
+    """Replaces every markdown link and bare URL with a unique large-prime
+    placeholder, safe to send through translation. Returns
+    (protected_text, mapping) where mapping is {prime_str: original_link_text}
+    (the ORIGINAL matched text -- full markdown link or bare URL -- not a
+    cleaned/domain-only version, so restore_links_after_translation can
+    put back exactly what was there, or the caller can post-process it
+    with clean_reddit_markdown() separately if a cleaned form is wanted).
+    Raises if there are more links in one text than the prime pool covers
+    (20) -- that's already well past is_too_thin_to_translate/list-dump
+    territory and should have been filtered out upstream, not silently
+    handled here."""
+    matches = []
+    for m in MARKDOWN_LINK_RE.finditer(text):
+        matches.append((m.start(), m.end(), m.group(0)))
+    # Bare URLs not already inside a markdown link (avoid double-protecting
+    # the url portion of "[text](url)").
+    link_spans = [(s, e) for s, e, _ in matches]
+    for m in BARE_URL_RE.finditer(text):
+        if not any(s <= m.start() < e for s, e in link_spans):
+            matches.append((m.start(), m.end(), m.group(0)))
+    matches.sort(key=lambda x: x[0])
+
+    if len(matches) > len(_PRIME_POOL):
+        raise ValueError(f"{len(matches)} links in one text, more than the {len(_PRIME_POOL)}-prime pool covers")
+
+    mapping = {}
+    protected = text
+    # Replace back-to-front so earlier spans' character offsets stay valid.
+    for i, (start, end, original) in enumerate(reversed(matches)):
+        prime = str(_PRIME_POOL[len(matches) - 1 - i])
+        mapping[prime] = original
+        protected = protected[:start] + prime + protected[end:]
+    return protected, mapping
+
+
+def restore_links_after_translation(text: str, mapping: dict) -> str:
+    """Finds each prime placeholder in the (translated-and-back) text and
+    restores the original link text. Exact string match, no fuzzy
+    fallback -- the empirical test (see module docstring) showed 100%
+    exact survival across 5 placeholders in one sentence, unlike the
+    letter-based scheme this replaced, so exact match is the right level
+    of robustness here, not overkill. Callers should check whether all
+    primes in `mapping` were actually found/replaced if they need to
+    detect the rare case a translation dropped one entirely."""
+    for prime, original in mapping.items():
+        text = text.replace(prime, original)
+    return text
 BOLD_RE = re.compile(r"(\*\*|__)(.+?)\1")
 # *italic*, _italic_ -> italic (single markers, applied after bold so
 # "**bold**" doesn't get half-matched by the single-marker pattern first)
