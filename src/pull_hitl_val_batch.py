@@ -565,8 +565,24 @@ def build_person_entities(skip_original_11: bool = True) -> list[tuple[str, str,
     # using an alias like "Edward Snowden's" as the primary match name would
     # badly under-match (regex would require the literal possessive).
 
-    maverick_names = set(VERIFIED_MAVERICK_AUTHORITY)
-    consensus_names = set(VERIFIED_CONSENSUS_EXPERTS)
+    # dict.fromkeys(), not set() -- sets of strings iterate in an order
+    # dependent on Python's per-process hash randomization (PYTHONHASHSEED),
+    # so a plain set() here made this whole function non-deterministic
+    # across process runs. Confirmed 2026-08-18: "David Icke" (present in
+    # VERIFIED_MAVERICK_AUTHORITY both as the full name and as a bare
+    # "Icke" alias, both resolving to the same best_identity) got a
+    # DIFFERENT final match condition on different runs -- sometimes the
+    # broader bare-surname regex ('\bicke\b'), sometimes the narrower
+    # full-phrase-only one ('\bdavid\s+icke\b') -- purely from hash-seed
+    # luck determining which raw name won the dedup race below. This
+    # affected every entity with a competing full-name/bare-alias pair
+    # (at minimum: Icke, Mullis, Mikovits, Yeadon, Wakefield, Ruppert,
+    # Halbig, Tarpley, Gottlieb -- see the duplicate-condition list found
+    # earlier the same session) and explains the entity-count drift seen
+    # across builds this session (183/185/191/194). dict preserves
+    # insertion order deterministically regardless of hash seed.
+    maverick_names = dict.fromkeys(VERIFIED_MAVERICK_AUTHORITY)
+    consensus_names = dict.fromkeys(VERIFIED_CONSENSUS_EXPERTS)
     all_names = {n: "maverick" for n in maverick_names}
     for n in consensus_names:
         all_names[n] = "consensus" if n not in all_names else all_names[n] + ";consensus"
@@ -592,8 +608,12 @@ def build_person_entities(skip_original_11: bool = True) -> list[tuple[str, str,
     # equal the canonical SKIP_PERSONS string but resolve to the same person.
     skip_identities = {best_identity_lookup.get(n.lower()) for n in SKIP_PERSONS} - {None}
 
-    entities = []
-    seen = set()
+    # Pass 1: collect every candidate raw name that survives the skip/
+    # threshold filters, grouped by dedup_key (best_identity, or the raw
+    # name itself when unresolved). Deliberately NOT picking a winner
+    # inline here -- see pass 2 below for why "first one wins" is the
+    # wrong rule even with deterministic ordering.
+    candidates: dict[str, list[tuple[str, str]]] = {}
     for name, cat in all_names.items():
         if (skip_original_11 and name.lower() in SKIP_ENTITIES) or name in SKIP_PERSONS:
             continue
@@ -618,14 +638,39 @@ def build_person_entities(skip_original_11: bool = True) -> list[tuple[str, str,
             count = freq_lookup.get((best_id if has_best_id else name).lower(), 0)
         if count < MIN_COMBINED_DOC_COUNT:
             continue
-        # Dedup by best_identity (aliases in VERIFIED_MAVERICK_ADDITIONS like
+        # Group by best_identity (aliases in VERIFIED_MAVERICK_ADDITIONS like
         # "Ed Snowden" would otherwise create a second, redundant entry for
         # the same person already covered by the canonical form).
         dedup_key = best_id if has_best_id else name
-        if dedup_key in seen:
-            continue
-        seen.add(dedup_key)
+        candidates.setdefault(dedup_key, []).append((name, cat))
+
+    # Pass 2: pick ONE winning raw name per dedup_key, deliberately, not by
+    # insertion order. A plain "first candidate wins" would be deterministic
+    # now (pass 1 iterates a dict, not a set) but still WRONG: alias entries
+    # like bare "Icke" are appended at the end of VERIFIED_MAVERICK_AUTHORITY
+    # (via UNAMBIGUOUS_MAVERICK_ALIASES.extend()), so "first wins" would
+    # permanently pick the full-name form and lose the bare-surname recall
+    # benefit those aliases exist for -- every time, not just randomly.
+    # Instead: prefer whichever candidate is bare-surname-mode-eligible
+    # (broader match, the project's established default preference per
+    # _person_sql_cond's own docstring -- "most maverick figures are
+    # referred to by surname alone"), falling back to the first candidate
+    # in insertion order when none/multiple qualify.
+    entities = []
+    for dedup_key, group in candidates.items():
+        bare_eligible = [(n, c) for n, c in group if len(n.split()) > 1 and _is_bare_surname_mode(n)]
+        single_word = [(n, c) for n, c in group if len(n.split()) == 1]
+        if single_word:
+            # A standalone bare-alias entry (e.g. "Icke") is itself the
+            # broadest possible form -- prefer it outright.
+            name, cat = single_word[0]
+        elif bare_eligible:
+            name, cat = bare_eligible[0]
+        else:
+            name, cat = group[0]
         cond = _person_sql_cond(name)
+        best_id = best_identity_lookup.get(name.lower())
+        has_best_id = pd.notna(best_id)
         # Use the resolved canonical identity as the label wherever we have
         # one, not whichever raw alias happened to survive dedup -- found
         # 2026-08-14 (Nash noticed a "Folta" link resolving to bare surname
