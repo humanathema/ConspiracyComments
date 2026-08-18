@@ -210,7 +210,57 @@ def _texts_with_entity(df):
     return df["text"].tolist()
 
 
+WINDOW_WORDS = 15
+
+
+def _texts_with_marked_window(df, desc_lookup):
+    """[ENTITY: name] [ABOUT: description] <full text, with the entity's
+    +-15-word local window wrapped in >>...<< markers in place>. Full text
+    is preserved (not replaced by the window, unlike the older
+    stance_window_utils.py design) -- see test_marked_window_input.py's
+    docstring for why this exists and the inference-only result
+    (2026-08-18: kappa 0.7466->0.6953, a real drop, but on a checkpoint
+    that had never seen this format during training -- this run is the
+    fair test, continuing from that same checkpoint so the model gets a
+    chance to actually learn what the markers mean."""
+    import json as _json
+
+    texts = []
+    for _, row in df.iterrows():
+        text = str(row["text"])
+        entity = row.get("target_entity", "unknown")
+        desc = desc_lookup.get(str(entity).lower(), "")
+        about = f" [ABOUT: {desc}]" if desc else ""
+
+        spans = row.get("entity_spans")
+        if isinstance(spans, str):
+            try:
+                spans = _json.loads(spans)
+            except (_json.JSONDecodeError, TypeError):
+                spans = []
+        if not spans:
+            texts.append(f"[ENTITY: {entity}]{about} {text}")
+            continue
+
+        marked = text
+        offset = 0
+        for s in sorted(spans, key=lambda x: x["start"]):
+            start, end = s["start"] + offset, s["end"] + offset
+            before_words = marked[:start].split()
+            win_start_word_idx = max(0, len(before_words) - WINDOW_WORDS)
+            win_start_char = len(" ".join(before_words[:win_start_word_idx])) if win_start_word_idx else 0
+            if win_start_word_idx > 0:
+                win_start_char += 1
+            marked = marked[:win_start_char] + ">>" + marked[win_start_char:end] + "<<" + marked[end:]
+            offset += 4
+        texts.append(f"[ENTITY: {entity}]{about} {marked}")
+    return texts
+
+
 INCLUDE_OTHER = os.environ.get("INCLUDE_OTHER", "0") == "1"
+INPUT_FORMAT = os.environ.get("INPUT_FORMAT", "plain")  # "plain" or "marked_window"
+INIT_FROM_CHECKPOINT = os.environ.get("INIT_FROM_CHECKPOINT", "")  # path to model_state.pt to continue from
+DESC_LOOKUP_FILE = os.environ.get("DESC_LOOKUP_FILE", "entity_description_lookup.csv")
 
 
 def main():
@@ -246,12 +296,26 @@ def main():
     else:
         device = "cpu"
     tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME)
-    train_enc = encode(tokenizer, _texts_with_entity(train_df))
-    val_enc = encode(tokenizer, _texts_with_entity(val_df))
+    if INPUT_FORMAT == "marked_window":
+        desc_lookup = pd.read_csv(DESC_LOOKUP_FILE).assign(
+            entity_lower=lambda d: d["entity"].str.lower()
+        ).set_index("entity_lower")["description"].to_dict()
+        print(f"INPUT_FORMAT=marked_window, {len(desc_lookup)} entity descriptions loaded", flush=True)
+        train_texts = _texts_with_marked_window(train_df, desc_lookup)
+        val_texts = _texts_with_marked_window(val_df, desc_lookup)
+    else:
+        train_texts = _texts_with_entity(train_df)
+        val_texts = _texts_with_entity(val_df)
+    train_enc = encode(tokenizer, train_texts)
+    val_enc = encode(tokenizer, val_texts)
     train_ds = BinaryConfDataset(train_enc, train_df["stage_label"].tolist(), train_df["weight"].tolist())
     val_ds = BinaryConfDataset(val_enc, val_df["stage_label"].tolist(), [1.0] * len(val_df))
 
     model = ConfidenceModel(MODEL_NAME).to(device)
+    if INIT_FROM_CHECKPOINT:
+        print(f"Continuing from checkpoint: {INIT_FROM_CHECKPOINT}", flush=True)
+        state = torch.load(INIT_FROM_CHECKPOINT, map_location=device)
+        model.load_state_dict(state)
 
     polar_train = train_df[train_df["stage_label"] != -1]
     class_counts = polar_train["stage_label"].value_counts().sort_index()
