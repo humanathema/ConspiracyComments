@@ -220,6 +220,19 @@ for _formal, _nicks in NICKNAME_EQUIVALENTS.items():
     for _nick in _nicks:
         _NICKNAME_TO_FORMAL.setdefault(_nick, set()).add(_formal)
 
+# Common function words/articles that can safely be exempted when they
+# open a sentence/clause/list item right before a tracked surname (e.g.
+# "The Collins Bloodline") -- see _is_sentence_initial()'s docstring for
+# why position alone isn't a safe signal (a real person's name is also
+# commonly the very first word of a comment, e.g. "Anderson Cooper...").
+SENTENCE_INITIAL_SAFE_WORDS = {
+    "the", "a", "an", "this", "that", "these", "those", "well", "so",
+    "also", "and", "but", "if", "when", "while", "watch", "see", "read",
+    "check", "note", "remember", "some", "many", "most", "one", "another",
+    "here", "there", "now", "still", "yes", "no", "ok", "okay", "wow",
+    "why", "how", "what", "who", "which", "just", "even", "per",
+}
+
 # Titles that precede a surname without being a competing name.
 TITLES = {
     "dr", "doctor", "mr", "mrs", "ms", "miss", "prof", "professor",
@@ -387,20 +400,34 @@ def _passes_surname_disambiguation(text: str, entity: str) -> bool:
             return False
         return not _own_or_nickname(stripped)
 
-    def _is_sentence_initial(text_before_word: str) -> bool:
-        """True if the word immediately after `text_before_word` opens a
-        sentence/clause/list item rather than being a genuine adjacent
+    def _is_sentence_initial(text_before_word: str, word: str) -> bool:
+        """True if `word` opens a sentence/clause/list item AND is an
+        ordinary function word/article rather than a genuine competing
         proper name -- e.g. "The Collins Bloodline", "Well Ellsberg is...",
         "1. The Giuliani photo". Ordinary capitalized words at these
         positions (headline style, list items, sentence starts) were being
         misread as competing names. Found 2026-08-18 auditing
         round9_unlabeled_pool.parquet. `text_before_word` already excludes
         the word itself (caller passes preceding[:pw.start()]).
+
+        Checking POSITION alone (the original version of this function)
+        was too broad and introduced a real false-negative: "Anderson
+        Cooper called..." at the very start of a comment had "Anderson"
+        wrongly exempted as sentence-initial, missing a genuine collision
+        for entity "Milton William Cooper" (found 2026-08-18 auditing
+        full_entity_mention_pool.parquet -- sentence-initial position is
+        actually the MOST common way to open a comment with someone's
+        name, not a safe signal on its own). Now requires the word itself
+        to be a known function word/article, not just any capitalized
+        word in that position.
         """
         stripped_before = text_before_word.rstrip()
-        if not stripped_before:
-            return True  # very start of the text
-        return bool(re.search(r'[.!?\n"‘’“”(]\s*(?:[-*•]|\d+[.)])?\s*$', stripped_before))
+        at_boundary = (not stripped_before) or bool(
+            re.search(r'[.!?\n"‘’“”(]\s*(?:[-*•]|\d+[.)])?\s*$', stripped_before)
+        )
+        if not at_boundary:
+            return False
+        return word.lower().strip(".").strip("'") in SENTENCE_INITIAL_SAFE_WORDS
 
     # Case-sensitive on purpose: this checks whether the surname appears as a
     # capitalized proper noun. A case-insensitive match would also catch
@@ -429,7 +456,7 @@ def _passes_surname_disambiguation(text: str, entity: str) -> bool:
                     pass  # neutral: a title isn't a competing name
                 elif _own_or_nickname(stripped):
                     preceded_by_own_name = True
-                elif _is_sentence_initial(preceding[:pw.start()]):
+                elif _is_sentence_initial(preceding[:pw.start()], word):
                     pass  # neutral: capitalized only by sentence/list position
                 else:
                     preceded_by_other_name = True
