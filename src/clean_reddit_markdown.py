@@ -108,26 +108,44 @@ _PRIME_POOL = [
 
 
 def protect_links_for_translation(text: str):
-    """Replaces every markdown link and bare URL with a unique large-prime
-    placeholder, safe to send through translation. Returns
-    (protected_text, mapping) where mapping is {prime_str: original_link_text}
-    (the ORIGINAL matched text -- full markdown link or bare URL -- not a
-    cleaned/domain-only version, so restore_links_after_translation can
-    put back exactly what was there, or the caller can post-process it
-    with clean_reddit_markdown() separately if a cleaned form is wanted).
+    """Replaces every markdown link's URL (keeping the anchor text as
+    normal translatable prose) and every bare URL with a unique
+    large-prime placeholder, safe to send through translation. Returns
+    (protected_text, mapping) where mapping is {prime_str: original_url}
+    -- restoring gives "anchor text (url)", not the original markdown
+    bracket syntax, matching the "readable prose with the link visible,
+    not interrupting the reading flow" format this whole thing is for.
+
+    Does NOT protect the anchor text itself -- found 2026-08-19 (real bug,
+    caught by Nash asking why links were being lost): an earlier version
+    replaced the WHOLE "[anchor](url)" match with one bare number,
+    discarding real, often substantial anchor text ("[Alex Jones Blows
+    His Cover In Austin](url)" collapsed to a lone "86028157" with
+    nothing else). Sending the translator a sentence containing only an
+    isolated number, with all its real content gone, produced complete
+    hallucination (unrelated EU regulatory boilerplate, seen verbatim in
+    testing) -- not a translation-model limitation, a bug in what got
+    sent to it. Now: `[anchor](url)` -> "anchor (PRIME)", or just
+    "PRIME" if the anchor is itself a bare URL (same "don't leave a raw
+    URL as visible anchor text" case _link_replacement handles above).
+
     Raises if there are more links in one text than the prime pool covers
     (20) -- that's already well past is_too_thin_to_translate/list-dump
     territory and should have been filtered out upstream, not silently
     handled here."""
-    matches = []
+    matches = []  # (start, end, replacement_text, url)
     for m in MARKDOWN_LINK_RE.finditer(text):
-        matches.append((m.start(), m.end(), m.group(0)))
+        anchor, url = m.group(1), m.group(2)
+        if BARE_URL_ANCHOR_RE.match(anchor.strip()):
+            matches.append((m.start(), m.end(), "PRIME_PLACEHOLDER", url))
+        else:
+            matches.append((m.start(), m.end(), f"{anchor} (PRIME_PLACEHOLDER)", url))
     # Bare URLs not already inside a markdown link (avoid double-protecting
     # the url portion of "[text](url)").
-    link_spans = [(s, e) for s, e, _ in matches]
+    link_spans = [(s, e) for s, e, _, _ in matches]
     for m in BARE_URL_RE.finditer(text):
         if not any(s <= m.start() < e for s, e in link_spans):
-            matches.append((m.start(), m.end(), m.group(0)))
+            matches.append((m.start(), m.end(), "PRIME_PLACEHOLDER", m.group(0)))
     matches.sort(key=lambda x: x[0])
 
     if len(matches) > len(_PRIME_POOL):
@@ -136,10 +154,10 @@ def protect_links_for_translation(text: str):
     mapping = {}
     protected = text
     # Replace back-to-front so earlier spans' character offsets stay valid.
-    for i, (start, end, original) in enumerate(reversed(matches)):
+    for i, (start, end, replacement, url) in enumerate(reversed(matches)):
         prime = str(_PRIME_POOL[len(matches) - 1 - i])
-        mapping[prime] = original
-        protected = protected[:start] + prime + protected[end:]
+        mapping[prime] = url
+        protected = protected[:start] + replacement.replace("PRIME_PLACEHOLDER", prime) + protected[end:]
     return protected, mapping
 
 
