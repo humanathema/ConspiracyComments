@@ -74,29 +74,6 @@ SKIP_DOMAINS = {
     "web.archive.org", "wikileaks.org", "wikileaks.com",  # already in person 11
 }
 
-# Domain-analogue of AMBIGUOUS_SURNAMES: _domain_key() strips the TLD to
-# get a matchable key (e.g. "naturalnews.com" -> "naturalnews"), but for
-# domains whose stripped key happens to be an ordinary English word, the
-# resulting bare-word match is a catastrophic false-positive generator --
-# the exact same failure mode as "America's Frontline Doctors" bare-
-# matching "doctors" (see the person-side fix, 2026-08-18). Confirmed via
-# a real corpus count 2026-08-18: state.gov -> "state" matched 1,324,296
-# rows (more than the entire 476K-row entity pool combined), science.org
-# -> "science" 276,129, house.gov -> "house" 265,114, nature.com ->
-# "nature" 134,560, congress.gov -> "congress" 107,822, independent.co.uk
-# -> "independent" 95,550, justice.gov -> "justice" 85,244, defense.gov
-# -> "defense" 84,921, senate.gov -> "senate" 32,380 -- none of that is
-# real domain-citation frequency, it's the underlying word matching
-# everywhere. whitehouse.gov/academia.edu/treasury.gov added as a
-# precaution (same class of risk, not individually confirmed bad).
-# Domains with a key in this set fall back to full-domain-phrase matching
-# (the literal domain string, both word boundaries) instead of the bare
-# stripped key.
-AMBIGUOUS_DOMAIN_KEYS = {
-    "state", "science", "house", "nature", "congress", "independent",
-    "justice", "defense", "senate", "whitehouse", "academia", "treasury",
-}
-
 
 def _bare_surname_key(entity: str) -> str:
     """Last word of a multi-word entity name, stripped of trailing punctuation."""
@@ -662,7 +639,26 @@ def build_person_entities(skip_original_11: bool = True) -> list[tuple[str, str,
 
 
 def build_domain_entities() -> list[tuple[str, str, str]]:
-    """Return list of (domain_name, sql_condition, category)."""
+    """Return list of (domain_name, sql_condition, category).
+
+    Always matches the full domain string (e.g. "nature.com"), both sides
+    word-boundary-anchored -- NOT a bare stripped key. Domains almost
+    always appear as literal strings in text (people cite/link the actual
+    domain), unlike person names where bare-surname matching is the
+    common real-world case. Bare-key matching used to be the default here
+    and was a real, repeated bug source: state.gov/"state" alone matched
+    1,324,296 rows (more than the entire 476K-row entity pool combined),
+    science.org/"science" 276,129, house.gov/"house" 265,114, and more
+    (2026-08-18) -- an AMBIGUOUS_DOMAIN_KEYS blocklist was tried first but
+    that's the wrong shape of fix (chasing individual bad words instead of
+    fixing the wrong default). Detecting genuine bare-organization-name
+    mentions ("wrote a piece for Nature", no ".com") is real but rare
+    compared to domain citations, and needs the same kind of strict,
+    signature-word-gated disambiguation the person side uses for short
+    surnames -- not attempted here, deliberately out of scope until that
+    mechanism exists; recall loss on bare-name mentions is the accepted
+    tradeoff for not re-introducing the false-match risk.
+    """
     dom = pd.read_csv(DOM_FILE)
     dom = dom[dom["category"].isin(DOMAIN_CATS)]
     dom = dom[~dom["domain"].isin(SKIP_DOMAINS)]
@@ -670,18 +666,8 @@ def build_domain_entities() -> list[tuple[str, str, str]]:
     entities = []
     for _, row in dom.iterrows():
         domain = row["domain"]
-        key = _domain_key(domain)
-        if len(key) < 5:  # too short to match safely
-            continue
-        if key in AMBIGUOUS_DOMAIN_KEYS:
-            # Full-domain-phrase match instead of the bare stripped key --
-            # requires the literal domain string (e.g. "state.gov", not
-            # just "state") to appear, both sides word-boundary-anchored.
-            escaped = re.escape(domain.lower()).replace("'", "''")
-            cond = f"regexp_matches(lower(text), '\\b{escaped}\\b')"
-        else:
-            escaped = re.escape(key).replace("'", "''")
-            cond = f"regexp_matches(lower(text), '\\b{escaped}')"
+        escaped = re.escape(domain.lower()).replace("'", "''")
+        cond = f"regexp_matches(lower(text), '\\b{escaped}\\b')"
         entities.append((domain, cond, row["category"]))
     return entities
 
