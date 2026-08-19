@@ -1,0 +1,5 @@
+Suppose a train leaves City A traveling at 60 mph, and at the same time another train leaves City B, which is 300 miles away, traveling at 40 mph directly toward the first train.
+
+Since the two trains are moving toward each other, their speeds combine: the closing speed between them is 60 + 40 = 100 mph. To find out when they meet, divide the total distance by this combined closing speed: 300 miles / 100 mph = 3 hours.
+
+So the two trains will meet after 3 hours, regardless of which train is considered to be "traveling" and which is considered stationary — what matters is only the rate at which the distance between them is closing.

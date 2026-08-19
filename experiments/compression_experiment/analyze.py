@@ -1,7 +1,7 @@
 """
 Aggregate log.jsonl once enough rounds exist: mean fidelity scores by
 budget level, and a dump of encoding_notes grouped by score band (high
-vs low tfidf_cosine) so a human/session can eyeball which tricks
+vs low semantic_cosine) so a human/session can eyeball which tricks
 correlate with high fidelity at high compression.
 
 Usage: python3 analyze.py
@@ -32,25 +32,25 @@ def main():
 
     by_budget = defaultdict(list)
     for r in scored:
-        by_budget[r["budget_level"]].append(r["scores"]["tfidf_cosine"])
+        by_budget[r["budget_level"]].append(r["scores"]["semantic_cosine"])
 
-    print("Mean tfidf_cosine by budget_level (higher budget = less compression):")
+    print("Mean semantic_cosine by budget_level (higher budget = less compression):")
     for budget in sorted(by_budget, key=lambda b: float(b), reverse=True):
         vals = by_budget[budget]
         print(f"  budget={budget}: mean={sum(vals)/len(vals):.3f}  n={len(vals)}")
 
-    scored.sort(key=lambda r: r["scores"]["tfidf_cosine"], reverse=True)
+    scored.sort(key=lambda r: r["scores"]["semantic_cosine"], reverse=True)
     top = scored[:5]
     bottom = scored[-5:]
 
     print("\nTop 5 rounds by fidelity (what worked):")
     for r in top:
-        print(f"  [{r['message_id']} @ {r['budget_level']}] score={r['scores']['tfidf_cosine']:.3f}")
+        print(f"  [{r['message_id']} @ {r['budget_level']}] score={r['scores']['semantic_cosine']:.3f}")
         print(f"    notes: {r.get('encoding_notes', '(none)')}")
 
     print("\nBottom 5 rounds by fidelity (what didn't):")
     for r in bottom:
-        print(f"  [{r['message_id']} @ {r['budget_level']}] score={r['scores']['tfidf_cosine']:.3f}")
+        print(f"  [{r['message_id']} @ {r['budget_level']}] score={r['scores']['semantic_cosine']:.3f}")
         print(f"    notes: {r.get('encoding_notes', '(none)')}")
 
 
