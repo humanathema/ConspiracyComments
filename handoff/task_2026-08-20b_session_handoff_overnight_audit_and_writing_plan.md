@@ -85,31 +85,35 @@ skim of the three diffs above (or ask a session to do it) and then
 pure clutter and confusing to any future session that stumbles on
 `.claude/worktrees/`.
 
-## 4. Found: clustered-SE code was added to `run_pure_population_analysis.py` but never run
+## 4. RESOLVED (was: "clustered-SE code added but never run") — a concurrent session ran it successfully, real N discrepancy found
 
-Git diff on this uncommitted file shows the same naive/thread-clustered/
-author-clustered comparison pattern that was already run and logged for the
-stance-augmented regressions (`data/experiment_log.jsonl`'s
-`stance_prob_regression_clustered_se_check` entry, 2026-08-20) was *also*
-added to the base (non-stance) pure-population regression script — but
-`data/processed/pure_population_regression_results_clustered.csv` doesn't
-exist and there's no matching experiment_log entry. Tried running it: hit
-`_duckdb.OutOfMemoryException` (6.4GB/6.3GB used) loading the 16.7M-row
-unfiltered r/conspiracy population — this machine has the known 8GB-RAM
-constraint. The added query now also pulls `author` and `post_id` (both
-needed for the clustering, both string columns) across that population,
-which is heavier than the existing text-avoiding pattern was scoped for.
+Originally flagged here as an orphaned edit (OOM'd when this session tried
+running it). **Correction, same night**: a second concurrent Claude Code
+session (Nash running two sessions in parallel, coordinated directly
+session-to-session) was independently working on the exact same
+naive/thread/author clustered-SE addition to `run_pure_population_analysis.py`,
+`rerun_regressions_with_stance.py`, and `rerun_maverick_whistleblower_split.py`
+— my OOM was very likely caused by memory contention from their concurrent
+run, not a real defect in the script (matches the known "don't run two
+memory-heavy full-corpus scripts concurrently" note in the machine-constraints
+memory). Their run completed cleanly: `data/processed/pure_population_regression_results_clustered.csv`
+now exists, and results are logged
+(`data/experiment_log.jsonl`, `pure_population_analysis_clustered_rerun_N_discrepancy`,
+2026-08-20).
 
-**Deliberately did not force this through with aggressive memory tuning at
-3am unattended** — this machine has hit real OOM/disk problems before under
-exactly that kind of unsupervised push. Concrete fix for next session: add
-`con.execute("SET memory_limit='X GB'")` sized to leave headroom, or (cleaner)
-drop `author`/`post_id` from the *unfiltered* population's query — clustering
-is really only needed for the two smaller, already-manageable populations
-(`df_low_elastic`, `df_pure`), the unfiltered one is descriptive-context-only
-per the script's own docstring and doesn't need clustered SEs at all. That's
-a 2-line script change, not a re-architecture. Flagging as a real remaining
-next step, not doing it tonight.
+**Genuinely important finding from that run, not something I want buried in
+a correction paragraph**: the "genuine insider environment" population came
+out as **N=2,463,379** on this fresh run, vs. **N=27,312** cited for the same
+filters in `ANTIGRAVITY_HANDOFF.md`'s 2026-07-14 entry — a ~90x gap. Root
+cause not identified by either session yet; ruled out the known dedup bug
+(wrong direction — dedup inflates counts, doesn't shrink them) and confirmed
+the new N is arithmetically consistent with the corpus's own base rates.
+`pe_prob`'s coefficient also flipped sign (-0.4347 historical → +0.1323 new).
+**This is a real, unresolved discrepancy that could matter for the regression
+findings section of the report** — see the experiment_log entry for full
+detail, and see this doc's open questions (§9) for the same point restated.
+Whether the historical N=27,312 population was ever intentionally subsampled
+is a question only Nash can answer.
 
 ## 5. Doc updates made tonight
 
@@ -244,3 +248,8 @@ that's a framing/argument decision, not something to guess at here.
 3. Which 3-4 findings should anchor the report (§7's writing-side note) —
    this determines a lot about which of this week's open threads are worth
    finishing vs. explicitly scoping to "future work."
+4. The N=27,312 vs N=2,463,379 "genuine insider environment" population
+   discrepancy (§4) — was that historical population ever intentionally
+   subsampled, or is the ~90x-smaller historical number itself the bug?
+   This is upstream of the regression findings and worth resolving before
+   those numbers go in the report, not after.
