@@ -104,6 +104,15 @@ _PRIME_POOL = [
     86028157, 49979693, 15485917, 32452867, 67867979, 22801763, 71976487,
     41706329, 93724837, 58831397, 27644479, 86028121, 15485867, 49979687,
     32452843, 67867967, 22801751, 71976449, 41706311, 93724813,
+    # Extended 2026-08-19 for entity protection (below) sharing the same
+    # pool as link protection -- one comment can now need both link AND
+    # entity primes simultaneously, so 20 wasn't enough headroom.
+    28728463, 14265799, 39587039, 20709497, 39476249, 14308421, 45351479,
+    90388981, 42329237, 91415657, 75151231, 38754377, 64038913, 35529407,
+    23141087, 60864911, 66775103, 39219319, 17634247, 52462441, 96637649,
+    93370583, 19832887, 25492573, 43704923, 66851377, 27558317, 85146293,
+    64543049, 43308443, 24508349, 35511941, 99245317, 32775593, 79182797,
+    22534217, 42747037, 27896471, 65804273, 61053877,
 ]
 
 
@@ -158,6 +167,70 @@ def protect_links_for_translation(text: str):
         prime = str(_PRIME_POOL[len(matches) - 1 - i])
         mapping[prime] = url
         protected = protected[:start] + replacement.replace("PRIME_PLACEHOLDER", prime) + protected[end:]
+    return protected, mapping
+
+
+# --- Proper-noun/acronym protection for back-translation ----------------
+#
+# Found 2026-08-19 (Nash's suggestion): back-translation garbles proper
+# nouns and acronyms even with beam search -- "Catherine Austin Fitts" ->
+# "Katherin austin fitt's", "KKK" -> "CCC" (a real content change, not just
+# reworded phrasing). Reuses the exact same prime-placeholder mechanism
+# already proven for links, on the theory that a name is just as
+# untranslatable-without-corruption as a URL. Deliberately protects ONLY
+# the row's own known target_entity (case-insensitive), not general spaCy
+# NER -- tried full NER 2026-08-19, found it over-fires on dense
+# conspiracy-comment text (NIH/FDA/PCR/dates all tagged ORG/etc), gutting
+# whole sentences to strings of digits and defeating the actual point of
+# back-translation. Corrupting a non-target proper noun is low-stakes
+# phrasing drift; only the target_entity is worth this protection given
+# that asymmetry (it's what the training label is actually about).
+_NER_LABELS_TO_PROTECT = {"PERSON", "ORG", "EVENT", "WORK_OF_ART", "GPE", "FAC", "LAW"}
+
+
+def protect_entities_for_translation(text: str, nlp=None, target_entity: str = None, exclude_primes: set = None):
+    """Replaces the target_entity span (and any spaCy-NER spans, if an
+    `nlp` pipeline is passed -- off by default, see module note above) with
+    prime placeholders, same mechanism as protect_links_for_translation.
+    Call this AFTER protect_links_for_translation on its output, passing
+    exclude_primes=set(link_mapping) so entity primes never collide with
+    already-placed link primes in the same text. Returns (protected_text,
+    mapping) where mapping is {prime_str: original_span_text}."""
+    exclude_primes = exclude_primes or set()
+    matches = []  # (start, end, original_text)
+    if nlp is not None:
+        doc = nlp(text)
+        for ent in doc.ents:
+            if ent.label_ in _NER_LABELS_TO_PROTECT:
+                matches.append((ent.start_char, ent.end_char, ent.text))
+    if target_entity:
+        pattern = re.compile(r"\b" + re.escape(target_entity) + r"\b", re.IGNORECASE)
+        for m in pattern.finditer(text):
+            matches.append((m.start(), m.end(), m.group(0)))
+    # Dedup/merge overlaps -- prefer the longer span when two matches
+    # overlap (e.g. spaCy's "Tucker" inside a target_entity "Tucker
+    # Carlson" match), then drop any remaining overlaps outright rather
+    # than risk a corrupted double-substitution.
+    matches.sort(key=lambda x: (x[0], -(x[1] - x[0])))
+    kept = []
+    last_end = -1
+    for start, end, orig in matches:
+        if start >= last_end:
+            kept.append((start, end, orig))
+            last_end = end
+    if not kept:
+        return text, {}
+
+    available = [p for p in _PRIME_POOL if str(p) not in exclude_primes]
+    if len(kept) > len(available):
+        kept = kept[:len(available)]  # cap rather than fail -- entity protection is a quality improvement, not a hard requirement like link preservation
+
+    mapping = {}
+    protected = text
+    for i, (start, end, orig) in enumerate(reversed(kept)):
+        prime = str(available[len(kept) - 1 - i])
+        mapping[prime] = orig
+        protected = protected[:start] + prime + protected[end:]
     return protected, mapping
 
 

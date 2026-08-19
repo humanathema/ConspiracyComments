@@ -8,6 +8,14 @@ Honours thesis: **"Epistemic Credibility in Online Conspiracy Communities."**
 This file is short on purpose. Read it fully before doing anything, then
 open exactly one task file from `handoff/` for whatever you're picking up.
 
+## Before citing or comparing ANY kappa number, read `handoff/task_2026-08-20c_session_handoff_kappa_comparison_gotchas.md`
+
+Short, checklist-first. Three separate confident-but-wrong kappa comparisons were
+made and walked back in one evening (2026-08-20) — a stale "best model" citation, an
+overfit val-only number, and a "held-out" set that turned out to be 100% inside
+training data. Same underlying trap each time: something checkable that wasn't
+checked. Read this before asserting any kappa ranking, not after getting one wrong.
+
 ## Read `handoff/task_2026-08-20b_session_handoff_overnight_audit_and_writing_plan.md` FIRST
 
 Overnight non-destructive audit (2026-08-20b): confirmed nothing was actually

@@ -35,7 +35,19 @@ OUT_PATH_UNCORRECTED = 'data/processed/regression_results_maverick_whistleblower
 EPS = 1e-9
 
 
-def run_specs(mention_df, subgroup_name, results, subreddit, construct_label):
+def fit_clustered(formula, df, cov_name, group_col):
+    """naive/thread/author clustered logit fit, same rationale/pattern as
+    rerun_refined_regressions_v2.py and rerun_regressions_with_stance.py
+    elsewhere this session."""
+    if cov_name == "naive":
+        return smf.logit(formula, data=df).fit(disp=0, maxiter=100)
+    df_fit = df.dropna(subset=[group_col])
+    return smf.logit(
+        formula, data=df_fit
+    ).fit(cov_type='cluster', cov_kwds={'groups': df_fit[group_col].astype(str)}, disp=0, maxiter=100)
+
+
+def run_specs(mention_df, subgroup_name, results, subreddit, construct_label, clustered_results=None):
     n_mentions = len(mention_df)
     print(f"\n[{subreddit}/{construct_label}] subgroup-merged N={n_mentions}")
     if n_mentions < 20:
@@ -63,12 +75,31 @@ def run_specs(mention_df, subgroup_name, results, subreddit, construct_label):
             if c in m.params:
                 results.append({
                     "subreddit": subreddit, "construct": construct_label, "spec": "shrinkage",
-                    "variable": c if c != stance_col else f"{subgroup_name}_stance_score", 
+                    "variable": c if c != stance_col else f"{subgroup_name}_stance_score",
                     "coef": m.params[c], "se": m.bse[c],
                     "pvalue": m.pvalues[c], "n_obs": int(m.nobs), "note": "",
                 })
     except Exception as e:
         print(f"  [shrinkage] Model failed: {e}")
+
+    # Clustered comparison (naive/thread/author) for the primary "shrinkage"
+    # spec's stance_score coefficient -- this is the one cited as the
+    # headline number, so it's the one that most needs the robustness check.
+    if clustered_results is not None:
+        for cov_name, group_col in [("naive", None), ("thread", "post_id"), ("author", "author")]:
+            try:
+                m_clust = fit_clustered(formula, mention_df, cov_name, group_col)
+                for c in [stance_col, "pe_prob", "ps_prob", "has_link", "log_char_length"]:
+                    if c in m_clust.params:
+                        clustered_results.append({
+                            "subreddit": subreddit, "construct": construct_label, "spec": "shrinkage",
+                            "variable": c if c != stance_col else f"{subgroup_name}_stance_score",
+                            "cov_type": cov_name,
+                            "coef": m_clust.params[c], "se": m_clust.bse[c],
+                            "pvalue": m_clust.pvalues[c], "n_obs": int(m_clust.nobs),
+                        })
+            except Exception as e:
+                print(f"  [shrinkage/{cov_name}] Clustered model failed: {e}")
 
     clear_df = mention_df[mention_df[other_col] == 0]
     n_excluded = n_mentions - len(clear_df)
@@ -87,7 +118,7 @@ def run_specs(mention_df, subgroup_name, results, subreddit, construct_label):
                 if c in m.params:
                     results.append({
                         "subreddit": subreddit, "construct": construct_label, "spec": "filtered",
-                        "variable": c if c != lean_col else f"{subgroup_name}_lean", 
+                        "variable": c if c != lean_col else f"{subgroup_name}_lean",
                         "coef": m.params[c], "se": m.bse[c],
                         "pvalue": m.pvalues[c], "n_obs": int(m.nobs),
                         "note": f"{n_excluded / n_mentions:.1%} of mentions excluded (predicted other)",
@@ -102,7 +133,7 @@ def run_specs(mention_df, subgroup_name, results, subreddit, construct_label):
             if c in m.params:
                 results.append({
                     "subreddit": subreddit, "construct": construct_label, "spec": "two_covariate",
-                    "variable": c if c != lean_col else f"{subgroup_name}_lean" if c != eval_col else f"{subgroup_name}_p_evaluative", 
+                    "variable": c if c != lean_col else f"{subgroup_name}_lean" if c != eval_col else f"{subgroup_name}_p_evaluative",
                     "coef": m.params[c], "se": m.bse[c],
                     "pvalue": m.pvalues[c], "n_obs": int(m.nobs), "note": "",
                 })
@@ -154,6 +185,7 @@ def run_split_analysis(cache_df, mode="corrected"):
 
     print("Loading r/politics scored sample...")
     df_pol = pd.read_parquet(POLITICS_SCORED_PATH)
+    df_pol['post_id'] = df_pol['link_id'].apply(lambda x: x[3:] if pd.notna(x) and len(str(x)) > 3 else str(x))
 
     # Standard columns on full-corpus frames
     for df in [df_con, df_con_unf, df_pol]:
@@ -162,6 +194,7 @@ def run_split_analysis(cache_df, mode="corrected"):
         df['high_traction'] = (df['upvotes'] >= 5).astype(int)
 
     results = []
+    clustered_results = []
     pop_list = [
         ("r/conspiracy (pure)", df_con),
         ("r/conspiracy (unfiltered)", df_con_unf),
@@ -174,7 +207,7 @@ def run_split_analysis(cache_df, mode="corrected"):
             # Load subgroup-merged key directly from cache
             sub_key = f"merged_{subgroup}{suffix}"
             sub_cache = cache_df[cache_df['entity_key'] == sub_key].copy()
-            
+
             # Derive metrics
             sub_cache['p_evaluative'] = 1.0 - sub_cache['p_other']
             sub_cache['stance_score'] = 0.5 + 0.5 * (sub_cache['p_endorsement'] - sub_cache['p_hostile'])
@@ -186,16 +219,27 @@ def run_split_analysis(cache_df, mode="corrected"):
 
             # Left join back to population
             merged = df_sub.merge(sub_cache, left_on='id_str', right_on='comment_id', how='inner')
-            run_specs(merged, subgroup, results, name, subgroup)
+            run_specs(merged, subgroup, results, name, subgroup, clustered_results=clustered_results)
 
     out_df = pd.DataFrame(results)
     out_df.to_csv(out_path, index=False)
     print(f"\nSaved results to {out_path}")
 
+    out_clustered_path = out_path.replace(".csv", "_clustered.csv")
+    out_df_clustered = pd.DataFrame(clustered_results)
+    out_df_clustered.to_csv(out_clustered_path, index=False)
+    print(f"Saved clustered comparison to {out_clustered_path}")
+
     print("\n=== Summary: stance-direction coefficient per subgroup/spec ===")
     primary = out_df[out_df['variable'].astype(str).str.contains('stance_score|_lean', na=False, regex=True)]
     if len(primary):
         print(primary[['subreddit', 'construct', 'spec', 'variable', 'coef', 'pvalue', 'n_obs', 'note']].to_string(index=False))
+
+    print("\n=== Summary: clustered stance_score coefficient (shrinkage spec) ===")
+    if len(out_df_clustered):
+        print(out_df_clustered[out_df_clustered['variable'].astype(str).str.contains('stance_score', na=False)][
+            ['subreddit', 'construct', 'cov_type', 'variable', 'coef', 'pvalue', 'n_obs']
+        ].to_string(index=False))
 
 
 def main():

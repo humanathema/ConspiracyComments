@@ -229,6 +229,65 @@ def _texts_with_entity(df):
     return df["text"].tolist()
 
 
+CATEGORIES_LOOKUP_FILE = os.environ.get("CATEGORIES_LOOKUP_FILE", "entity_categories_lookup.csv")
+
+
+def _texts_with_entity_tag(df, entity_to_cat):
+    """[ENTITY: name | TYPE: whistleblower/other_maverick/consensus_expert]
+    <full text, unmarked> -- deliberately NOT the marked_window/[ABOUT:]
+    format below. Design rationale (session 2026-08-20, cheap-test-before-
+    committing): a short structured category tag rather than free-text
+    Wikipedia prose, for two reasons -- (1) prose descriptions often carry
+    evaluative language ("controversial," "disgraced," "discredited") that
+    risks the model learning "this description sounds negative -> predict
+    hostile" as a shortcut unrelated to the actual comment text, a real
+    leakage/bias risk; (2) token cost -- a tag is ~2-4 tokens vs. 15-30+ for
+    a sentence, and this project's comments can already run long (median
+    667 chars). Reuses entity_categories_lookup.csv's WHISTLEBLOWER vs
+    everything-else-maverick split (the exact categories used by the
+    headline whistleblower/other_maverick regression finding) rather than
+    the fuller 27-category topic taxonomy (911_theorist, flat_earth, etc.)
+    -- several of those bins have n=1-3 entities, too sparse to learn from,
+    and are a different axis (conspiracy TOPIC) from the role-based split
+    (whistleblower/insider vs. media-personality/commentator) that actually
+    matters for this feature.
+
+    CIRCULARITY WARNING, load-bearing: if a model trained with this input
+    format is ever used to produce the stance_prob that feeds the
+    whistleblower/other_maverick regression (src/rerun_maverick_
+    whistleblower_split.py), that regression becomes partly circular --
+    the model would have direct access to the same category label the
+    regression uses as its moderator variable, rather than inferring
+    stance purely from comment text. This variant is for the escalation/
+    correction cascade only, or for reporting as an explicitly-labeled
+    robustness check -- never as a silent substitute for a category-blind
+    checkpoint's scores in that specific regression. See the equivalent
+    guardrail already in place for author-typing (task_2026-08-18 handoff,
+    "Author-augmented resolution module" section) -- same shape of
+    problem, same fix (keep the regression-feeding model blind to the
+    thing it's later tested against)."""
+    tags = df["target_entity"].fillna("unknown").astype(str).str.lower().map(
+        lambda e: entity_to_cat.get(e, "other_maverick")
+    )
+    return (
+        "[ENTITY: " + df["target_entity"].fillna("unknown").astype(str)
+        + " | TYPE: " + tags + "] " + df["text"].astype(str)
+    ).tolist()
+
+
+def _load_entity_to_coarse_cat(path):
+    """Maps entity_key -> whistleblower / consensus_expert / other_maverick
+    (3-way, matching rerun_maverick_whistleblower_split.py's existing
+    subgroup split -- the pragmatic MVP scope for a first cheap test, not
+    the richer 5-6-bucket role taxonomy discussed but not yet built)."""
+    lookup_df = pd.read_csv(path)
+    raw = dict(zip(lookup_df["entity_key"], lookup_df["category"]))
+    return {
+        k: (v if v in ("whistleblower", "consensus_expert") else "other_maverick")
+        for k, v in raw.items()
+    }
+
+
 WINDOW_WORDS = 15
 
 
@@ -323,6 +382,14 @@ def main():
         print(f"INPUT_FORMAT=marked_window, {len(desc_lookup)} entity descriptions loaded", flush=True)
         train_texts = _texts_with_marked_window(train_df, desc_lookup)
         val_texts = _texts_with_marked_window(val_df, desc_lookup)
+    elif INPUT_FORMAT == "entity_tag":
+        entity_to_cat = _load_entity_to_coarse_cat(CATEGORIES_LOOKUP_FILE)
+        print(f"INPUT_FORMAT=entity_tag, {len(entity_to_cat)} entity categories loaded "
+              f"(whistleblower={sum(v=='whistleblower' for v in entity_to_cat.values())}, "
+              f"consensus_expert={sum(v=='consensus_expert' for v in entity_to_cat.values())}, "
+              f"other_maverick={sum(v=='other_maverick' for v in entity_to_cat.values())})", flush=True)
+        train_texts = _texts_with_entity_tag(train_df, entity_to_cat)
+        val_texts = _texts_with_entity_tag(val_df, entity_to_cat)
     else:
         train_texts = _texts_with_entity(train_df)
         val_texts = _texts_with_entity(val_df)

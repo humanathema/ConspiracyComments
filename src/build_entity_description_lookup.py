@@ -49,7 +49,18 @@ OUT_PATH = "data/processed/entity_description_lookup.csv"
 # to fame), not evaluative.
 CLAUDE_KNOWLEDGE_FALLBACK = {
     "Assange": "Julian Assange, founder of WikiLeaks, published leaked government and diplomatic documents.",
+    "Julian Assange": "Julian Assange, founder of WikiLeaks, published leaked government and diplomatic documents.",
     "Snowden": "Edward Snowden, former NSA contractor who leaked classified US surveillance program documents in 2013.",
+    "Edward Snowden": "Edward Snowden, former NSA contractor who leaked classified US surveillance program documents in 2013.",
+    # Original-11 entities recovered 2026-08-20 by the skip_original_11=False
+    # fix above -- kept strictly factual (occupation/role), no evaluative
+    # language, matching the module's own stated convention.
+    "Alex Jones": "American radio host and founder of Infowars.",
+    "Tucker Carlson": "American media commentator, former Fox News host.",
+    "Roger Stone": "American political consultant and strategist.",
+    "Matt Gaetz": "American politician, former U.S. Representative for Florida.",
+    "Aaron Swartz": "American programmer and internet activist, co-founder of Reddit and Demand Progress.",
+    "WikiLeaks": "Organization that publishes leaked and classified documents from anonymous sources.",
     "Mark Sargent": "Prominent Flat Earth movement proponent and YouTube figure.",
     "Jim Caviezel": "Actor known for playing Jesus in The Passion of the Christ; has promoted QAnon-adjacent claims.",
     "Erin Brockovich": "American legal clerk and environmental activist, subject of the film bearing her name.",
@@ -83,7 +94,13 @@ def _lookup_wikidata(names):
 
 
 def build_person_rows():
-    persons = build_person_entities()
+    # skip_original_11=False: the default (True) silently drops Tucker
+    # Carlson/Alex Jones/Roger Stone/Matt Gaetz/Aaron Swartz/WikiLeaks --
+    # the same bug already fixed for the mention pool itself
+    # (build_full_entity_mention_pool.py) but never propagated here, found
+    # 2026-08-20 when this lookup's 218 entities were checked against the
+    # round9 215-entity pool and these 6 turned up completely absent.
+    persons = build_person_entities(skip_original_11=False)
     names = [n for n, _, _ in persons]
     cats = {n: c for n, _, c in persons}
 

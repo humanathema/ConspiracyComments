@@ -77,6 +77,8 @@ def load_dataset(pattern_str):
             s.pe_prob,
             s.ps_prob,
             e.upvotes,
+            e.author,
+            SUBSTR(e.link_id, 4) as post_id,
             CAST(e.has_link AS INTEGER) as has_link,
             CAST(regexp_matches(e.text, $1) AS INTEGER) as has_maverick,
             t.elasticity_ratio,
@@ -94,14 +96,22 @@ def load_dataset(pattern_str):
     return con.execute(query, [pattern_str]).df()
 
 
-def run_regression(df, formula, model_type):
+def run_regression(df, formula, model_type, cov_type="naive", group_col=None):
     if len(df) < 30:
         return None
     try:
+        df_fit = df.dropna(subset=[group_col]) if (cov_type != "naive" and group_col) else df
+        cov_kwds = {"groups": df_fit[group_col].astype(str)} if (cov_type != "naive" and group_col) else None
         if model_type == "OLS":
-            m = smf.ols(formula, data=df).fit()
+            if cov_kwds:
+                m = smf.ols(formula, data=df_fit).fit(cov_type="cluster", cov_kwds=cov_kwds)
+            else:
+                m = smf.ols(formula, data=df_fit).fit()
         else:
-            m = smf.logit(formula, data=df).fit(disp=0, maxiter=100)
+            if cov_kwds:
+                m = smf.logit(formula, data=df_fit).fit(cov_type="cluster", cov_kwds=cov_kwds, disp=0, maxiter=100)
+            else:
+                m = smf.logit(formula, data=df_fit).fit(disp=0, maxiter=100)
         return m
     except Exception as e:
         print(f"  regression failed: {e}")
@@ -125,6 +135,32 @@ def report(df, label, constructs, formulas):
                     "coef": m.params[c], "se": m.bse[c], "pvalue": m.pvalues[c],
                     "n_obs": int(m.nobs),
                 })
+    return records
+
+
+def report_clustered(df, label, constructs, formulas):
+    """Same fits as report(), but naive/thread-clustered/author-clustered
+    side by side -- same rationale as rerun_refined_regressions_v2.py:
+    comments in the same thread share that thread's audience, comments
+    from the same author share writing style/posting pattern, both
+    violate the plain-logit/OLS independence assumption."""
+    print(f"\n--- {label} (N={len(df):,}) -- clustered comparison ---")
+    records = []
+    for model_name, formula, model_type in formulas:
+        for cov_name, group_col in [("naive", None), ("thread", "post_id"), ("author", "author")]:
+            m = run_regression(df, formula, model_type, cov_type=cov_name, group_col=group_col)
+            if m is None:
+                print(f"  {model_name} [{cov_name}]: failed or insufficient N")
+                continue
+            for c in constructs:
+                if c in m.params:
+                    sig = "*" if m.pvalues[c] < 0.05 else " "
+                    print(f"  {model_name:20s} [{cov_name:6s}] {c:15s} coef={m.params[c]:+.4f}{sig} p={m.pvalues[c]:.2e}")
+                    records.append({
+                        "population": label, "model": model_name, "construct": c, "cov_type": cov_name,
+                        "coef": m.params[c], "se": m.bse[c], "pvalue": m.pvalues[c],
+                        "n_obs": int(m.nobs),
+                    })
     return records
 
 
@@ -212,6 +248,21 @@ def main():
 
     pd.DataFrame(all_records).to_csv(OUT_PATH, index=False)
     print(f"\nSaved all results to {OUT_PATH}")
+
+    # Clustered comparison (naive/thread/author), same three populations --
+    # reported alongside the naive-only results above, not replacing them.
+    clustered_records = []
+    clustered_records += report_clustered(df, "Unfiltered (descriptive context only)", constructs, formulas)
+    clustered_records += report_clustered(df_low_elastic, "Low elasticity + non-viral only", constructs, formulas)
+    clustered_records += report_clustered(
+        df_pure,
+        f"GENUINE INSIDER ENVIRONMENT (low elasticity + non-viral + "
+        f"insider_presence>={INSIDER_PRESENCE_THRESHOLD} + non-brigaded)",
+        constructs, formulas,
+    )
+    OUT_PATH_CLUSTERED = "data/processed/pure_population_regression_results_clustered.csv"
+    pd.DataFrame(clustered_records).to_csv(OUT_PATH_CLUSTERED, index=False)
+    print(f"Saved comparative clustered results to {OUT_PATH_CLUSTERED}")
 
     # Threshold sweep across the actual insider_presence_ratio distribution,
     # within the same low-elasticity + non-viral quality-filtered base --

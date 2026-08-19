@@ -207,6 +207,7 @@ def main():
     df_pol['has_consensus_expert'] = compute_has_consensus_expert(df_pol, rx_con, consensus_lookup)
     df_pol['log_char_length'] = np.log(df_pol['char_length'] + 1)
     df_pol['high_traction'] = (df_pol['upvotes'] >= 5).astype(int)
+    df_pol['post_id'] = df_pol['link_id'].apply(lambda x: x[3:] if pd.notna(x) and len(str(x)) > 3 else str(x))
 
     print("\nScoring continuous stance probability for mentions...")
     for name, df_sub in [("r/conspiracy (pure)", df_con), ("r/conspiracy (unfiltered)", df_con_unf), ("r/politics", df_pol)]:
@@ -234,6 +235,7 @@ def main():
     # constant, dropped from the formula) and test whether stance_prob
     # predicts traction WITHIN mentions. Smaller N, but numerically sound.
     results = []
+    clustered_results = []
     subsets = [
         ("r/conspiracy (pure)", "maverick", df_con[df_con['has_maverick'] == 1]),
         ("r/conspiracy (pure)", "consensus", df_con[df_con['has_consensus_expert'] == 1]),
@@ -268,8 +270,38 @@ def main():
         except Exception as e:
             print(f"  Model failed for {subreddit}/{construct}: {e}")
 
+        # Clustered comparison runs (same rationale/pattern as
+        # rerun_refined_regressions_v2.py -- mentions within a thread share
+        # that thread's audience, mentions from the same author share
+        # writing style/posting pattern, both violate the plain-logit
+        # independence assumption). Reported alongside the naive fit above,
+        # not as a replacement for it.
+        for cov_name, group_col in [("naive", None), ("thread", "post_id"), ("author", "author")]:
+            print(f"\n[{subreddit}/{construct}] clustered by {cov_name}...")
+            try:
+                if cov_name == "naive":
+                    m_clust = smf.logit(formula, data=df_sub).fit(disp=0, maxiter=100)
+                else:
+                    df_fit = df_sub.dropna(subset=[group_col])
+                    m_clust = smf.logit(
+                        formula, data=df_fit
+                    ).fit(cov_type='cluster', cov_kwds={'groups': df_fit[group_col].astype(str)}, disp=0, maxiter=100)
+                for c in [stance_col, "pe_prob", "ps_prob", "has_link", "log_char_length"]:
+                    if c in m_clust.params:
+                        clustered_results.append({
+                            "subreddit": subreddit, "construct": construct, "variable": c, "cov_type": cov_name,
+                            "coef": m_clust.params[c], "se": m_clust.bse[c],
+                            "pvalue": m_clust.pvalues[c], "n_obs": int(m_clust.nobs),
+                        })
+            except Exception as e:
+                print(f"  Clustered model ({cov_name}) failed for {subreddit}/{construct}: {e}")
+
     pd.DataFrame(results).to_csv(OUT_PATH, index=False)
     print(f"\nSaved results to {OUT_PATH}")
+
+    OUT_PATH_CLUSTERED = 'data/processed/regression_results_with_stance_clustered.csv'
+    pd.DataFrame(clustered_results).to_csv(OUT_PATH_CLUSTERED, index=False)
+    print(f"Saved comparative clustered results to {OUT_PATH_CLUSTERED}")
 
 
 if __name__ == "__main__":
