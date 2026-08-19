@@ -3,6 +3,20 @@
 Read `PROTOCOL.md` in this same directory first if you haven't — this
 file assumes it.
 
+**UPDATE 2026-08-19, read this before starting**: a real leakage bug was
+found — a single long-lived Decoder session accumulates memory across
+rounds, so when it later decodes a LOWER-budget round for a message it
+already saw at a HIGHER budget earlier in the same conversation, it can
+recover dropped details from its own memory of the earlier round rather
+than from the compressed string alone. That invalidates the "cold
+inference" measurement. Fix: **Decoder sessions are now partitioned one
+per budget level**, so no Decoder ever sees the same message twice. **You
+were told which single budget level you're responsible for when you were
+started — only decode rounds tagged with that budget. If you receive a
+round tagged with a different budget, refuse it and tell the Encoder to
+route it to the correct budget-level Decoder** (find it via `ListAgents`
+if needed).
+
 **Do not open `corpus.jsonl`. Do not open anything in `reconstructions/`
 from a prior round before you finish your own. Do not ask the Encoder
 for hints or the original text.** The entire point of this experiment is
