@@ -3,54 +3,61 @@ Score one compression-experiment round: reads the original from
 corpus.jsonl, the Decoder's reconstruction from reconstructions/, and
 writes fidelity scores into the matching log.jsonl line.
 
-No heavy ML deps on this machine (no sentence-transformers/sklearn) --
-uses a from-scratch TF-IDF cosine (numpy only) plus two cheap stdlib
-lexical measures. Treat tfidf_cosine as the primary signal; the other
-two are corroborating, not a replacement for eyeballing a few
-reconstructions directly.
+Semantic similarity via all-MiniLM-L6-v2 (sentence-transformers) -- the
+same embedding model the rest of this project uses for topic modeling --
+plus two cheap stdlib lexical measures as corroborating signal.
 
-Usage: python3 score.py <message_id> <budget_level>
+MUST run under the project's canonical Python env
+(/Users/nash/miniforge3/bin/python3, Python 3.12, has sentence-
+transformers/torch/etc) -- NOT bare `python3` on PATH, which can silently
+resolve to a near-empty system Python (see data/infra_map.jsonl's
+"local_python_environment" entries, 2026-08-20, for why this bit a
+session directly). The guard below fails loudly rather than falling back
+to a weaker method if the real package isn't importable.
+
+Usage: /Users/nash/miniforge3/bin/python3 score.py <message_id> <budget_level>
 """
 import json
 import re
 import sys
-from collections import Counter
 from difflib import SequenceMatcher
 from pathlib import Path
 
-import numpy as np
+try:
+    from sentence_transformers import SentenceTransformer
+    import numpy as np
+except ImportError as e:
+    sys.exit(
+        f"Missing package: {e}. You are almost certainly running the wrong "
+        "Python -- use /Users/nash/miniforge3/bin/python3 explicitly, not "
+        "bare `python3` (which can resolve to the system Homebrew Python on "
+        "this machine; see data/infra_map.jsonl). Check: `which python3` "
+        "should print /Users/nash/miniforge3/bin/python3."
+    )
 
 HERE = Path(__file__).parent
 CORPUS = HERE / "corpus.jsonl"
 LOG = HERE / "log.jsonl"
 RECON_DIR = HERE / "reconstructions"
 
+_model = None
+
+
+def get_model():
+    global _model
+    if _model is None:
+        _model = SentenceTransformer("all-MiniLM-L6-v2")
+    return _model
+
+
+def semantic_cosine(a, b):
+    model = get_model()
+    emb = model.encode([a, b], normalize_embeddings=True)
+    return float(np.dot(emb[0], emb[1]))
+
 
 def tokenize(text):
     return re.findall(r"[a-z0-9]+", text.lower())
-
-
-def tfidf_cosine(a, b):
-    docs = [tokenize(a), tokenize(b)]
-    vocab = sorted(set(docs[0]) | set(docs[1]))
-    if not vocab:
-        return 0.0
-    idx = {w: i for i, w in enumerate(vocab)}
-    df = np.zeros(len(vocab))
-    for doc in docs:
-        for w in set(doc):
-            df[idx[w]] += 1
-    idf = np.log((2 + 1) / (df + 1)) + 1  # smoothed idf, 2 docs
-    vecs = []
-    for doc in docs:
-        tf = np.zeros(len(vocab))
-        counts = Counter(doc)
-        for w, c in counts.items():
-            tf[idx[w]] = c
-        v = tf * idf
-        norm = np.linalg.norm(v)
-        vecs.append(v / norm if norm > 0 else v)
-    return float(np.dot(vecs[0], vecs[1]))
 
 
 def word_overlap_f1(a, b):
@@ -95,7 +102,7 @@ def main():
     reconstruction = load_reconstruction(message_id, budget_level)
 
     scores = {
-        "tfidf_cosine": round(tfidf_cosine(original, reconstruction), 4),
+        "semantic_cosine": round(semantic_cosine(original, reconstruction), 4),
         "difflib_ratio": round(SequenceMatcher(None, original, reconstruction).ratio(), 4),
         "word_overlap_f1": round(word_overlap_f1(original, reconstruction), 4),
     }

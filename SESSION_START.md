@@ -122,13 +122,25 @@ with what you're mid-way through.
   not to get oriented. Getting oriented is what this file is for.
 - **A specific term/decision/number and you don't know which doc it's
   in** → `python3 tools/query_index.py "<search terms>"` — full-text
-  search across every handoff doc, the three structured logs, and all
-  git commit messages in one shot (`build_project_index.py` rebuilds the
-  underlying SQLite index in ~1s if it's stale/missing; the `.db` itself
-  isn't git-tracked, it's a derived artifact). For Claude Code session
-  transcripts specifically (not covered by this index), use
-  `search_session_transcripts` instead. Neither covers Antigravity's own
-  session history — only what Antigravity wrote into files gets indexed.
+  search across every handoff doc, the three structured logs, all git
+  commit messages, AND Antigravity's own local task/plan/walkthrough
+  history (`~/.gemini/{antigravity,antigravity-ide}/brain/`, filtered to
+  task folders mentioning this project — 46 as of first indexing) in one
+  shot. `build_project_index.py` rebuilds the underlying SQLite index in
+  ~1s if it's stale/missing; the `.db` itself isn't git-tracked, it's a
+  derived artifact. For Claude Code session transcripts specifically
+  (not covered by this index), use `search_session_transcripts` instead.
+- **Live, per-turn activity across ALL currently-running sessions**
+  (this is different from the registry above — cheaper, higher-frequency,
+  not git-tracked) → `tail -30 data/live_turn_log.jsonl`. Any session
+  that's been running long (hours/days) accumulates real context drift
+  from wall-clock time — this is how you (or a fresh session) see what
+  just happened without scrolling someone else's transcript. Append to
+  it yourself after any substantive turn:
+  `python3 tools/log_turn.py "<your session label>" "<short note>"`
+  (optionally `--touching file1 file2 --tag topic`). Skip pure no-op
+  turns; err toward writing for anything that changes state, finds
+  something real, or takes meaningful wall-clock time.
 
 ## On "why isn't this all just in ANTIGRAVITY_HANDOFF.md"
 

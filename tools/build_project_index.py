@@ -14,6 +14,17 @@ tools/sessions:
   data/session_registry.jsonl (the structured logs)
 - `git log` (every commit message + author + date, project-wide, not
   just this session's)
+- Antigravity's own local task history (`task.md`/`implementation_plan.md`/
+  `walkthrough.md` per task, under `~/.gemini/antigravity/brain/<uuid>/`
+  and `~/.gemini/antigravity-ide/brain/<uuid>/`), filtered to task folders
+  that mention this project -- found 2026-08-20, was previously assumed
+  inaccessible from here (it isn't; see infra_map.jsonl's
+  antigravity_brain_directory entry for the discovery). 45/120 folders in
+  the `antigravity` app's brain dir and however many in `antigravity-ide`'s
+  match this project as of first indexing. The `antigravity-cli` and
+  `antigravity-backup` brain dirs are skipped (smaller, older, look like
+  stale mirrors of the two indexed here -- revisit if that assumption
+  turns out wrong).
 
 Explicitly NOT covered (know the limits before treating this as "index
 of everything"):
@@ -21,15 +32,11 @@ of everything"):
   searchable via the ccd_session_mgmt MCP server's
   search_session_transcripts tool (substring search across other
   sessions' full message content). Not duplicated here.
-- Antigravity session history -- not accessible from this environment
-  at all as far as is currently known. If Antigravity sessions write
-  their decisions into handoff/*.md or the jsonl logs (which they
-  should, per CLAUDE.md), THAT gets indexed here; their raw conversation
-  transcripts do not.
-- Anything only ever said in a chat that was never written to a file.
-  This tool (and this whole project's discipline) can only index what
-  got written down -- see CLAUDE.md's experiment_log/session_registry
-  sections for why that's the standing rule, not an afterthought.
+- Anything only ever said in a chat that was never written to a file
+  (or, for Antigravity, never became a task.md/walkthrough.md/
+  implementation_plan.md -- if Antigravity ever changes its own storage
+  format this section will silently stop finding anything, worth an
+  occasional sanity check that the antigravity_tasks table isn't empty).
 
 Usage:
     python3 tools/build_project_index.py          # rebuild data/project_index.db
@@ -97,6 +104,18 @@ def fresh_db():
         );
         CREATE VIRTUAL TABLE commits_fts USING fts5(
             hash, subject, body, content='commits', content_rowid='id'
+        );
+
+        CREATE TABLE antigravity_tasks (
+            id INTEGER PRIMARY KEY,
+            app TEXT,           -- 'antigravity' | 'antigravity-ide'
+            task_uuid TEXT,
+            file_kind TEXT,     -- 'task' | 'implementation_plan' | 'walkthrough'
+            mtime TEXT,
+            body TEXT
+        );
+        CREATE VIRTUAL TABLE antigravity_tasks_fts USING fts5(
+            app, task_uuid, file_kind, body, content='antigravity_tasks', content_rowid='id'
         );
         """
     )
@@ -258,6 +277,52 @@ def index_git_log(conn):
     print(f"Indexed {n} git commits.")
 
 
+ANTIGRAVITY_BRAIN_DIRS = {
+    "antigravity": Path.home() / ".gemini" / "antigravity" / "brain",
+    "antigravity-ide": Path.home() / ".gemini" / "antigravity-ide" / "brain",
+}
+ANTIGRAVITY_FILE_KINDS = ["task.md", "implementation_plan.md", "walkthrough.md"]
+PROJECT_MARKERS = ["ConspiracyComments", "conspiracycomments"]
+
+
+def index_antigravity_brain(conn):
+    n_folders = 0
+    n_files = 0
+    for app, brain_dir in ANTIGRAVITY_BRAIN_DIRS.items():
+        if not brain_dir.exists():
+            continue
+        for task_dir in brain_dir.iterdir():
+            if not task_dir.is_dir():
+                continue
+            bodies = {}
+            for kind in ANTIGRAVITY_FILE_KINDS:
+                fp = task_dir / kind
+                if fp.exists():
+                    try:
+                        bodies[kind] = fp.read_text(errors="replace")
+                    except OSError:
+                        continue
+            if not bodies:
+                continue
+            combined = "\n".join(bodies.values())
+            if not any(marker in combined for marker in PROJECT_MARKERS):
+                continue
+            n_folders += 1
+            for kind, body in bodies.items():
+                mtime = str((task_dir / kind).stat().st_mtime)
+                cur = conn.execute(
+                    "INSERT INTO antigravity_tasks (app, task_uuid, file_kind, mtime, body) VALUES (?, ?, ?, ?, ?)",
+                    (app, task_dir.name, kind.replace(".md", ""), mtime, body),
+                )
+                rid = cur.lastrowid
+                conn.execute(
+                    "INSERT INTO antigravity_tasks_fts (rowid, app, task_uuid, file_kind, body) VALUES (?, ?, ?, ?, ?)",
+                    (rid, app, task_dir.name, kind.replace(".md", ""), body),
+                )
+                n_files += 1
+    print(f"Indexed {n_files} Antigravity task files across {n_folders} task folders (matching this project).")
+
+
 def main():
     DB_PATH.parent.mkdir(exist_ok=True)
     conn = fresh_db()
@@ -266,6 +331,7 @@ def main():
     index_infra_map(conn)
     index_session_registry(conn)
     index_git_log(conn)
+    index_antigravity_brain(conn)
     conn.commit()
     conn.close()
     print(f"\nBuilt {DB_PATH.relative_to(REPO_ROOT)}. Query with tools/query_index.py.")

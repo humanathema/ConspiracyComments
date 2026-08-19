@@ -83,6 +83,16 @@ def main():
     ):
         print(f"  {hsh[:8]} ({date[:10]}) {subject}")
 
+    print(f"\n=== Antigravity task history (~/.gemini/*/brain/) ===")
+    for app, task_uuid, file_kind, snippet in conn.execute(
+        "SELECT a.app, a.task_uuid, a.file_kind, snippet(antigravity_tasks_fts, 3, '>>>', '<<<', ' ... ', 25) "
+        "FROM antigravity_tasks_fts JOIN antigravity_tasks a ON a.id = antigravity_tasks_fts.rowid "
+        "WHERE antigravity_tasks_fts MATCH ? ORDER BY rank LIMIT ?",
+        (q, args.limit),
+    ):
+        print(f"  [{app}/{task_uuid[:8]}/{file_kind}]")
+        print(f"    {snippet.strip()}")
+
 
 if __name__ == "__main__":
     main()
