@@ -217,6 +217,18 @@ appendix). Worth Nash picking the 3-4 that form the tightest single
 argument before writing starts, rather than trying to include everything —
 that's a framing/argument decision, not something to guess at here.
 
+## 8. Two more billing/liveness checks (read-only, no changes)
+
+- `conspiracycomments-gce` (the second GCP project): all 5 instances
+  confirmed **TERMINATED** — no billing risk there overnight.
+- Kaggle `recompute-own-content-outliers` job status (flagged in
+  `ANTIGRAVITY_HANDOFF.md` as "no checkpointing, real risk of losing
+  progress"): **could not check from this machine** — local `kaggle` CLI
+  returned a permission error (this project juggles 4-5 Kaggle accounts per
+  `infra_map.jsonl`; the configured local credential likely isn't the one
+  that owns this kernel). Worth a manual check next session before assuming
+  it's still alive or that it finished cleanly.
+
 ## Open questions for Nash (not decided here, per the standing "not yours to
 ## decide unsupervised" rule)
 
