@@ -120,6 +120,15 @@ with what you're mid-way through.
   corrections-to-corrections** → `ANTIGRAVITY_HANDOFF.md`. It is long
   (1300+ lines) and append-only by design — read it when you need *why*,
   not to get oriented. Getting oriented is what this file is for.
+- **A specific term/decision/number and you don't know which doc it's
+  in** → `python3 tools/query_index.py "<search terms>"` — full-text
+  search across every handoff doc, the three structured logs, and all
+  git commit messages in one shot (`build_project_index.py` rebuilds the
+  underlying SQLite index in ~1s if it's stale/missing; the `.db` itself
+  isn't git-tracked, it's a derived artifact). For Claude Code session
+  transcripts specifically (not covered by this index), use
+  `search_session_transcripts` instead. Neither covers Antigravity's own
+  session history — only what Antigravity wrote into files gets indexed.
 
 ## On "why isn't this all just in ANTIGRAVITY_HANDOFF.md"
 
