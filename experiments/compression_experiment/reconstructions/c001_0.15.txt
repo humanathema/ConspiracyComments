@@ -1,1 +1,1 @@
-To reset the router, hold the recessed button on the back panel for 10 seconds until the lights blink, then release it. Wait about 2 minutes for it to fully reboot before reconnecting any devices.
+To reset the router, find the small recessed button on the back panel and press and hold it for about 10 seconds, using a pin or paperclip if needed since it's recessed. Keep holding until you see the lights on the router start to blink, then release the button. The router will take about 2 minutes to fully reboot — wait for that before trying to reconnect any devices to it.

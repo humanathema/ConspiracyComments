@@ -1,0 +1,1 @@
+Train A travels at 60 mph and Train B travels at 40 mph. They start 300 miles apart and head toward each other at the same time. They will meet in 3 hours: their combined speed is 100 mph, and 300 divided by 100 is 3 — this works out regardless of which train you call A and which you call B.

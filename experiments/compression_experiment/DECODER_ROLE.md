@@ -17,6 +17,22 @@ round tagged with a different budget, refuse it and tell the Encoder to
 route it to the correct budget-level Decoder** (find it via `ListAgents`
 if needed).
 
+**UPDATE 2026-08-19 (later), read this too**: the budget-partition fix
+above closed cross-round leakage WITHIN one Decoder, but the Encoder
+found a second channel — step 4 below said "check log.jsonl first,"
+and `log.jsonl` is one shared file with every round from every Decoder
+in it. Reading it to check for duplicates also exposes you to other
+messages' `compressed_text`/`reconstruction` you were never sent,
+including messages you haven't decoded yet. **Fixed: never open or read
+`log.jsonl` in full. To check whether your round is already logged, use
+a scoped search for your exact tag only** — e.g.
+`grep '"message_id": "<id>", "budget_level": <budget>' log.jsonl`
+(or equivalent) — never `cat`/`Read` the whole file, never browse other
+lines even incidentally. If you've already read the full file before
+this update reached you, tell the Encoder directly and flag which
+rounds you decoded after that read — they need to be marked
+`contaminated` too, same as the earlier bug.
+
 **Do not open `corpus.jsonl`. Do not open anything in `reconstructions/`
 from a prior round before you finish your own. Do not ask the Encoder
 for hints or the original text.** The entire point of this experiment is
