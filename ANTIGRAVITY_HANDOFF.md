@@ -8,20 +8,41 @@ Honours thesis: **"Epistemic Credibility in Online Conspiracy Communities."**
 This file is short on purpose. Read it fully before doing anything, then
 open exactly one task file from `handoff/` for whatever you're picking up.
 
-## Read `handoff/task_2026-08-13_session_handoff_entity_disambiguation_and_stance_round9.md` FIRST
+## Read `handoff/task_2026-08-20b_session_handoff_overnight_audit_and_writing_plan.md` FIRST
 
-Most recent session. Covers, more recently than anything below: two real silent-failure
-bugs found and fixed in the entity-matching pipeline (a case-sensitivity bug that
-zero-matched every full-name-required entity, and a category-level sampling bug that
-could randomly zero out entities with real corpus presence — both affected prior pulls,
-check that doc before trusting any entity-coverage numbers from before 2026-08-13), the
-authoritative corpus-frequency source (`entity_frequency_full_corpus.csv`, not
-`entity_final_review.csv` which is stale since 2026-07-14), `maverick_authority_verified.py`
-expanded to 458 entries, a 1,264-row HITL labeling backlog merged into training
-(41,647 train rows now), a coverage-driven round9 unlabeled pool (22,459 rows, not yet
-ensemble-scored — that's the next step), a rebuilt val batch (r2, not yet labeled), a
-stage1-architecture experiment result (negative-ish, not conclusive), the full stage1
-bottleneck options landscape, and two VMs currently running idle that need stopping.
+Overnight non-destructive audit (2026-08-20b): confirmed nothing was actually
+lost — the live `vm2image` GPU VM is running real work
+(`score_fp_detector_full_train.py`), not idle-billing; corrected the stale
+`maverick_stance_round8`/`consensus_stance_round8` "never started" lines
+below (they're actually 146/146 and 62/62, already merged into training
+data); found three abandoned, likely-superseded git worktrees under
+`.claude/worktrees/` flagged for a quick review/cleanup decision; found
+clustered-SE code added to `run_pure_population_analysis.py` but never run
+(hit an OOM on this 8GB machine, deliberately not forced through
+unattended); and laid out a proposed this-week-compute /
+next-two-weeks-writing plan against the 8k-12k word report deadline. Three
+open questions for Nash at the end of that doc.
+
+## Read `handoff/task_2026-08-20_session_handoff_paraphrase_stability_and_confidently_wrong.md` next
+
+Most recent session (2026-08-19/20). Covers, more recently than anything below: a
+hardened back-translation paraphrase pipeline (chunking + beam search + target-entity
+protection, survived three real near-OOM crashes on local MPS before moving to the VM),
+the confidently-wrong-detection diagnostic this was built for (train 7.5% vs val 27.4%
+confidently-mislabeled-other rate, statistically real at p<1e-11, cause not yet found), a
+trained false-positive detector (AUC 0.859, flags 25.8% of train polar rows — NOT yet
+spot-checked, that's the concrete next step), confirmation that everything so far uses
+the WEAKER single binconf_other015 model rather than the project's actual best (a 70/30
+ensemble blend, kappa 0.428 vs 0.348 — partially reconstructed on val only, train-side
+ensemble scores don't exist yet), and two new human-labeled val-expansion batches
+(`queue_expanded_entity_val_r1.csv` fully labeled/410 rows, `r2` in progress/34-410)
+confirmed clean of leakage from this session's work.
+
+Superseded pointer, kept for reference only:
+`handoff/task_2026-08-13_session_handoff_entity_disambiguation_and_stance_round9.md` —
+still has real content (entity-matching bug fixes, corpus-frequency source correction)
+not repeated in the newer doc; read it if working on entity-list/disambiguation specifically,
+not stance-classifier-reliability work.
 
 ## A file referenced by a script isn't on disk? Check `handoff/REMOTE_STORAGE_MAP.md` first
 
@@ -427,9 +448,17 @@ Most stance/quality-check queues are fully done. Genuinely open:
 - **`domain_citation_tier`**: 89/603 rated — 603 domains by citation
   volume, this is the "source rating" queue if that's what you're
   looking for.
-- **`maverick_stance_round8`**: 0/146 — never started.
-- **`consensus_stance_round8`**: 0/62 — never started.
-- **`greenwald_short_quality_check`**: 0/68 — never started (sibling to
+- **`maverick_stance_round8`**: ~~0/146 — never started.~~ **CORRECTED
+  2026-08-20b: actually 146/146, fully labeled and already merged into
+  `stance_classifier_training_data_round10_truncation_fixed.parquet`
+  (144 rows tagged `source_file == queue_maverick_stance_round8.csv`, via
+  `src/append_round8_queues.py`) — verified directly, not stale.**
+- **`consensus_stance_round8`**: ~~0/62 — never started.~~ **CORRECTED
+  2026-08-20b: actually 62/62, fully labeled and already merged (61 rows
+  tagged `queue_consensus_stance_round8.csv` in the same parquet) —
+  verified directly, not stale.**
+- **`greenwald_short_quality_check`**: 0/68 — still genuinely never started,
+  re-checked 2026-08-20b (sibling to
   the wikileaks/assange/snowden short-comment quality checks, which are
   all done).
 - Two negligible 1-row gaps (`maverick_stance_round2` 119/120,
