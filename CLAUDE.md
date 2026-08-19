@@ -1,8 +1,59 @@
 # Start here
 
-This is Tobias Nash's honours thesis project. Read `ANTIGRAVITY_HANDOFF.md`
-first — it's short on purpose (guardrails, current verified state, and
-an index of open task files in `handoff/`).
+This is Tobias Nash's honours thesis project. Read `SESSION_START.md`
+first, not `ANTIGRAVITY_HANDOFF.md` — `SESSION_START.md` is the actual
+entry point (short, always-current, headline state + a "first move"
+tool-call batch); `ANTIGRAVITY_HANDOFF.md` is now the deep chronological
+archive, read on demand for narrative/reasoning history, not to get
+oriented.
+
+## Coordination discipline — always, not just when something seems off
+
+This project routinely has multiple sessions (Claude Code, Antigravity,
+or both) active on the same repo/VMs at once. Established 2026-08-20
+after two real incidents (a same-day handoff doc + modified `src/*.py`
+files from a concurrent session discovered only because Nash pointed at
+it; a suspected GPU-contention OOM that turned out to be two sessions
+running the same clustered-SE regression job at once) plus a third
+near-miss caught live the same day (a fine-tune job almost launched on a
+VM before confirming a prior job had actually finished on it).
+
+**At the start of every session**, before anything else, run in one
+parallel batch: `ListAgents`, `tail -20 data/session_registry.jsonl`,
+`git status && git log --oneline -8`. Full protocol and current headline
+state: `SESSION_START.md`. Do not skip this because `SESSION_START.md`
+looks recent — it tells you how to verify, it doesn't replace verifying.
+
+**Register yourself.** Append a line to `data/session_registry.jsonl`
+(schema in the file's own first line) when you start substantive work —
+what you intend to touch, especially VMs/Kaggle kernels and any script
+another session might also reach for. Append/update again at wrap-up
+with a one-line summary. This is the cheap, git-tracked, no-round-trip
+mechanism for "who's doing what right now" — check it before touching
+any shared VM or long-running script, and before assuming a job has
+finished or a file is safe to overwrite.
+
+**If a peer session is active** (`ListAgents` shows one, or the registry
+shows a recent `active` line touching something you're about to touch),
+message them directly before starting, not after. A `SendMessage` costs
+nothing; untangling concurrent writes to the same file or GPU costs
+hours — this is not optional politeness, it's the actual cheapest option
+on the table every time it applies.
+
+**`context_checkpoint`** (Oracle-hosted context-repo) is a second line,
+not the first move — it's slower (network round-trip) and can lag behind
+`session_registry.jsonl` if a peer forgot to write to it. Use it for
+cross-session decisions/facts that need to survive longer than the local
+registry's recency window, or when the registry doesn't answer your
+question — not as the default first check.
+
+**At any material decision** — a scope call, something skipped or
+deferred, a discovered blocker, anything a concurrent or future session
+would want without re-deriving it — update `session_registry.jsonl`
+(cheap, immediate) and, if it's genuinely durable/cross-session-relevant,
+`context_checkpoint`'s `context_write` too (see the "Check context-repo"
+section further down for when that server is available). Don't let a
+real finding live only in this conversation's transcript.
 
 ## `data/experiment_log.jsonl` — the structured results log, PROJECT-WIDE
 

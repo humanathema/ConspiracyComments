@@ -1,12 +1,22 @@
-# Antigravity Handoff — Index
+# Antigravity Handoff — Archive (NOT the entry point — read `SESSION_START.md` first)
+
+**Stop — if you haven't read `SESSION_START.md` yet, go there first.** As
+of 2026-08-20 this file is the deep chronological archive: full narrative,
+decisions-behind-decisions, corrections-to-corrections, going back to the
+start of the project. It is genuinely useful when you need to understand
+*why* something was decided, but it is long (1300+ lines), append-only,
+and biased toward whatever was written most recently rather than what's
+load-bearing right now. `SESSION_START.md` is the short, current,
+headline-first entry point — it also has a "first move" tool-call batch
+for checking concurrent sessions, which this file does not.
 
 (Name kept for continuity, but this is the general-purpose handoff for
 whatever AI/session picks this project up next — Antigravity, Claude
 Code, or otherwise — not Antigravity-specific despite the filename.)
 
 Honours thesis: **"Epistemic Credibility in Online Conspiracy Communities."**
-This file is short on purpose. Read it fully before doing anything, then
-open exactly one task file from `handoff/` for whatever you're picking up.
+Below this point the file continues in its original chronological form —
+useful for narrative/reasoning history, not for getting oriented.
 
 ## Before citing or comparing ANY kappa number, read `handoff/task_2026-08-20c_session_handoff_kappa_comparison_gotchas.md`
 

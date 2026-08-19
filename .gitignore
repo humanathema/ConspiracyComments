@@ -1,5 +1,13 @@
 # data: too large + privacy (usernames in derived files); share aggregates deliberately
-data/
+# NOTE: must be data/* not data/ -- git cannot re-include a file via `!` if a
+# parent directory is itself excluded (found 2026-08-20 the hard way).
+data/*
+# exceptions: small, no-PII structured logs meant to be git-tracked ground truth
+# (found 2026-08-20: these were silently un-committed the whole project because
+# of the blanket data/ ignore above -- defeats their whole purpose)
+!data/experiment_log.jsonl
+!data/infra_map.jsonl
+!data/session_registry.jsonl
 # secrets
 key.pem
 *.pem
