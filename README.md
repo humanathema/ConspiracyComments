@@ -7,6 +7,17 @@ community engagement signals?
 **Corpus:** complete r/conspiracy comment and submission archive (~40M raw
 comments, ~21M after length filtering), queried in place with DuckDB.
 
+**Current state / most recent work:** see `SESSION_START.md` — short,
+always-current entry point with headline state and links to the active
+handoff doc. `ANTIGRAVITY_HANDOFF.md` (referenced throughout this file)
+is now the deep chronological archive, not the starting point. As of
+2026-08-26: a validated 5-model stance-classifier ensemble (kappa
+0.5773) has been applied across the full 451,815-row entity-mention
+corpus, an FP-detector pass flagged a candidate-correction review queue
+(treat as unverified — real spot-check precision ~18.8%, see
+`SESSION_START.md`), and an escalation-cascade context-walk/GPU
+re-scoring pass is in progress.
+
 ## Current findings
 
 Core weighted regression on the pure r/conspiracy population
@@ -97,7 +108,8 @@ secondary/exploratory comparison corpora.
 - `ConspiracyMaster_Refactored.html` — static export of the notebook for reading without launching Jupyter (code hidden, findings/tables/plots only; regenerate with `jupyter nbconvert --to html --embed-images ConspiracyMaster_Refactored.ipynb --TagRemovePreprocessor.enabled=True --TagRemovePreprocessor.remove_input_tags='{"hide-input"}'` after editing the notebook)
 - `utils/` — shared helpers: epistemic lexicon, DuckDB patterns, plotting, path resolution
 - `src/` — entity curation, regression analysis, HITL rating tools, and external data pipelines (Wikipedia/Wikidata, Arctic Shift, OpenAlex); the original Vertex AI classification pipeline is one part of this, not the whole of it
-- `ANTIGRAVITY_HANDOFF.md` — current verified project state, guardrails, and open task index (start here for a status snapshot)
+- `SESSION_START.md` — short, always-current entry point: headline state and pointers to the active handoff doc (start here for a status snapshot)
+- `ANTIGRAVITY_HANDOFF.md` — deep chronological archive of narrative/reasoning history (why decisions were made); not the starting point
 - `handoff/PROJECT_INVENTORY.md` — file-by-file audit of every script in `src/`/`utils/`, with design-lineage history (what was superseded, and why)
 - `DATA_MANIFEST.md` — provenance map for every file in `data/processed/` (active / legacy / orphan; predates the 2026-07-13+ entity/regression work, being refreshed)
 - `mainstream_expert_corpus_briefing.md` — methodology for scaling the consensus-expert list past hand-curated Wikipedia pages (institutional gatekeeping over fame; citation/office-based sourcing)
