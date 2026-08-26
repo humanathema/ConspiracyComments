@@ -8,7 +8,7 @@ pull on demand, not a queue you read front-to-back. This file exists so a
 fresh session doesn't burn its first several tool calls re-deriving state
 that's already known.
 
-**Last updated: 2026-08-20 (mid-morning), by a Claude Code session.**
+**Last updated: 2026-08-26, by a Claude Code session.**
 If it's been more than ~1 day since that date, treat everything below as
 a starting hypothesis, not fact — confirm via the first-move block, don't
 skip it just because this file looks current.
@@ -49,8 +49,20 @@ the single cheapest thing you can do to prevent the next session (or a
 concurrent one) from re-deriving what you already know, or colliding
 with what you're mid-way through.
 
-## Headline state (2026-08-20) — one line each, NOT the full story
+## Headline state (2026-08-26) — one line each, NOT the full story
 
+- **Newest work (2026-08-24 to 2026-08-26)**: FP-detector pipeline applied
+  to real populations for the first time (real precision only 18.8%, far
+  below earlier frontier-judge-only estimates — see
+  `handoff/task_2026-08-26_session_handoff_fullcorpus_inference_and_escalation_cascade.md`),
+  a v10 fine-tune attempt that looked real (single-split AUC 0.733) but
+  failed proper 5-fold CV (honest AUC 0.557, do NOT deploy), the full
+  documented-best ensemble+binconf pipeline run for the first time over
+  the entire 451,815-row entity-mention corpus, and an escalation-cascade
+  context-walk taken from 63.4%→99.99% coverage. **Four new HITL queues
+  are unrated and waiting** — see that doc's §6. GPU re-scoring of the
+  now-context-complete escalation population has NOT been started yet —
+  natural next step.
 - **Deadline**: finish compute this week (week of 2026-08-20), write
   8k-12k word honours report over the following 1-2 weeks. Nash's call
   on scope tradeoffs, not the session's — see CLAUDE.md.
@@ -99,6 +111,10 @@ with what you're mid-way through.
 
 ## Where to go next depending on what you're doing
 
+- **Picking up FP-detector / full-corpus / escalation-cascade work** →
+  `handoff/task_2026-08-26_session_handoff_fullcorpus_inference_and_escalation_cascade.md`
+  (newest). Rate the 4 unrated HITL queues it lists before doing anything
+  else in this area.
 - **Citing/comparing a kappa number** →
   `handoff/task_2026-08-20c_session_handoff_kappa_comparison_gotchas.md` FIRST.
 - **Picking up stance-classifier work** →
